@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2002-2015 Hiroyuki Yamamoto & the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2002-2017 Hiroyuki Yamamoto & the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 /*
@@ -92,7 +91,7 @@ static const gint ToolbarIcons[] =
 	STOCK_PIXMAP_LDAP,
 	STOCK_PIXMAP_LINEWRAP_CURRENT,
 	STOCK_PIXMAP_LINEWRAP_ALL,
-	STOCK_PIXMAP_MAIL,
+	STOCK_PIXMAP_MAIL_DRAFT,
 	STOCK_PIXMAP_MAIL_ATTACH,
 	STOCK_PIXMAP_MAIL_COMPOSE,
 	STOCK_PIXMAP_MAIL_FORWARD,
@@ -129,7 +128,7 @@ static const gint ToolbarIcons[] =
 	STOCK_PIXMAP_MIME_PS,
 	STOCK_PIXMAP_MIME_TEXT_CALENDAR,
 	STOCK_PIXMAP_MIME_PGP_SIG,
-	STOCK_PIXMAP_PRINTER,
+	STOCK_PIXMAP_PRINTER_BTN,
 	STOCK_PIXMAP_PRIVACY_SIGNED,
 	STOCK_PIXMAP_PRIVACY_PASSED,
 	STOCK_PIXMAP_PRIVACY_FAILED,
@@ -145,7 +144,18 @@ static const gint ToolbarIcons[] =
 	STOCK_PIXMAP_HAM_BTN,
 	STOCK_PIXMAP_TRASH,
 	STOCK_PIXMAP_DELETE,
+	STOCK_PIXMAP_DELETE_DUP,
 	STOCK_PIXMAP_CANCEL,
+	STOCK_PIXMAP_MARK_IGNORETHREAD,
+	STOCK_PIXMAP_MARK_WATCHTHREAD,
+	STOCK_PIXMAP_MARK_MARK,
+	STOCK_PIXMAP_MARK_UNMARK,
+	STOCK_PIXMAP_MARK_LOCKED,
+	STOCK_PIXMAP_MARK_UNLOCKED,
+	STOCK_PIXMAP_MARK_ALLREAD,
+	STOCK_PIXMAP_MARK_ALLUNREAD,
+	STOCK_PIXMAP_MARK_READ,
+	STOCK_PIXMAP_MARK_UNREAD,
 	STOCK_PIXMAP_EMPTY,              /* last entry */
 };
 
@@ -337,7 +347,7 @@ static void prefs_toolbar_set_displayed(ToolbarPage *prefs_toolbar)
 			GdkPixbuf *pix;
 			StockPixmap icon = stock_pixmap_get_icon(item->file);
 
-			stock_pixbuf_gdk(prefs_toolbar->window, icon, &pix);
+			stock_pixbuf_gdk(icon, &pix);
 
 			gtk_list_store_set(store, &iter,
 					   SET_ICON, pix,
@@ -515,9 +525,9 @@ static void prefs_toolbar_register(GtkButton *button, ToolbarPage *prefs_toolbar
 			alertpanel_error(ERROR_MSG_NO_ICON);
 			return;
 		}
-		stock_pixbuf_gdk(prefs_toolbar->window,
-				 stock_pixmap_get_icon(prefs_toolbar->item_icon_file),
-				 &pixbuf);
+		stock_pixbuf_gdk(
+				stock_pixmap_get_icon(prefs_toolbar->item_icon_file),
+				&pixbuf);
 		if(pixbuf == NULL) {
 			alertpanel_error(ERROR_MSG_NO_ICON);
 			return;
@@ -601,7 +611,7 @@ static void prefs_toolbar_substitute(GtkButton *button, ToolbarPage *prefs_toolb
 			alertpanel_error(ERROR_MSG_NO_ICON);
 			return;
 		}
-		stock_pixbuf_gdk(prefs_toolbar->window,
+		stock_pixbuf_gdk(
 				 stock_pixmap_get_icon(prefs_toolbar->item_icon_file),
 				 &pixbuf);
 		if(pixbuf == NULL) {
@@ -851,20 +861,23 @@ static void func_selection_changed(GtkComboBox *action_combo,
 			   prefs_toolbar->item_func_combo));
 
 	if(text != NULL) { /* action */
-		int action = -1;
+		int action;
+
 		action = toolbar_ret_val_from_descr(text);
-		if (action >= 0)
+		g_free(text);
+		if (action > -1) {
+			gint icon;
+
 			gtk_entry_set_text(GTK_ENTRY(prefs_toolbar->item_text_entry),
 					toolbar_get_short_text(action));
-		g_free(text);
-		if (action >= 0) {
-			StockPixmap stockp = toolbar_get_icon(action);
-			if (stockp >= 0)  {
+			icon = toolbar_get_icon(action);
+			if (icon > -1)  {
+				StockPixmap stockp = (StockPixmap)icon;
 				g_free(prefs_toolbar->item_icon_file);
 				prefs_toolbar->item_icon_file = g_strdup(stock_pixmap_get_name(stockp));
 
 				gtk_button_set_image(GTK_BUTTON(prefs_toolbar->icon_button),
-				     stock_pixmap_widget(prefs_toolbar->window, stockp));
+				     stock_pixmap_widget(stockp));
 			}
 		}
 	}
@@ -1053,7 +1066,7 @@ static void prefs_toolbar_create(ToolbarPage *prefs_toolbar)
 			 G_CALLBACK(prefs_toolbar_substitute),
 			 prefs_toolbar);
 
-	del_btn = gtk_button_new_with_mnemonic (_("Re_move"));
+	del_btn = gtk_button_new_with_mnemonic (_("D_elete"));
 	gtk_button_set_image(GTK_BUTTON(del_btn),
 			gtk_image_new_from_stock(GTK_STOCK_REMOVE,GTK_ICON_SIZE_BUTTON));
 	gtk_box_pack_start(GTK_BOX(btn_hbox), del_btn, FALSE, TRUE, 0);
@@ -1698,7 +1711,7 @@ static void icon_chooser_create(GtkButton *button, ToolbarPage *prefs_toolbar)
 
 	for (i = 0; ToolbarIcons[i] != STOCK_PIXMAP_EMPTY; i++) {
 		GdkPixbuf *pixbuf;
-		stock_pixbuf_gdk(prefs_toolbar->window, ToolbarIcons[i], &pixbuf);
+		stock_pixbuf_gdk(ToolbarIcons[i], &pixbuf);
 
 		gtk_list_store_append(store, &iter);
 		gtk_list_store_set(store, &iter,

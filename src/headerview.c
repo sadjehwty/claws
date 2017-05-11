@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -260,7 +259,7 @@ static gint headerview_show_avatar (HeaderView *headerview, MsgInfo *msginfo)
 
 static void headerview_save_contact_pic (HeaderView *headerview, MsgInfo *msginfo)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	gchar *filename = NULL;
 	GError *error = NULL;
 	GdkPixbuf *picture = NULL;
@@ -277,7 +276,7 @@ static void headerview_save_contact_pic (HeaderView *headerview, MsgInfo *msginf
 	if (!is_file_exist(filename)) {
 		gdk_pixbuf_save(picture, filename, "png", &error, NULL);
 		if (error) {
-			g_warning(_("Failed to save image: \n%s"),
+			g_warning("Failed to save image: %s",
 					error->message);
 			g_error_free(error);
 		}
@@ -290,7 +289,7 @@ static void headerview_save_contact_pic (HeaderView *headerview, MsgInfo *msginf
 
 static gint headerview_show_contact_pic (HeaderView *headerview, MsgInfo *msginfo)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	GtkWidget *hbox = headerview->hbox;
 	GtkWidget *image;
 	gchar *filename = NULL;
@@ -323,7 +322,7 @@ static gint headerview_show_contact_pic (HeaderView *headerview, MsgInfo *msginf
 
 	g_free(filename);
 	if (error) {
-		debug_print("Failed to import image: \n%s",
+		debug_print("Failed to import image: %s\n",
 				error->message);
 		g_error_free(error);
 		return -1;

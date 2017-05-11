@@ -42,6 +42,7 @@ folder_find_child_item_by_name
 folder_find_from_name
 folder_get_xml
 folder_init
+folder_is_child_of
 folder_item_add_msg
 folder_item_append
 folder_item_fetch_msg
@@ -67,6 +68,8 @@ folder_scan_tree
 folder_set_xml
 folder_unregister_class
 folderview_check_new
+folderview_close_opened
+folderview_get_opened_item
 folderview_get_selected_item
 folderview_register_popup
 folderview_unregister_popup
@@ -108,6 +111,7 @@ mimeview_register_viewer_factory
 mimeview_unregister_viewer_factory
 move_file
 open_uri
+prefs_account_generate_msgid
 prefs_button_toggled
 prefs_common
 prefs_common_get_uri_cmd
@@ -122,6 +126,9 @@ prefs_set_block_label
 prefs_set_default
 prefs_write_open
 prefs_write_param
+passwd_store_get
+passwd_store_set
+passwd_store_write_config
 procheader_parse_file
 procmime_get_first_encrypted_text_content
 procmime_get_first_text_content

@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 2001-2016 the Claws Mail team
  * This file (C) 2005-2015 Andrej Kacian <andrej@kacian.sk>
  *
  * - Plugin preferences
@@ -68,7 +68,7 @@ void rssyl_prefs_init(void)
 	gchar *rcpath;
 
 	path[0] = _("Plugins");
-	path[1] = "RSSyl";		/* We don't need this translated */
+	path[1] = PLUGIN_NAME;		/* We don't need this translated */
 	path[2] = NULL;
 
 	prefs_set_default(param);
@@ -151,7 +151,7 @@ static void create_rssyl_prefs_page(PrefsPage *page,
 			G_CALLBACK(rssyl_refresh_enabled_toggled_cb), refresh);
 	gtk_box_pack_start(GTK_BOX(refresh_hbox), refresh, FALSE, FALSE, 0);
 
-	label = gtk_label_new(_("minute(s)"));
+	label = gtk_label_new(_("minutes"));
 	gtk_box_pack_start(GTK_BOX(refresh_hbox), label, FALSE, FALSE, 0);
 
 	gtk_box_pack_start(GTK_BOX(vbox1), refresh_hbox, FALSE, FALSE, 0);
@@ -167,7 +167,7 @@ static void create_rssyl_prefs_page(PrefsPage *page,
 
 	/* Whether to verify SSL peer certificate */
 	ssl_verify_peer = gtk_check_button_new_with_label(
-			_("Verify SSL certificates validity for new feeds"));
+			_("Verify SSL/TLS certificates validity for new feeds"));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ssl_verify_peer),
 			rssyl_prefs.ssl_verify_peer);
 	gtk_box_pack_start(GTK_BOX(vbox2), ssl_verify_peer, FALSE, FALSE, 0);
@@ -244,7 +244,7 @@ static void save_rssyl_prefs(PrefsPage *page)
 				return;
 
 	if( prefs_write_param(param, pref_file->fp) < 0 ) {
-		g_warning("Failed to write RSSyl plugin configuration\n");
+		g_warning("Failed to write RSSyl plugin configuration");
 		prefs_file_close_revert(pref_file);
 		return;
 	}

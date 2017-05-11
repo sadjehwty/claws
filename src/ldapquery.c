@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2003-2012 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2003-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -507,7 +506,7 @@ static GList *ldapqry_build_items_fl(
 				}
 			}
 			if( fullName ) {
-				g_strchug( fullName ); g_strchomp( fullName );
+				g_strstrip( fullName );
 				allocated = TRUE;
 			}
 		}
@@ -640,7 +639,7 @@ static GList *ldapqry_process_single_entry(
 	if( ber != NULL ) {
 		ber_free( ber, 0 );
 	}
-	g_free( dnEntry );
+	ldap_memfree( dnEntry );
 
 	return listReturn;
 }
@@ -822,7 +821,11 @@ static gint ldapqry_search_retrieve( LdapQuery *qry ) {
 	}
 	ADDRQUERY_RETVAL(qry) = LDAPRC_STOP_FLAG;
 
+#ifdef G_OS_WIN32
+	debug_print("Total results are: %lu\n", ldap_count_entries(ld, result));
+#else
 	debug_print("Total results are: %d\n", ldap_count_entries(ld, result));
+#endif
 
 	/* Process results */
 	first = TRUE;
@@ -1218,7 +1221,11 @@ static gint ldapqry_locate_retrieve( LdapQuery *qry ) {
 		return ADDRQUERY_RETVAL(qry);
 	}
 
+#ifdef G_OS_WIN32
+	debug_print("Total results are: %lu\n", ldap_count_entries(ld, result));
+#else
 	debug_print("Total results are: %d\n", ldap_count_entries(ld, result));
+#endif
 
 	/* Process results */
 	ADDRQUERY_RETVAL(qry) = LDAPRC_STOP_FLAG;

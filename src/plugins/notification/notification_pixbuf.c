@@ -16,14 +16,7 @@
  */
 
 #include "notification_pixbuf.h"
-
-/* The following files were created from the respective .png or
- * xpm files with the command 
- * gdk-pixbuf-csource --raw --name=<name> file.png > <name>.h
- */
-/* From the Claws-Mail distribution */
-#include "raw_claws_mail_logo_64x64.h"
-
+#include "common/utils.h"
 #include "stock_pixmap.h"
 
 static GdkPixbuf* notification_pixbuf[NOTIFICATION_PIXBUF_LAST];
@@ -33,54 +26,54 @@ GdkPixbuf* notification_pixbuf_get(NotificationPixbuf wanted)
   if(!notification_pixbuf[wanted]) {
     switch(wanted) {
     case NOTIFICATION_CM_LOGO_64x64:
-      notification_pixbuf[wanted] =
-				gdk_pixbuf_new_from_inline(-1, raw_claws_mail_logo_64x64,
-																	 FALSE, NULL);
+			stock_pixbuf_gdk(STOCK_PIXMAP_CLAWS_MAIL_ICON_64, &(notification_pixbuf[wanted]));
+      g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NEWMAIL:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NEWMAIL, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NEWMAIL, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NEWMAIL_OFFLINE:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NEWMAIL_OFFLINE, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NEWMAIL_OFFLINE, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NEWMARKEDMAIL:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NEWMARKEDMAIL, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NEWMARKEDMAIL, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NEWMARKEDMAIL_OFFLINE:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NEWMARKEDMAIL_OFFLINE, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NEWMARKEDMAIL_OFFLINE, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NOMAIL:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NOMAIL, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NOMAIL, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_NOMAIL_OFFLINE:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_NOMAIL_OFFLINE, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_NOMAIL_OFFLINE, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_UNREADMAIL:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_UNREADMAIL, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_UNREADMAIL, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_UNREADMAIL_OFFLINE:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_UNREADMAIL_OFFLINE, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_UNREADMAIL_OFFLINE, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_UNREADMARKEDMAIL:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_TRAYICON_UNREADMARKEDMAIL_OFFLINE:
-			stock_pixbuf_gdk(NULL, STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL_OFFLINE, &(notification_pixbuf[wanted]));
+			stock_pixbuf_gdk(STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL_OFFLINE, &(notification_pixbuf[wanted]));
       g_object_ref(notification_pixbuf[wanted]);
       break;
     case NOTIFICATION_PIXBUF_LAST:
       break;
     }
   }
+  cm_return_val_if_fail(wanted < NOTIFICATION_PIXBUF_LAST, NULL);
   return notification_pixbuf[wanted];
 }
 

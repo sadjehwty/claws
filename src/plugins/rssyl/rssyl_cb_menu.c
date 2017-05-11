@@ -51,7 +51,6 @@ void rssyl_new_feed_cb(GtkAction *action,
 		gpointer data)
 {
 	FolderView *folderview = (FolderView*)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	gchar *url;
 
@@ -59,7 +58,7 @@ void rssyl_new_feed_cb(GtkAction *action,
 
 	g_return_if_fail(folderview->selected != NULL);
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->folder != NULL);
 
@@ -69,7 +68,7 @@ void rssyl_new_feed_cb(GtkAction *action,
 	if( url == NULL )	/* User cancelled */
 		return;
 
-	rssyl_subscribe(item, url, TRUE);
+	rssyl_subscribe(item, url, RSSYL_SHOW_ERRORS | RSSYL_SHOW_RENAME_DIALOG);
 
 	g_free(url);
 }
@@ -78,7 +77,6 @@ void rssyl_new_folder_cb(GtkAction *action,
 		gpointer data)
 {
 	FolderView *folderview = (FolderView*)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	FolderItem *new_item;
 	gchar *new_folder, *p, *tmp;
@@ -86,7 +84,7 @@ void rssyl_new_folder_cb(GtkAction *action,
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->folder != NULL);
 
@@ -137,8 +135,7 @@ void rssyl_remove_folder_cb(GtkAction *action,
 			     gpointer data)
 {
 	FolderView *folderview = (FolderView*)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item;
+	FolderItem *item, *opened;
 	gchar *message, *name;
 	AlertValue avalue;
 	gchar *old_id;
@@ -147,6 +144,7 @@ void rssyl_remove_folder_cb(GtkAction *action,
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->path != NULL);
 	g_return_if_fail(item->folder != NULL);
+	opened = folderview_get_opened_item(folderview);
 
 	name = trim_string(item->name, 32);
 	AUTORELEASE_STR(name, {g_free(name); return;});
@@ -162,12 +160,10 @@ void rssyl_remove_folder_cb(GtkAction *action,
 
 	old_id = folder_item_get_identifier(item);
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (item == opened ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	if (item->folder->klass->remove_folder(item->folder, item) < 0) {
@@ -260,7 +256,7 @@ void rssyl_refresh_feed_cb(GtkAction *action,
 	}
 
 	/* Update feed, displaying errors if any. */
-	rssyl_update_feed(ritem, TRUE);
+	rssyl_update_feed(ritem, RSSYL_SHOW_ERRORS);
 }
 
 void rssyl_prop_cb(GtkAction *action, gpointer data)
@@ -330,7 +326,7 @@ void rssyl_remove_mailbox_cb(GtkAction *action, gpointer data)
 
 	n = folder_item_get_path(item);
 	if( remove_dir_recursive(n) < 0 ) {
-		g_warning("can't remove directory '%s'\n", n);
+		g_warning("can't remove directory '%s'", n);
 		g_free(n);
 		return;
 	}
@@ -342,7 +338,6 @@ void rssyl_remove_mailbox_cb(GtkAction *action, gpointer data)
 void rssyl_import_feed_list_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item = NULL;
 	gchar *path = NULL;
 	OPMLImportCtx *ctx = NULL;
@@ -359,16 +354,13 @@ void rssyl_import_feed_list_cb(GtkAction *action, gpointer data)
 
 	/* Find the destination folder for the import */
 	g_return_if_fail(folderview->selected != NULL);
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->folder != NULL);
 
 	ctx = malloc( sizeof(OPMLImportCtx) );
 	ctx->failures = 0;
-	/* This needs to be +2, since we will be comparing it to depth of
-	 * <outline> tag in OPML's XML structure. Topmost outlines are under
-	 * <opml> and <body>, hence 2. */
-	ctx->depth = rssyl_folder_depth(item) + 2;
+	ctx->depth = rssyl_folder_depth(item) + 1;
 	ctx->current = NULL;
 	ctx->current = g_slist_append(ctx->current, item);
 

@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto & The Claws Mail Team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto & The Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -372,8 +371,6 @@ static gchar *parse_action_cmd(gchar *action, MsgInfo *msginfo,
 static gboolean parse_append_filename(GString *cmd, MsgInfo *msginfo)
 {
 	gchar *filename;
-	gchar *p, *q;
-	gchar escape_ch[] = "\\ ";
 
 	cm_return_val_if_fail(msginfo, FALSE);
 
@@ -385,9 +382,10 @@ static gboolean parse_append_filename(GString *cmd, MsgInfo *msginfo)
 		return FALSE;
 	}
 
-	p = filename;
 	g_string_append(cmd, "\"");
 #ifdef G_OS_UNIX
+	gchar *p = filename, *q;
+	gchar escape_ch[] = "\\ ";
 	while ((q = strpbrk(p, "$\"`\\~")) != NULL) {
 		escape_ch[1] = *q;
 		*q = '\0';
@@ -430,7 +428,7 @@ static gboolean parse_append_msgpart(GString *cmd, MsgInfo *msginfo,
 	ret = procmime_get_part(part_filename, partinfo);
 
 	if (single_part)
-		procmime_mimeinfo_free_all(partinfo);
+		procmime_mimeinfo_free_all(&partinfo);
 	g_free(filename);
 
 	if (ret < 0) {
@@ -1043,7 +1041,7 @@ static ChildInfo *fork_child(gchar *cmd, const gchar *msg_str,
 			r = close(chld_in);
 		child_info->chld_in = -1; /* No more input */
 		if (r != 0)
-			debug_print("%s(%d)", g_strerror(errno), errno);
+			debug_print("piping to child process: %s (%d)\n", g_strerror(errno), errno);
 	}
 
 	return child_info;
@@ -1445,7 +1443,7 @@ static void catch_status(GPid pid, gint status, gpointer data)
 				modified_something = TRUE;
 				last_item = nmi->folder;
 			}
-			procmsg_msginfo_free (nmi);
+			procmsg_msginfo_free (&nmi);
 			if (summaryview && summaryview->displayed &&
 		    	    summaryview->folder_item == msginfo->folder &&
 			    summary_get_msgnum(summaryview, summaryview->displayed) == msginfo->msgnum)
@@ -1510,7 +1508,7 @@ static void catch_input(gpointer data, gint source, GIOCondition cond)
 	r = close(child_info->chld_in);
 	child_info->chld_in = -1;
 	if (r != 0)
-		debug_print("%s(%d)", g_strerror(errno), errno);
+		debug_print("closing child input fd: %s (%d)\n", g_strerror(errno), errno);
 	child_info->chld_in = -1;
 	debug_print("Input to grand child sent.\n");
 }

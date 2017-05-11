@@ -1,7 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Colin Leroy <colin@colino.net> and
- * the Claws Mail team
+ * Copyright (C) 1999-2016 Colin Leroy and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -72,7 +70,7 @@ static PrivacyDataPGP *pgpinline_new_privacydata()
 	data->is_signed = FALSE;
 	data->sigstatus = NULL;
 	if ((err = gpgme_new(&data->ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		return NULL;
 	}
 	
@@ -181,7 +179,7 @@ static gint pgpinline_check_signature(MimeInfo *mimeinfo)
 			conv_get_locale_charset_str_no_utf8());
 	}
 	if (!tmp) {
-		g_warning("Can't convert charset to anything sane\n");
+		g_warning("Can't convert charset to anything sane");
 		tmp = conv_codeset_strdup(textdata, CS_UTF_8, CS_US_ASCII);
 	}
 	g_free(textdata);
@@ -194,7 +192,7 @@ static gint pgpinline_check_signature(MimeInfo *mimeinfo)
 	g_free(tmp);
 	
 	if ((err = gpgme_new(&data->ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		g_free(textdata);
 		return 0;
@@ -439,7 +437,7 @@ static MimeInfo *pgpinline_decrypt(MimeInfo *mimeinfo)
 	}
 
 	g_node_unlink(decinfo->node);
-	procmime_mimeinfo_free_all(parseinfo);
+	procmime_mimeinfo_free_all(&parseinfo);
 
 	decinfo->tmp = TRUE;
 
@@ -502,7 +500,7 @@ static gboolean pgpinline_sign(MimeInfo *mimeinfo, PrefsAccount *account, const 
 	fp = my_tmpfile();
 	if (fp == NULL) {
 		perror("my_tmpfile");
-		privacy_set_error(_("Couldn't create temporary file."));
+		privacy_set_error(_("Couldn't create temporary file, %s"), g_strerror(errno));
 		return FALSE;
 	}
 	procmime_write_mimeinfo(msgcontent, fp);
@@ -516,7 +514,7 @@ static gboolean pgpinline_sign(MimeInfo *mimeinfo, PrefsAccount *account, const 
 	gpgme_data_new_from_mem(&gpgtext, textstr, (size_t)strlen(textstr), 0);
 	gpgme_data_new(&gpgsig);
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		return FALSE;
 	}
@@ -529,7 +527,7 @@ static gboolean pgpinline_sign(MimeInfo *mimeinfo, PrefsAccount *account, const 
 	}
 
 	prefs_gpg_enable_agent(prefs_gpg_get_config()->use_gpg_agent);
-	if (!getenv("GPG_AGENT_INFO") || !prefs_gpg_get_config()->use_gpg_agent) {
+	if (!g_getenv("GPG_AGENT_INFO") || !prefs_gpg_get_config()->use_gpg_agent) {
     		info.c = ctx;
     		gpgme_set_passphrase_cb (ctx, gpgmegtk_passphrase_cb, &info);
 	}
@@ -655,7 +653,7 @@ static gboolean pgpinline_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	kset = g_malloc(sizeof(gpgme_key_t)*(i+1));
 	memset(kset, 0, sizeof(gpgme_key_t)*(i+1));
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		g_free(kset);
 		return FALSE;
@@ -711,7 +709,7 @@ static gboolean pgpinline_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	gpgme_data_new_from_mem(&gpgtext, textstr, (size_t)strlen(textstr), 0);
 	gpgme_data_new(&gpgenc);
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		g_free(kset);
 		return FALSE;

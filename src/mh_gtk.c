@@ -129,16 +129,15 @@ static void set_sensitivity(GtkUIManager *ui_manager, FolderItem *item)
 static void new_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	FolderItem *new_item;
 	gchar *new_folder;
 	gchar *name;
 	gchar *p;
 
-	if (!folderview->selected) return;
+	if (!folderview_get_selected_item(folderview)) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -185,14 +184,15 @@ static void new_folder_cb(GtkAction *action, gpointer data)
 static void delete_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item;
+	FolderItem *item, *opened;
 	gchar *message, *name;
 	AlertValue avalue;
 	gchar *old_id;
 	gint ret;
 
 	item = folderview_get_selected_item(folderview);
+	opened = folderview_get_opened_item(folderview);
+
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->path != NULL);
 	cm_return_if_fail(item->folder != NULL);
@@ -211,12 +211,10 @@ static void delete_folder_cb(GtkAction *action, gpointer data)
 
 	old_id = folder_item_get_identifier(item);
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (item == opened ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	if ((ret = item->folder->klass->remove_folder(item->folder, item)) < 0) {
@@ -305,7 +303,12 @@ static void move_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != mh_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE,
+			ngettext(
+				"Select folder to move selected message to",
+				"Select folder to move selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 	
@@ -321,7 +324,12 @@ static void copy_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != mh_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE,
+			ngettext(
+				"Select folder to copy selected message to",
+				"Select folder to copy selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 	

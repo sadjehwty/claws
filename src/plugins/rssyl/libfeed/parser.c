@@ -87,8 +87,9 @@ static void _elparse_start_chooser(void *data,
 
 			/* ATOM feed detected, let's check version */
 			version = feed_parser_get_attribute_value(attr, "xmlns");
-			if( !strcmp(version, "http://www.w3.org/2005/Atom") ||
-					!strcmp(version, "https://www.w3.org/2005/Atom") )
+			if( version != NULL &&
+					(!strcmp(version, "http://www.w3.org/2005/Atom") ||
+					 !strcmp(version, "https://www.w3.org/2005/Atom")) )
 				feedtype = FEED_TYPE_ATOM_10;
 			else
 				feedtype = FEED_TYPE_ATOM_03;
@@ -206,7 +207,7 @@ static gint giconv_utf32_char(GIConv cd, const gchar *inbuf, size_t insize,
 	size_t outsize;
 	guchar outbuf[CHARSIZEUTF32];
 	gchar *outbufp;
-	gint r, errno;
+	gint r;
 
 	outsize = sizeof(outbuf);
 	outbufp = (gchar *)outbuf;

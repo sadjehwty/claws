@@ -69,7 +69,7 @@ static void foldersel_cb(GtkWidget *widget, gpointer data)
 	gchar *item_id;
 	gint newpos = 0;
 	
-	item = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE);
+	item = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE, NULL);
 	if (item && (item_id = folder_item_get_identifier(item)) != NULL) {
 		gtk_editable_delete_text(GTK_EDITABLE(entry), 0, -1);
 		gtk_editable_insert_text(GTK_EDITABLE(entry), item_id, strlen(item_id), &newpos);
@@ -77,7 +77,7 @@ static void foldersel_cb(GtkWidget *widget, gpointer data)
 	}
 }
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static void bsfilter_whitelist_ab_select_cb(GtkWidget *widget, gpointer data)
 {
 	struct BsfilterPage *page = (struct BsfilterPage *) data;
@@ -244,7 +244,7 @@ static void bsfilter_create_widget_func(PrefsPage * _page,
 
 	g_signal_connect(G_OBJECT(save_spam_folder_select), "clicked",
 			G_CALLBACK(foldersel_cb), save_spam_folder_entry);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	g_signal_connect(G_OBJECT (whitelist_ab_select_btn), "clicked",
 			 G_CALLBACK(bsfilter_whitelist_ab_select_cb), page);
 #else

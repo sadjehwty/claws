@@ -76,6 +76,7 @@ typedef struct {
 static GdkPixbuf *folder_pixbuf;
 static GdkPixbuf *folderopen_pixbuf;
 static GdkPixbuf *foldernoselect_pixbuf;
+static GdkPixbuf *foldernoselectopen_pixbuf;
 
 static GArray *specific_folder_array;
 static guint   specific_folder_array_size;
@@ -299,7 +300,7 @@ void notification_foldercheck_write_array(void)
 
 /* Read selections from a common xml-file. Called when loading the plugin.
  * Returns TRUE if data has been read, FALSE if no data is available
- * or an error occured.
+ * or an error occurred.
  * This is analog to folder.h::folder_read_list. */
 gboolean notification_foldercheck_read_array(void)
 {
@@ -328,7 +329,7 @@ gboolean notification_foldercheck_read_array(void)
 
   /* Check that root entry is "foldercheckarray" */
   if(strcmp2(xmlnode->tag->tag, "foldercheckarray") != 0) {
-    g_warning("wrong foldercheck array file\n");
+    g_warning("wrong foldercheck array file");
     xml_free_tree(rootnode);
     return FALSE;
   }
@@ -342,7 +343,7 @@ gboolean notification_foldercheck_read_array(void)
 
     xmlnode = branchnode->data;
     if(strcmp2(xmlnode->tag->tag, "branch") != 0) {
-      g_warning("tag name != \"branch\"\n");
+      g_warning("tag name != \"branch\"");
       return FALSE;
     }
 
@@ -360,7 +361,7 @@ gboolean notification_foldercheck_read_array(void)
       }
     }
     if((list == NULL) || (entry == NULL)) {
-      g_warning("Did not find attribute \"name\" in tag \"branch\"\n");
+      g_warning("Did not find attribute \"name\" in tag \"branch\"");
       continue; /* with next branch */
     }
 
@@ -371,12 +372,12 @@ gboolean notification_foldercheck_read_array(void)
       /* These should all be leaves. */
       if(!G_NODE_IS_LEAF(node))
 	g_warning("Subnodes in \"branch\" nodes should all be leaves. "
-		  "Ignoring deeper subnodes..\n");
+		  "Ignoring deeper subnodes.");
 
       /* Check if tag is "folderitem" */
       xmlnode = node->data;
       if(strcmp2(xmlnode->tag->tag, "folderitem") != 0) {
-	g_warning("tag name != \"folderitem\"\n");
+	g_warning("tag name != \"folderitem\"");
 	continue; /* to next node in branch */
       }
 
@@ -393,7 +394,7 @@ gboolean notification_foldercheck_read_array(void)
       }
       if((list == NULL) || (item == NULL)) {
 	g_warning("Did not find attribute \"identifier\" in tag "
-		  "\"folderitem\"\n");
+		  "\"folderitem\"");
 	continue; /* with next leaf node */
       }
       
@@ -502,14 +503,17 @@ static void foldercheck_create_window(SpecificFolderArrayEntry *entry)
 
   /* pixbufs */
   if(!folder_pixbuf)
-    stock_pixbuf_gdk(scrolledwin, STOCK_PIXMAP_DIR_CLOSE,
+    stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE,
 		     &folder_pixbuf);
   if(!folderopen_pixbuf)
-    stock_pixbuf_gdk(scrolledwin, STOCK_PIXMAP_DIR_OPEN,
+    stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN,
 		     &folderopen_pixbuf);
   if(!foldernoselect_pixbuf)
-    stock_pixbuf_gdk(scrolledwin, STOCK_PIXMAP_DIR_NOSELECT,
+    stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_CLOSE,
 		     &foldernoselect_pixbuf);
+  if(!foldernoselectopen_pixbuf)
+    stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_OPEN,
+		     &foldernoselectopen_pixbuf);
 
   /* Tree store */
   foldercheck_set_tree(entry);
@@ -808,7 +812,7 @@ static void foldercheck_append_item(GtkTreeStore *store, FolderItem *item,
   
   pixbuf = item->no_select ? foldernoselect_pixbuf : folder_pixbuf;
   pixbuf_open =
-    item->no_select ? foldernoselect_pixbuf : folderopen_pixbuf;
+    item->no_select ? foldernoselectopen_pixbuf : folderopen_pixbuf;
   
   /* insert this node */
   gtk_tree_store_append(store, iter, parent);

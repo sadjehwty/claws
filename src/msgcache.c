@@ -140,7 +140,7 @@ MsgCache *msgcache_new(void)
 
 static gboolean msgcache_msginfo_free_func(gpointer num, gpointer msginfo, gpointer user_data)
 {
-	procmsg_msginfo_free((MsgInfo *)msginfo);
+	procmsg_msginfo_free((MsgInfo **)&msginfo);
 	return TRUE;
 }											  
 
@@ -190,7 +190,7 @@ void msgcache_remove_msg(MsgCache *cache, guint msgnum)
 
 	msginfo->folder->cache_dirty = TRUE;
 
-	procmsg_msginfo_free(msginfo);
+	procmsg_msginfo_free(&msginfo);
 	cache->last_access = time(NULL);
 
 
@@ -210,7 +210,7 @@ void msgcache_update_msg(MsgCache *cache, MsgInfo *msginfo)
 	if (oldmsginfo) {
 		g_hash_table_remove(cache->msgnum_table, &oldmsginfo->msgnum);
 		cache->memusage -= procmsg_msginfo_memusage(oldmsginfo);
-		procmsg_msginfo_free(oldmsginfo);
+		procmsg_msginfo_free(&oldmsginfo);
 	}
 
 	newmsginfo = procmsg_msginfo_new_ref(msginfo);
@@ -299,7 +299,7 @@ gint msgcache_get_memory_usage(MsgCache *cache)
 #define READ_CACHE_DATA(data, fp, total_len) \
 { \
 	if ((tmp_len = msgcache_read_cache_data_str(fp, &data, conv)) < 0) { \
-		procmsg_msginfo_free(msginfo); \
+		procmsg_msginfo_free(&msginfo); \
 		error = TRUE; \
 		goto bail_err; \
 	} \
@@ -313,8 +313,8 @@ gint msgcache_get_memory_usage(MsgCache *cache)
  \
 	if ((ni = fread(&idata, sizeof(idata), 1, fp)) != 1) { \
 		g_warning("read_int: Cache data corrupted, read %zd of %zd at " \
-			  "offset %ld\n", ni, sizeof(idata), ftell(fp)); \
-		procmsg_msginfo_free(msginfo); \
+			  "offset %ld", ni, sizeof(idata), ftell(fp)); \
+		procmsg_msginfo_free(&msginfo); \
 		error = TRUE; \
 		goto bail_err; \
 	} else \
@@ -342,7 +342,7 @@ gint msgcache_get_memory_usage(MsgCache *cache)
 	}											\
 	if ((tmp_len = msgcache_get_cache_data_str(walk_data, &data, tmp_len, conv)) < 0) { \
 		g_print("error at rem_len:%d\n", rem_len);\
-		procmsg_msginfo_free(msginfo); \
+		procmsg_msginfo_free(&msginfo); \
 		error = TRUE; \
 		goto bail_err; \
 	} \
@@ -421,7 +421,7 @@ static FILE *msgcache_open_data_file(const gchar *file, guint version,
 
 		WRITE_CACHE_DATA_INT(version, fp);
 		if (w_err != 0) {
-			g_warning("failed to write int\n");
+			g_warning("failed to write int");
 			fclose(fp);
 			return NULL;
 		}
@@ -474,7 +474,7 @@ static gint msgcache_read_cache_data_str(FILE *fp, gchar **str,
 		if ((ni = fread(&len, sizeof(len), 1, fp) != 1) ||
 		    len > G_MAXINT) {
 			g_warning("read_data_str: Cache data (len) corrupted, read %zd "
-				  "of %zd bytes at offset %ld\n", ni, sizeof(len), 
+				  "of %zd bytes at offset %ld", ni, sizeof(len),
 				  ftell(fp));
 			return -1;
 		}
@@ -482,7 +482,7 @@ static gint msgcache_read_cache_data_str(FILE *fp, gchar **str,
 		if ((ni = fread(&len, sizeof(len), 1, fp) != 1) ||
 		    bswap_32(len) > G_MAXINT) {
 			g_warning("read_data_str: Cache data (len) corrupted, read %zd "
-				  "of %zd bytes at offset %ld\n", ni, sizeof(len), 
+				  "of %zd bytes at offset %ld", ni, sizeof(len),
 				  ftell(fp));
 			return -1;
 		}
@@ -500,7 +500,7 @@ static gint msgcache_read_cache_data_str(FILE *fp, gchar **str,
 
 	if ((ni = fread(tmpstr, 1, len, fp)) != len) {
 		g_warning("read_data_str: Cache data corrupted, read %zd of %u "
-			  "bytes at offset %ld\n", 
+			  "bytes at offset %ld",
 			  ni, len, ftell(fp));
 		g_free(tmpstr);
 		return -1;
@@ -527,7 +527,7 @@ static gint msgcache_get_cache_data_str(gchar *src, gchar **str, gint len,
 		return 0;
 
 	if(len > 2*1024*1024) {
-		g_warning("read_data_str: refusing to allocate %d bytes.\n", len);
+		g_warning("read_data_str: refusing to allocate %d bytes.", len);
 		return -1;
 	}
 
@@ -1141,7 +1141,7 @@ gint msgcache_write(const gchar *cache_file, const gchar *mark_file, const gchar
 	}
 
 	if (w_err != 0) {
-		g_warning("failed to write charset\n");
+		g_warning("failed to write charset");
 		if (write_fps.cache_fp)
 			fclose(write_fps.cache_fp);
 		claws_unlink(new_cache);

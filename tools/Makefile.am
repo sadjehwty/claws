@@ -1,4 +1,4 @@
-# Copyright 1999-2014 the Claws Mail team.
+# Copyright 1999-2016 the Claws Mail team.
 # This file is part of Claws Mail package, and distributed under the
 # terms of the General Public License version 3 (or later).
 # See COPYING file for license details.
@@ -8,13 +8,13 @@ EXTRA_TOOLS = \
 	acroread2claws-mail.pl \
 	calypso_convert.pl \
 	claws-mail-compose-insert-files.pl \
+	cm-reparent.pl \
 	convert_mbox.pl \
 	csv2addressbook.pl \
 	eud2gc.py \
 	filter_conv.pl \
 	filter_conv_new.pl \
 	fix_date.sh \
-	freshmeat_search.pl \
 	gif2xface.pl \
 	google_msgid.pl \
 	google_search.pl \

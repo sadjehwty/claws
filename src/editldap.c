@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2001-2013 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2001-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -46,6 +45,7 @@
 #include "manage_window.h"
 #include "gtkutils.h"
 #include "prefs_gtk.h"
+#include "passwordstore.h"
 
 #define PAGE_BASIC      0
 #define PAGE_SEARCH     1
@@ -236,9 +236,9 @@ static void edit_ldap_server_check( void ) {
 	ssl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ldapedit.enable_ssl));
 #endif
 
-	g_strchomp( sHost ); g_strchug( sHost );
-	g_strchomp( sBind ); g_strchug( sBind );
-	g_strchomp( sPass ); g_strchug( sPass );
+	g_strstrip( sHost );
+	g_strstrip( sBind );
+	g_strstrip( sPass );
 	if( *sHost != '\0' ) {
 		/* Test connection to server */
 		debug_print("ldap server: %s\nport: %d\nssl: %d\ntls: %d\nbindDN: %s\n", sHost, iPort, ssl, tls, sBind);
@@ -299,9 +299,9 @@ static void edit_ldap_basedn_select( void ) {
 	ssl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(ldapedit.enable_ssl));
 #endif
 
-	g_strchomp( sHost ); g_strchug( sHost );
-	g_strchomp( sBind ); g_strchug( sBind );
-	g_strchomp( sPass ); g_strchug( sPass );
+	g_strstrip( sHost );
+	g_strstrip( sBind );
+	g_strstrip( sPass );
 	debug_print("ldap server: %s\nport: %d\nssl: %d\ntls: %d\nbindDN: %s\n", sHost, iPort, ssl, tls, sBind);
 	selectDN = edit_ldap_basedn_selection( sHost, iPort, sBase, iTime, sBind, sPass, ssl, tls );
 	if( selectDN ) {
@@ -448,8 +448,8 @@ static void addressbook_edit_ldap_page_basic( gint pageNum, gchar *pageLbl ) {
 
 	CLAWS_SET_TIP(entry_server, _( 
 		"This is the hostname of the server. For example, " \
-		"\"ldap.mydomain.com\" may be appropriate for the " \
-		"\"mydomain.com\" organization. An IP address may also be " \
+		"\"ldap.example.org\" may be appropriate for the " \
+		"\"example.org\" organization. An IP address may also be " \
 		"used. You may specify \"localhost\" if running an LDAP " \
 		"server on the same computer as Claws Mail." ));
 
@@ -467,16 +467,17 @@ static void addressbook_edit_ldap_page_basic( gint pageNum, gchar *pageLbl ) {
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_port), TRUE);
 	
 #if (defined USE_LDAP_TLS || defined G_OS_WIN32)
-	enable_tls_checkbtn = gtk_check_button_new_with_label(_("TLS"));
-	enable_ssl_checkbtn = gtk_check_button_new_with_label(_("SSL"));
+	enable_tls_checkbtn = gtk_check_button_new_with_label(_("STARTTLS"));
+	enable_ssl_checkbtn = gtk_check_button_new_with_label(_("SSL/TLS"));
 	SET_TOGGLE_SENSITIVITY_REVERSE(enable_tls_checkbtn, enable_ssl_checkbtn);
 	SET_TOGGLE_SENSITIVITY_REVERSE(enable_ssl_checkbtn, enable_tls_checkbtn);
 	CLAWS_SET_TIP(enable_tls_checkbtn, _( 
-		"Enable secure connection to the LDAP server via TLS. "
+		"Enable secure connection to the LDAP server via STARTTLS. "
+		"Connection starts unencrypted and is secured by STARTTLS command. "
 		"If connection fails, be sure to check the correct "
 		"configuration in ldap.conf (TLS_CACERTDIR and TLS_REQCERT fields)." ));
 	CLAWS_SET_TIP(enable_ssl_checkbtn, _( 
-		"Enable secure connection to the LDAP server via SSL. "
+		"Enable secure connection to the LDAP server via SSL/TLS. "
 		"If connection fails, be sure to check the correct "
 		"configuration in ldap.conf (TLS_CACERTDIR and TLS_REQCERT fields)." ));
 
@@ -667,12 +668,22 @@ static void addressbook_edit_ldap_page_search( gint pageNum, gchar *pageLbl ) {
 	ldapedit.check_matchoption = check_matchoption;
 }
 
+static void showpwd_checkbtn_toggled(GtkToggleButton *button,
+		gpointer user_data)
+{
+	gboolean active = gtk_toggle_button_get_active(button);
+	GtkWidget *entry = GTK_WIDGET(user_data);
+
+	gtk_entry_set_visibility(GTK_ENTRY(entry), active);
+}
+
 static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) {
 	GtkWidget *vbox;
 	GtkWidget *table;
 	GtkWidget *label;
 	GtkWidget *entry_bindDN;
 	GtkWidget *entry_bindPW;
+	GtkWidget *showpwd_checkbtn;
 	GtkWidget *hbox_spin;
 	GtkAdjustment *spinbtn_timeout_adj;
 	GtkWidget *spinbtn_timeout;
@@ -703,7 +714,7 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 
 	entry_bindDN = gtk_entry_new();
-	gtk_table_attach(GTK_TABLE(table), entry_bindDN, 1, 2, top, (top + 1),
+	gtk_table_attach(GTK_TABLE(table), entry_bindDN, 1, 3, top, (top + 1),
 		GTK_EXPAND|GTK_SHRINK|GTK_FILL, 0, 0, 0);
 
 	CLAWS_SET_TIP(entry_bindDN, _( 
@@ -726,6 +737,13 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 	CLAWS_SET_TIP(entry_bindPW, _( 
 		"The password to be used when connecting as the \"Bind DN\" " \
 		"user." ));
+
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(showpwd_checkbtn_toggled), entry_bindPW);
+	gtk_table_attach(GTK_TABLE(table), showpwd_checkbtn, 2, 3, top, (top + 1),
+			0, 0, 0, 0);
 
 	/* Next row */
 	++top;
@@ -885,8 +903,7 @@ static void edit_ldap_clear_fields(void) {
  */
 static void edit_ldap_set_fields( LdapServer *server ) {
 	LdapControl *ctl;
-	gchar *crit;
-	gchar *pwd;
+	gchar *crit, *pwd;
 
 	if( ldapsvr_get_name( server ) )
 		gtk_entry_set_text(GTK_ENTRY(ldapedit.entry_name),
@@ -902,11 +919,15 @@ static void edit_ldap_set_fields( LdapServer *server ) {
 	if( ctl->bindDN )
 		gtk_entry_set_text(
 			GTK_ENTRY(ldapedit.entry_bindDN), ctl->bindDN );
-	if( ctl->bindPass ) {
-		pwd = ldapctl_get_bind_password( ctl );
-		gtk_entry_set_text(	GTK_ENTRY(ldapedit.entry_bindPW),  pwd );
+
+	pwd = passwd_store_get(PWS_CORE, "LDAP", ctl->hostName);
+	gtk_entry_set_text(	GTK_ENTRY(ldapedit.entry_bindPW),
+			(pwd ? pwd : ""));
+	if (pwd != NULL) {
+		memset(pwd, 0, strlen(pwd));
 		g_free(pwd);
 	}
+
 	gtk_spin_button_set_value(
 		GTK_SPIN_BUTTON(ldapedit.spinbtn_timeout), ctl->timeOut );
 	gtk_spin_button_set_value(
@@ -1037,7 +1058,6 @@ AdapterDSource *addressbook_edit_ldap(
 		ldapctl_set_host( ctl, sHost );
 		ldapctl_set_base_dn( ctl, sBase );
 		ldapctl_set_bind_dn( ctl, sBind );
-		ldapctl_set_bind_password( ctl, sPass, TRUE, TRUE );
 		ldapctl_set_port( ctl, iPort );
 		ldapctl_set_max_entries( ctl, iMaxE );
 		ldapctl_set_timeout( ctl, iTime );
@@ -1050,6 +1070,9 @@ AdapterDSource *addressbook_edit_ldap(
 
 		addrindex_save_data(addrIndex);
 
+		passwd_store_set(PWS_CORE, "LDAP", sHost, sPass, FALSE);
+		passwd_store_write_config();
+
 		/* Save attributes */
 		editldap_parse_criteria( sCrit, ctl );
 
@@ -1058,8 +1081,11 @@ AdapterDSource *addressbook_edit_ldap(
 	g_free( sHost );
 	g_free( sBase );
 	g_free( sBind );
-	g_free( sPass );
 	g_free( sCrit );
+
+	if (sPass != NULL && strlen(sPass) > 0)
+		memset(sPass, 0, strlen(sPass));
+	g_free( sPass );
 
 	return ads;
 }

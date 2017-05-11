@@ -56,8 +56,8 @@ static void rssyl_subscribe_foreach_func(gpointer data, gpointer user_data)
 	rssyl_add_item(ritem, feed_item);
 }
 
-gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
-		gboolean verbose)
+FolderItem *rssyl_subscribe(FolderItem *parent, const gchar *url,
+		RSSylVerboseFlags verbose)
 {
 	gchar *myurl = NULL, *tmpname = NULL, *tmpname2 = NULL;
 	RFetchCtx *ctx;
@@ -91,10 +91,10 @@ gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
 		feed_free(ctx->feed);
 		g_free(ctx->error);
 		g_free(ctx);
-		return FALSE;
+		return NULL;
 	}
 
-	if (verbose) {
+	if (verbose & RSSYL_SHOW_RENAME_DIALOG) {
 		sctx = g_new0(RSubCtx, 1);
 		sctx->feed = ctx->feed;
 		sctx->edit_properties = FALSE;
@@ -105,7 +105,7 @@ gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
 		if (sctx->feed == NULL) {
 			debug_print("RSSyl: User cancelled subscribe.\n");
 			g_free(sctx);
-			return FALSE;
+			return NULL;
 		}
 
 		edit_properties = sctx->edit_properties;
@@ -122,18 +122,21 @@ gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
 		g_free(sctx);
 	}
 
-	/* OK, feed is succesfully fetched and correct, let's add it to CM. */
+	/* OK, feed is successfully fetched and correct, let's add it to CM. */
 
 	/* Create a folder for it. */
 	tmpname = rssyl_format_string(ctx->feed->title, TRUE, TRUE);
 	tmpname2 = g_strdup(tmpname);
 
 #ifdef G_OS_WIN32
-	/* Windows does not allow its filenames to start or end with a dot. */
+	/* Windows does not allow its filenames to start or end with a dot,
+	 * or to end with a space. */
 	if (tmpname2[0] == '.')
-		tmpname2[0] = "_";
+		tmpname2[0] = '_';
 	if (tmpname2[strlen(tmpname2) - 1] == '.')
-		tmpname2[strlen(tmpname2) - 1] == '_';
+		tmpname2[strlen(tmpname2) - 1] = '_';
+	if (tmpname2[strlen(tmpname2) - 1] == ' ')
+		tmpname2[strlen(tmpname2) - 1] = '_';
 #endif
 
 	while (folder_find_child_item_by_name(parent, tmpname2) != 0 && i < 20) {
@@ -151,14 +154,14 @@ gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
 	g_free(tmpname2);
 
 	if (!new_item) {
-		if (verbose)
+		if (verbose & RSSYL_SHOW_ERRORS)
 			alertpanel_error(_("Couldn't create folder for new feed '%s'."),
 					myurl);
 		feed_free(ctx->feed);
 		g_free(ctx->error);
 		g_free(ctx); 
 		g_free(myurl);
-		return FALSE;
+		return NULL;
 	}
 
 	debug_print("RSSyl: Adding '%s'\n", ctx->feed->url);
@@ -182,5 +185,5 @@ gboolean rssyl_subscribe(FolderItem *parent, const gchar *url,
 
 	folder_item_update_thaw();
 
-	return TRUE;
+	return new_item;
 }

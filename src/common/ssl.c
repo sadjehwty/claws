@@ -57,6 +57,16 @@ typedef struct _thread_data {
 } thread_data;
 #endif
 
+#if GNUTLS_VERSION_NUMBER < 0x030400
+#define DEFAULT_GNUTLS_PRIORITY "NORMAL:-VERS-SSL3.0"
+#else
+#define DEFAULT_GNUTLS_PRIORITY "NORMAL"
+#endif
+
+#if GNUTLS_VERSION_NUMBER < 0x030000
+/* GnuTLS 3.0 introduced new API for certificate callback,
+ * gnutls_certificate_set_retrieve_function2() */
+
 #if GNUTLS_VERSION_NUMBER <= 0x020c00
 static int gnutls_client_cert_cb(gnutls_session_t session,
                                const gnutls_datum_t *req_ca_rdn, int nreqs,
@@ -67,7 +77,7 @@ static int gnutls_cert_cb(gnutls_session_t session,
                                const gnutls_datum_t *req_ca_rdn, int nreqs,
                                const gnutls_pk_algorithm_t *sign_algos,
                                int sign_algos_length, gnutls_retr2_st *st)
-#endif
+#endif /* GNUTLS_VERSION_NUMBER <= 0x020c00 */
 {
 	SSLClientCertHookData hookdata;
 	SockInfo *sockinfo = (SockInfo *)gnutls_session_get_ptr(session);
@@ -83,8 +93,10 @@ static int gnutls_cert_cb(gnutls_session_t session,
 	hookdata.is_smtp = sockinfo->is_smtp;
 	hooks_invoke(SSLCERT_GET_CLIENT_CERT_HOOKLIST, &hookdata);	
 
-	if (hookdata.cert_path == NULL)
+	if (hookdata.cert_path == NULL) {
+		g_free(hookdata.password);
 		return 0;
+	}
 
 	sockinfo->client_crt = ssl_certificate_get_x509_from_pem_file(hookdata.cert_path);
 	sockinfo->client_key = ssl_certificate_get_pkey_from_pem_file(hookdata.cert_path);
@@ -106,14 +118,84 @@ static int gnutls_cert_cb(gnutls_session_t session,
 		st->cert.x509 = &(sockinfo->client_crt);
 		st->key.x509 = sockinfo->client_key;
 		st->deinit_all = 0;
+		g_free(hookdata.password);
 		return 0;
 	}
+	g_free(hookdata.password);
 	return 0;
 }
 
+#else /* GNUTLS_VERSION_NUMBER < 0x030000 */
+
+static int gnutls_cert_cb(gnutls_session_t session,
+		const gnutls_datum_t *req_ca_rdn,
+		int nreqs,
+		const gnutls_pk_algorithm_t *pk_algos,
+		int pk_algos_length,
+		gnutls_pcert_st **pcert,
+		unsigned int *pcert_length,
+		gnutls_privkey_t *privkey)
+{
+	SSLClientCertHookData hookdata;
+	SockInfo *sockinfo = (SockInfo *)gnutls_session_get_ptr(session);
+	gnutls_datum_t tmp;
+	int r;
+
+	hookdata.account = sockinfo->account;
+	hookdata.cert_path = NULL;
+	hookdata.password = NULL;
+	hookdata.is_smtp = sockinfo->is_smtp;
+	hooks_invoke(SSLCERT_GET_CLIENT_CERT_HOOKLIST, &hookdata);
+
+	if (hookdata.cert_path == NULL) {
+		g_free(hookdata.password);
+		return 0;
+	}
+
+	if ((r = gnutls_load_file(hookdata.cert_path, &tmp)) != 0) {
+		debug_print("couldn't load file '%s': %d\n",
+				hookdata.cert_path, r);
+		g_free(hookdata.password);
+		return 0;
+	}
+	debug_print("trying to load client cert+key from file '%s'\n",
+			hookdata.cert_path);
+
+	if ((r = gnutls_pcert_import_x509_raw(&sockinfo->client_crt, &tmp,
+				GNUTLS_X509_FMT_PEM, 0)) != 0) {
+		debug_print("couldn't import x509 cert from PEM file '%s': %d\n",
+				hookdata.cert_path, r);
+		g_free(hookdata.password);
+		return 0;
+	}
+	debug_print("loaded client certificate...\n");
+
+	gnutls_privkey_init(&sockinfo->client_key);
+	if ((r = gnutls_privkey_import_x509_raw(sockinfo->client_key, &tmp,
+				GNUTLS_X509_FMT_PEM, hookdata.password, 0)) != 0) {
+		debug_print("couldn't import x509 pkey from PEM file '%s': %d\n",
+				hookdata.cert_path, r);
+		g_free(hookdata.password);
+		gnutls_privkey_deinit(sockinfo->client_key);
+		return 0;
+	}
+	debug_print("loaded client private key...\n");
+
+	gnutls_free(tmp.data);
+
+	*pcert_length = 1;
+	*pcert = &sockinfo->client_crt;
+	*privkey = sockinfo->client_key;
+
+	return 0;
+}
+#endif /* GNUTLS_VERSION_NUMBER < 0x030000 */
+
 const gchar *claws_ssl_get_cert_file(void)
 {
+#ifndef G_OS_WIN32
 	const char *cert_files[]={
+		"/etc/ssl/cert.pem",
 		"/etc/pki/tls/certs/ca-bundle.crt",
 		"/etc/certs/ca-bundle.crt",
 		"/etc/ssl/ca-bundle.pem",
@@ -126,9 +208,12 @@ const gchar *claws_ssl_get_cert_file(void)
 		"/usr/lib/ssl/cert.pem",
 		NULL};
 	int i;
-    	
+#endif
+
+	/* We honor this environment variable on all platforms. */
 	if (g_getenv("SSL_CERT_FILE"))
 		return g_getenv("SSL_CERT_FILE");
+
 #ifndef G_OS_WIN32
 	for (i = 0; cert_files[i]; i++) {
 		if (is_file_exist(cert_files[i]))
@@ -136,12 +221,15 @@ const gchar *claws_ssl_get_cert_file(void)
 	}
 	return NULL;
 #else
-	return get_cert_file();
+	return w32_get_cert_file();
 #endif
 }
 
 const gchar *claws_ssl_get_cert_dir(void)
 {
+	if (g_getenv("SSL_CERT_DIR"))
+		return g_getenv("SSL_CERT_DIR");
+#ifndef G_OS_WIN32
 	const char *cert_dirs[]={
 		"/etc/pki/tls/certs",
 		"/etc/certs",
@@ -154,9 +242,6 @@ const gchar *claws_ssl_get_cert_dir(void)
 		NULL};
 	int i;
     	
-	if (g_getenv("SSL_CERT_DIR"))
-		return g_getenv("SSL_CERT_DIR");
-#ifndef G_OS_WIN32
 	for (i = 0; cert_dirs[i]; i++) {
 		if (is_dir_exist(cert_dirs[i]))
 			return cert_dirs[i];
@@ -281,7 +366,7 @@ gnutls_x509_crt_t *ssl_get_certificate_chain(gnutls_session_t session, gint *lis
 			gnutls_x509_crt_init(&certs[i]);
 			r = gnutls_x509_crt_import(certs[i], &raw_cert_list[i], GNUTLS_X509_FMT_DER);
 			if (r < 0) {
-				g_warning("cert get failure: %d %s\n", r, gnutls_strerror(r));
+				g_warning("cert get failure: %d %s", r, gnutls_strerror(r));
 
 				result = FALSE;
 				i--;
@@ -323,8 +408,9 @@ gboolean ssl_init_socket(SockInfo *sockinfo)
 			    sockinfo->gnutls_priority, r);
 	}
 	else {
-		gnutls_priority_set_direct(session, "NORMAL:-VERS-SSL3.0", NULL);
+		gnutls_priority_set_direct(session, DEFAULT_GNUTLS_PRIORITY, NULL);
 	}
+
 	gnutls_record_disable_padding(session);
 
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, xcred);
@@ -332,7 +418,7 @@ gboolean ssl_init_socket(SockInfo *sockinfo)
 	if (claws_ssl_get_cert_file()) {
 		r = gnutls_certificate_set_x509_trust_file(xcred, claws_ssl_get_cert_file(),  GNUTLS_X509_FMT_PEM);
 		if (r < 0)
-			g_warning("Can't read SSL_CERT_FILE %s: %s\n",
+			g_warning("Can't read SSL_CERT_FILE '%s': %s",
 				claws_ssl_get_cert_file(), 
 				gnutls_strerror(r));
 	} else {
@@ -341,17 +427,29 @@ gboolean ssl_init_socket(SockInfo *sockinfo)
 	gnutls_certificate_set_verify_flags (xcred, GNUTLS_VERIFY_ALLOW_X509_V1_CA_CRT);
 
 	gnutls_transport_set_ptr(session, (gnutls_transport_ptr_t) GINT_TO_POINTER(sockinfo->sock));
+
 	gnutls_session_set_ptr(session, sockinfo);
-#if GNUTLS_VERSION_NUMBER <= 0x020c00
+
+#if GNUTLS_VERSION_NUMBER < 0x030000
+#  if GNUTLS_VERSION_NUMBER <= 0x020c00
 	gnutls_certificate_client_set_retrieve_function(xcred, gnutls_client_cert_cb);
-#else
+#  else
 	gnutls_certificate_set_retrieve_function(xcred, gnutls_cert_cb);
+#  endif
+#else
+	debug_print("setting certificate callback function\n");
+	gnutls_certificate_set_retrieve_function2(xcred, gnutls_cert_cb);
 #endif
 
-	gnutls_dh_set_prime_bits(session, 512);
+#if GNUTLS_VERSION_NUMBER < 0x030107
+	/* Starting from GnuTLS 3.1.7, minimal size of the DH prime is
+	 * set by the priority string. By default ("NORMAL"), it is 1008
+	 * as of GnuTLS 3.3.0. */
+	gnutls_dh_set_prime_bits(session, 1008);
+#endif
 
 	if ((r = SSL_connect_nb(session)) < 0) {
-		g_warning("SSL connection failed (%s)", gnutls_strerror(r));
+		g_warning("SSL/TLS connection failed (%s)", gnutls_strerror(r));
 		gnutls_certificate_free_credentials(xcred);
 		gnutls_deinit(session);
 		return FALSE;
@@ -391,12 +489,18 @@ void ssl_done_socket(SockInfo *sockinfo)
 		if (sockinfo->xcred)
 			gnutls_certificate_free_credentials(sockinfo->xcred);
 		gnutls_deinit(sockinfo->ssl);
+#if GNUTLS_VERSION_NUMBER < 0x030000
 		if (sockinfo->client_crt)
 			gnutls_x509_crt_deinit(sockinfo->client_crt);
 		if (sockinfo->client_key)
 			gnutls_x509_privkey_deinit(sockinfo->client_key);
 		sockinfo->client_key = NULL;
 		sockinfo->client_crt = NULL;
+#else
+		gnutls_pcert_deinit(&sockinfo->client_crt);
+		gnutls_privkey_deinit(sockinfo->client_key);
+#endif
+		sockinfo->client_key = NULL;
 		sockinfo->xcred = NULL;
 		sockinfo->ssl = NULL;
 	}

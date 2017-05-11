@@ -38,7 +38,7 @@
 #include "prefs_common.h"
 #include "prefs_gtk.h"
 #include "addressadd.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addritem.h"
 	#include "addrbook.h"
 	#include "addrindex.h"
@@ -50,7 +50,7 @@
 #include "manage_window.h"
 #include "alertpanel.h"
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 typedef struct {
 	AddressBookFile	*book;
 	ItemFolder	*folder;
@@ -78,7 +78,7 @@ static GdkPixbuf *bookXpm;
 
 static gboolean addressadd_cancelled;
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static FolderInfo *addressadd_create_folderinfo( AddressBookFile *abf, ItemFolder *folder )
 {
 	FolderInfo *fi = g_new0( FolderInfo, 1 );
@@ -94,7 +94,7 @@ static FolderInfo *addressadd_create_folderinfo(gchar* book) {
 }
 #endif
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static void addressadd_free_folderinfo( FolderInfo *fi ) {
 	fi->book   = NULL;
 	fi->folder = NULL;
@@ -305,12 +305,11 @@ static void addressadd_create( void ) {
 
 	gtk_widget_show_all( window );
 
-	stock_pixbuf_gdk( window, STOCK_PIXMAP_BOOK, &bookXpm );
-	stock_pixbuf_gdk( window, STOCK_PIXMAP_DIR_OPEN,
-			  &folderXpm );
+	stock_pixbuf_gdk(STOCK_PIXMAP_BOOK, &bookXpm );
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN, &folderXpm );
 }
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static void addressadd_load_folder( GtkCMCTreeNode *parentNode, ItemFolder *parentFolder,
 					FolderInfo *fiParent )
 {
@@ -411,7 +410,7 @@ static void addressadd_load_data() {
 }
 #endif
 
-#ifndef USE_NEW_ADDRBOOK 
+#ifndef USE_ALT_ADDRBOOK 
 gboolean addressadd_selection( AddressIndex *addrIndex, const gchar *name, 
 		const gchar *address, const gchar *remarks, GdkPixbuf *picture ) {
 #else
@@ -419,7 +418,7 @@ gboolean addressadd_selection(const gchar *name, const gchar *address,
 							  const gchar *remarks, GdkPixbuf *picture ) {
 #endif
 	gboolean retVal = FALSE;
-#ifndef USE_NEW_ADDRBOOK 
+#ifndef USE_ALT_ADDRBOOK 
 	ItemPerson *person = NULL;
 #endif
 	FolderInfo *fi = NULL;
@@ -428,7 +427,7 @@ gboolean addressadd_selection(const gchar *name, const gchar *address,
 	if( ! addressadd_dlg.window ) addressadd_create();
 
 	addressadd_dlg.fiSelected = NULL;
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressadd_load_data( addrIndex );
 #else
 	addressadd_load_data();
@@ -467,7 +466,7 @@ gboolean addressadd_selection(const gchar *name, const gchar *address,
 
 			fi = addressadd_dlg.fiSelected;
 			
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 			person = addrbook_add_contact( fi->book, fi->folder, 
 							returned_name, 
 							address, 
@@ -482,7 +481,7 @@ gboolean addressadd_selection(const gchar *name, const gchar *address,
 								ADDRITEM_ID(person), ".png", NULL );
 					gdk_pixbuf_save(picture, name, "png", &error, NULL);
 					if (error) {
-						g_warning(_("Failed to save image: \n%s"),
+						g_warning("Failed to save image: %s",
 								error->message);
 						g_error_free(error);
 					}
@@ -541,7 +540,7 @@ gboolean addressadd_selection(const gchar *name, const gchar *address,
 #endif
 			g_free(returned_name);
 			g_free(returned_remarks);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 			if( person ) retVal = TRUE;
 #endif
 		}

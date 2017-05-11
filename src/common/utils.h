@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2014 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
  * The code of the g_utf8_substring function below is owned by
  * Matthias Clasen <matthiasc@src.gnome.org>/<mclasen@redhat.com>
  * and is got from GLIB 2.30
- *
  */
 
 #ifndef __UTILS_H__
@@ -75,6 +74,19 @@ typedef gint64 goffset;
   #define HAVE_U32_TYPEDEF
 #endif
 
+#if !GLIB_CHECK_VERSION(2, 26, 0)
+#define g_base64_decode(t,l)	g_base64_decode_wa((t),(l))
+guchar *g_base64_decode_wa(const gchar *text, gsize *out_len);
+#endif
+
+#if !GLIB_CHECK_VERSION(2, 25, 0)
+# ifdef G_OS_WIN32
+	typedef _g_stat_struct GStatBuf;
+# else
+	typedef struct stat GStatBuf;
+# endif
+#endif
+
 #ifndef BIG_ENDIAN_HOST
   #if (G_BYTE_ORDER == G_BIG_ENDIAN)
     #define BIG_ENDIAN_HOST 1
@@ -102,7 +114,7 @@ typedef gint64 goffset;
 #define Xalloca(ptr, size, iffail) \
 { \
 	if ((ptr = alloca(size)) == NULL) { \
-		g_warning("can't allocate memory\n"); \
+		g_warning("can't allocate memory"); \
 		iffail; \
 	} \
 }
@@ -112,7 +124,7 @@ typedef gint64 goffset;
 	gchar *__tmp; \
  \
 	if ((__tmp = alloca(strlen(str) + 1)) == NULL) { \
-		g_warning("can't allocate memory\n"); \
+		g_warning("can't allocate memory"); \
 		iffail; \
 	} else \
 		strcpy(__tmp, str); \
@@ -125,7 +137,7 @@ typedef gint64 goffset;
 	gchar *__tmp; \
  \
 	if ((__tmp = alloca(len + 1)) == NULL) { \
-		g_warning("can't allocate memory\n"); \
+		g_warning("can't allocate memory"); \
 		iffail; \
 	} else { \
 		strncpy(__tmp, str, len); \
@@ -143,7 +155,7 @@ typedef gint64 goffset;
 	len1 = strlen(str1); \
 	len2 = strlen(str2); \
 	if ((__tmp = alloca(len1 + len2 + 1)) == NULL) { \
-		g_warning("can't allocate memory\n"); \
+		g_warning("can't allocate memory"); \
 		iffail; \
 	} else { \
 		memcpy(__tmp, str1, len1); \
@@ -414,13 +426,11 @@ gchar *get_tmp_file			(void);
 const gchar *get_domain_name		(void);
 const gchar *get_desktop_file(void);
 #ifdef G_OS_WIN32
-const gchar *get_themes_dir             (void);
-const gchar *get_cert_file		(void);
+const gchar *w32_get_themes_dir    (void);
+const gchar *w32_get_cert_file		(void);
 #endif
 /* file / directory handling */
 off_t get_file_size		(const gchar	*file);
-off_t get_file_size_as_crlf	(const gchar	*file);
-
 time_t get_file_mtime		(const gchar *file);
 
 gboolean file_exist		(const gchar	*file,
@@ -492,7 +502,8 @@ char *fgets_crlf(char *buf, int size, FILE *stream);
 
 /* process execution */
 gint execute_command_line	(const gchar	*cmdline,
-				 gboolean	 async);
+				 gboolean	 async,
+				 const gchar	*working_directory);
 gchar *get_command_output	(const gchar	*cmdline);
 
 /* open URI with external browser */
@@ -505,6 +516,8 @@ time_t remote_tzoffset_sec	(const gchar	*zone);
 time_t tzoffset_sec		(time_t		*now);
 gchar *tzoffset			(time_t		*now);
 void get_rfc822_date		(gchar		*buf,
+				 gint		 len);
+void get_rfc822_date_hide_tz	(gchar		*buf,
 				 gint		 len);
 
 size_t fast_strftime		(gchar 			*buf, 
@@ -530,7 +543,6 @@ const gchar * line_has_quote_char	(const gchar *str,
 
 gint g_int_compare	(gconstpointer a, gconstpointer b);
 
-gchar *generate_msgid		(gchar *buf, gint len, gchar *user_addr);
 gchar *generate_mime_boundary	(const gchar *prefix);
 
 gint quote_cmd_argument(gchar * result, guint size,
@@ -592,6 +604,8 @@ gchar   *g_utf8_substring         (const gchar *p,
                                    glong        start_pos,
                                    glong        end_pos) G_GNUC_MALLOC;
 #endif
+
+gboolean get_random_bytes(void *buf, size_t count);
 
 #ifdef __cplusplus
 }

@@ -46,7 +46,7 @@
 #include "stock_pixmap.h"
 #include <pthread.h>
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addrindex.h"
 #else
 	#include "addressbook-dbus.h"
@@ -187,7 +187,9 @@ static gint weight_addr_match(const address_entry* addr)
 	gint	a_weight = addr->address ? strlen(addr->address) : n_weight;
 	gchar* 	match = NULL;
 
-	match = strcasestr(addr->name, g_completion_prefix);
+	if (addr->name)
+		match = strcasestr(addr->name, g_completion_prefix);
+
 	if (match != NULL) {
 		if (match == addr->name)
 			n_weight = -4;
@@ -230,8 +232,8 @@ static gint addr_comparison_func(gconstpointer a, gconstpointer b)
 	else if (a_weight > b_weight)
 		return 1;
 	else {
-	    cmp = strcmp(a_ref->name, b_ref->name);
-	    return cmp ? cmp :  strcmp(a_ref->address, b_ref->address);
+		cmp = strcmp(a_ref->name, b_ref->name);
+		return cmp ? cmp : g_strcmp0(a_ref->address, b_ref->address);
 	}
 }
 
@@ -373,7 +375,7 @@ static void read_address_book(gchar *folderpath) {
 	free_all_addresses();
 	free_completion_list();
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addrindex_load_completion( add_address, folderpath );
 #else
 	GError* error = NULL;
@@ -386,7 +388,9 @@ static void read_address_book(gchar *folderpath) {
 	}
 #endif
 	/* plugins may hook in here to modify/extend the completion list */
-	hooks_invoke(ADDDRESS_COMPLETION_BUILD_ADDRESS_LIST_HOOKLIST, &g_address_list);
+	if(!folderpath) {
+		hooks_invoke(ADDDRESS_COMPLETION_BUILD_ADDRESS_LIST_HOOKLIST, &g_address_list);
+	}
 
 	g_address_list = g_list_reverse(g_address_list);
 	g_completion_list = g_list_reverse(g_completion_list);
@@ -853,7 +857,7 @@ static CompletionWindow *addrcompl_create_window( void ) {
  */
 static void addrcompl_destroy_window( CompletionWindow *cw ) {
 	/* Stop all searches currently in progress */
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addrindex_stop_search( _queryID_ );
 #endif
 	/* Remove idler function... or application may not terminate */
@@ -986,11 +990,11 @@ static void addrcompl_add_entry( CompletionWindow *cw, gchar *address ) {
 	GdkPixbuf *pixbuf;
 	
 	if (!group_pixbuf) {
-		stock_pixbuf_gdk(cw->list_view, STOCK_PIXMAP_ADDR_TWO, &group_pixbuf);
+		stock_pixbuf_gdk(STOCK_PIXMAP_ADDR_TWO, &group_pixbuf);
 		g_object_ref(G_OBJECT(group_pixbuf));
 	}
 	if (!email_pixbuf) {
-		stock_pixbuf_gdk(cw->list_view, STOCK_PIXMAP_ADDR_ONE, &email_pixbuf);
+		stock_pixbuf_gdk(STOCK_PIXMAP_ADDR_ONE, &email_pixbuf);
 		g_object_ref(G_OBJECT(email_pixbuf));
 	}
 	/* g_print( "\t\tAdding :%s\n", address ); */
@@ -1090,7 +1094,7 @@ static gboolean addrcompl_idle( gpointer data ) {
  *                   criteria.
  * \param data       Query data.
  */
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static gint addrcompl_callback_entry(
 	gpointer sender, gint queryID, GList *listEMail, gpointer data )
 {
@@ -1162,7 +1166,7 @@ static void addrcompl_load_local( void ) {
  * Start the search.
  */
 static void addrcompl_start_search( void ) {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	gchar *searchTerm;
 
 	searchTerm = g_strdup( _compWindow_->searchTerm );
@@ -1182,7 +1186,7 @@ static void addrcompl_start_search( void ) {
 		g_idle_add( (GSourceFunc) addrcompl_idle, NULL );
 	/* g_print( "addrindex_start_search::queryID=%d\n", _queryID_ ); */
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addrindex_start_search( _queryID_ );
 #else
 	
@@ -1829,8 +1833,33 @@ static gboolean addr_compl_defer_select_destruct(CompletionWindow *window)
 	return FALSE;
 }
 
+gboolean found_in_addressbook(const gchar *address)
+{
+	gchar *addr = NULL;
+	gboolean found = FALSE;
+	gint num_addr = 0;
+
+	if (!address)
+		return FALSE;
+
+	addr = g_strdup(address);
+	extract_address(addr);
+	num_addr = complete_address(addr);
+	if (num_addr > 1) {
+		/* skip first item (this is the search string itself) */
+		int i = 1;
+		for (; i < num_addr && !found; i++) {
+			gchar *caddr = get_complete_address(i);
+			extract_address(caddr);
+			if (strcasecmp(caddr, addr) == 0)
+				found = TRUE;
+			g_free(caddr);
+		}
+	}
+	g_free(addr);
+	return found;
+}
 
 /*
  * End of Source.
  */
-

@@ -42,6 +42,7 @@
 #include "addr_compl.h"
 #include "utils.h"
 #include "alertpanel.h"
+#include "passwordstore.h"
 
 #ifndef DEV_STANDALONE
 #include "prefs_gtk.h"
@@ -1321,7 +1322,6 @@ static void addrindex_parse_ldap_attrlist( XMLFile *file, LdapControl *ctl ) {
 				break;
 			}
 		}
-		xtag = xtagPrev;
 	}
 
 	/* Build list of search attributes */
@@ -1354,6 +1354,7 @@ static AddressDataSource *addrindex_parse_ldap( XMLFile *file ) {
 	gboolean bDynSearch;
 	gboolean bTLS, bSSL;
 	gint iMatch;
+	gchar *password = NULL;
 
 	/* g_print( "addrindex_parse_ldap\n" ); */
 	/* Set up some defaults */
@@ -1387,7 +1388,7 @@ static AddressDataSource *addrindex_parse_ldap( XMLFile *file ) {
 			ldapctl_set_bind_dn( ctl, value );
 		}
 		else if( strcmp( name, ATTAG_LDAP_BIND_PASS ) == 0 ) {
-			ldapctl_set_bind_password( ctl, value, FALSE, FALSE );
+			password = value;
 		}
 		else if( strcmp( name, ATTAG_LDAP_CRITERIA ) == 0 ) {
 			g_free( criteria );
@@ -1429,6 +1430,9 @@ static AddressDataSource *addrindex_parse_ldap( XMLFile *file ) {
 		}
 		attr = g_list_next( attr );
 	}
+
+	if (password != NULL)
+		passwd_store_set(PWS_CORE, "LDAP", ctl->hostName, password, TRUE);
 
 	server = ldapsvr_create_noctl();
 	ldapsvr_set_name( server, serverName );
@@ -1483,8 +1487,6 @@ static int addrindex_write_ldap( FILE *fp, AddressDataSource *ds, gint lvl ) {
 	if (addrindex_write_attr( fp, ATTAG_LDAP_BASE_DN, ctl->baseDN ) < 0)
 		return -1;
 	if (addrindex_write_attr( fp, ATTAG_LDAP_BIND_DN, ctl->bindDN ) < 0)
-		return -1;
-	if (addrindex_write_attr( fp, ATTAG_LDAP_BIND_PASS, ctl->bindPass ) < 0)
 		return -1;
 
 	sprintf( value, "%d", ctl->maxEntries );
@@ -1791,7 +1793,7 @@ static gint addrindex_write_to( AddressIndex *addrIndex, const gchar *newFile ) 
 	fileSpec = NULL;
 	return addrIndex->retVal;
 fail:
-	g_warning("error writing AB index\n");
+	g_warning("error writing AB index");
 	addrIndex->retVal = MGU_ERROR_WRITE;
 	if (pfile)
 		prefs_file_close_revert( pfile );
@@ -2918,7 +2920,7 @@ gboolean addrindex_load_completion(
 		   folderpath must not be empty or NULL */
 		
 		if( ! addressbook_peek_folder_exists( folderpath, &book, &folder ) ) {
-			g_warning("addrindex_load_completion: folder path '%s' doesn't exist\n", folderpath);
+			g_warning("addrindex_load_completion: folder path '%s' doesn't exist", folderpath);
 			return FALSE;
 		}
 
@@ -2972,7 +2974,7 @@ gboolean addrindex_load_completion(
 				return TRUE;
 
 			} else {
-				g_warning("addrindex_load_completion: book/folder path is valid but got no pointer\n");
+				g_warning("addrindex_load_completion: book/folder path is valid but got no pointer");
 			}
 		}
 		return FALSE;

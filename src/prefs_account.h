@@ -28,8 +28,6 @@ typedef struct _PrefsAccount	PrefsAccount;
 
 typedef enum {
 	A_POP3,
-	A_APOP,	/* deprecated */
-	A_RPOP,	/* deprecated */
 	A_IMAP4,
 	A_NNTP,
 	A_LOCAL,
@@ -191,7 +189,6 @@ struct _PrefsAccount
 	gchar *imap_dir;
 	gboolean imap_subsonly;
 	gboolean low_bandwidth;
-	gboolean imap_use_trash;
 
 	gboolean set_sent_folder;
 	gchar *sent_folder;
@@ -237,8 +234,11 @@ PrefsAccount *prefs_account_open	(PrefsAccount	*ac_prefs, gboolean *dirty);
 
 const gchar *prefs_account_get_privacy_prefs(PrefsAccount *account, gchar *id);
 void prefs_account_set_privacy_prefs(PrefsAccount *account, gchar *id, gchar *new_value);
+gchar *prefs_account_generate_msgid(PrefsAccount *account);
 
 void prefs_account_register_page	(PrefsPage 	*page);
 void prefs_account_unregister_page	(PrefsPage 	*page);
+
+gchar *prefs_account_cache_dir		(PrefsAccount	*ac_prefs, gboolean for_server);
 
 #endif /* PREFS_ACCOUNT_H */

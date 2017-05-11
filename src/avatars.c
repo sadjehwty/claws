@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2014 Ricardo Mones and the Claws Mail team
+ * Copyright (C) 2014-2016 Ricardo Mones and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ gboolean avatars_internal_rendering_hook(gpointer source, gpointer data)
 	gchar *aface;
 
 	if (!(prefs_common.enable_avatars & AVATARS_ENABLE_RENDER)) {
-		debug_print("Internal rendering of avatars is disabled");
+		debug_print("Internal rendering of avatars is disabled\n");
 		return FALSE;
 	}
 
@@ -99,7 +99,7 @@ void avatars_init(void)
 	}
 	avatar_render_hook_id = hooks_register_hook(AVATAR_IMAGE_RENDER_HOOKLIST, avatars_internal_rendering_hook, NULL);
 	if (avatar_render_hook_id == -1) {
-		g_warning(_("Failed to register avatars internal rendering hook"));
+		g_warning("Failed to register avatars internal rendering hook");
 	}
 }
 

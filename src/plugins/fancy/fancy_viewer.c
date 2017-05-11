@@ -30,7 +30,7 @@
 #include <alertpanel.h>
 
 #include <printing.h>
-
+#include <webkit/webkithittestresult.h>
 
 static void
 load_start_cb (WebKitWebView *view, gint progress, FancyViewer *viewer);
@@ -268,15 +268,7 @@ static gint fancy_show_mimepart_prepare(MimeViewer *_viewer)
 {
 	FancyViewer *viewer = (FancyViewer *) _viewer;
 
-	if (viewer->tag > 0) {
-		gtk_timeout_remove(viewer->tag);
-		viewer->tag = -1;
-		if (viewer->loading) {
-			viewer->stop_previous = TRUE;
-		}
-	}
-
-	viewer->tag = g_timeout_add(5, (GSourceFunc)fancy_show_mimepart_real, viewer);
+	g_timeout_add(5, (GSourceFunc)fancy_show_mimepart_real, viewer);
 	return FALSE;
 }
 
@@ -835,11 +827,55 @@ static gboolean release_button_cb (WebKitWebView *view, GdkEvent *ev,
 				   FancyViewer *viewer)
 {
 	if (ev->button.button == 1 && viewer->cur_link && viewer->override_prefs_external) {
+#if WEBKIT_CHECK_VERSION(1,9,3)
+		/* The x and y properties were added in 1.9.3 */
+		gint x, y;
+		WebKitHitTestResult *result;
+		result = webkit_web_view_get_hit_test_result(view, (GdkEventButton *)ev);
+		g_object_get(G_OBJECT(result),
+				"x", &x, "y", &y,
+				NULL);
+
+		/* If this button release is end of a drag or selection event
+		 * (button press happened on different coordinates), we do not
+		 * want to open the link. */
+		if ((x != viewer->click_x || y != viewer->click_y))
+			return FALSE;
+#endif
+
 		open_uri(viewer->cur_link, prefs_common_get_uri_cmd());
 		return TRUE;
 	}
 	return FALSE;
 }
+
+static gboolean press_button_cb (WebKitWebView *view, GdkEvent *ev,
+		FancyViewer *viewer)
+{
+#if WEBKIT_CHECK_VERSION(1,5,1)
+	gint type = 0;
+	WebKitHitTestResult *result =
+		webkit_web_view_get_hit_test_result(view, (GdkEventButton *)ev);
+
+	g_object_get(G_OBJECT(result),
+			"context", &type,
+# if WEBKIT_CHECK_VERSION(1,9,3)
+			"x", &viewer->click_x, "y", &viewer->click_y,
+# endif /* 1.9.3 */
+			NULL);
+
+	if (type & WEBKIT_HIT_TEST_RESULT_CONTEXT_SELECTION)
+		return FALSE;
+
+	viewer->doc = webkit_web_view_get_dom_document(WEBKIT_WEB_VIEW(viewer->view));
+	viewer->window = webkit_dom_document_get_default_view (viewer->doc);
+	viewer->selection = webkit_dom_dom_window_get_selection (viewer->window);
+	if (viewer->selection != NULL)
+		webkit_dom_dom_selection_empty(viewer->selection);
+#endif /* 1.5.1 */
+	return FALSE;
+}
+
 static void zoom_100_cb(GtkWidget *widget, GdkEvent *ev, FancyViewer *viewer)
 {
 	gtk_widget_grab_focus(widget);
@@ -894,7 +930,6 @@ static MimeViewer *fancy_viewer_create(void)
 	viewer->settings = webkit_web_settings_new();
 	g_object_set(viewer->settings, "user-agent", "Fancy Viewer", NULL);
 	viewer->scrollwin = gtk_scrolled_window_new(NULL, NULL);
-	viewer->tag = -1;
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewer->scrollwin),
 				       GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 	gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(viewer->scrollwin),
@@ -982,6 +1017,8 @@ static MimeViewer *fancy_viewer_create(void)
 			G_CALLBACK(resource_request_starting_cb), viewer);
 	g_signal_connect(G_OBJECT(viewer->view), "populate-popup",
 			 G_CALLBACK(populate_popup_cb), viewer);
+	g_signal_connect(G_OBJECT(viewer->view), "button-press-event",
+			 G_CALLBACK(press_button_cb), viewer);
 	g_signal_connect(G_OBJECT(viewer->view), "button-release-event",
 			 G_CALLBACK(release_button_cb), viewer);
 	g_signal_connect(G_OBJECT(viewer->ev_zoom_100), "button-press-event",

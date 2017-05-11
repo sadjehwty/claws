@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -61,7 +60,7 @@
 #include "main.h"
 #include "mainwindow.h"
 #include "compose.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addressbook.h"
 #else
 	#include "addressbook-dbus.h"
@@ -107,6 +106,7 @@
 #include "timing.h"
 #include "autofaces.h"
 #include "spell_entry.h"
+#include "headers.h"
 
 enum
 {
@@ -123,7 +123,8 @@ enum
 
 typedef enum
 {
-	COMPOSE_CALL_ADVANCED_ACTION_MOVE_BEGINNING_OF_LINE,
+	COMPOSE_CALL_ADVANCED_ACTION_UNDEFINED = -1,
+	COMPOSE_CALL_ADVANCED_ACTION_MOVE_BEGINNING_OF_LINE = 0,
 	COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_CHARACTER,
 	COMPOSE_CALL_ADVANCED_ACTION_MOVE_BACKWARD_CHARACTER,
 	COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_WORD,
@@ -184,6 +185,20 @@ typedef enum {
 #define COMPOSE_DRAFT_TIMEOUT_UNSET -1
 #define COMPOSE_DRAFT_TIMEOUT_FORBIDDEN -2
 
+static GdkColor default_header_bgcolor = {
+	(gulong)0,
+	(gushort)0,
+	(gushort)0,
+	(gushort)0
+};
+
+static GdkColor default_header_color = {
+	(gulong)0,
+	(gushort)0,
+	(gushort)0,
+	(gushort)0
+};
+
 static GList *compose_list = NULL;
 static GSList *extra_headers = NULL;
 
@@ -198,7 +213,7 @@ static Compose *compose_create			(PrefsAccount	*account,
 						 ComposeMode	 mode,
 						 gboolean batch);
 
-static void compose_entry_mark_default_to	(Compose	  *compose,
+static void compose_entry_indicate	(Compose	  *compose,
 					 const gchar	  *address);
 static Compose *compose_followup_and_reply_to	(MsgInfo	*msginfo,
 					 ComposeQuoteMode	 quote_mode,
@@ -299,7 +314,7 @@ static gint compose_queue_sub			(Compose	*compose,
 						 gint		*msgnum,
 						 FolderItem	**item,
 						 gchar		**msgpath,
-						 gboolean	check_subject,
+						 gboolean	perform_checks,
 						 gboolean 	remove_reedit_target);
 static int compose_add_attachments		(Compose	*compose,
 						 MimeInfo	*parent);
@@ -336,13 +351,19 @@ static gboolean attach_property_key_pressed	(GtkWidget	*widget,
 
 static void compose_exec_ext_editor		(Compose	*compose);
 #ifdef G_OS_UNIX
-static gint compose_exec_ext_editor_real	(const gchar	*file);
+static gint compose_exec_ext_editor_real	(const gchar	*file,
+						 GdkNativeWindow socket_wid);
 static gboolean compose_ext_editor_kill		(Compose	*compose);
 static gboolean compose_input_cb		(GIOChannel	*source,
 						 GIOCondition	 condition,
 						 gpointer	 data);
 static void compose_set_ext_editor_sensitive	(Compose	*compose,
 						 gboolean	 sensitive);
+static gboolean compose_get_ext_editor_cmd_valid();
+static gboolean compose_get_ext_editor_uses_socket();
+static gboolean compose_ext_editor_plug_removed_cb
+						(GtkSocket      *socket,
+						 Compose        *compose);
 #endif /* G_OS_UNIX */
 
 static void compose_undo_state_changed		(UndoMain	*undostruct,
@@ -550,7 +571,7 @@ static void compose_check_backwards	   (GtkAction *action, gpointer data);
 static void compose_check_forwards_go	   (GtkAction *action, gpointer data);
 #endif
 
-static PrefsAccount *compose_guess_forward_account_from_msginfo	(MsgInfo *msginfo);
+static PrefsAccount *compose_find_account	(MsgInfo *msginfo);
 
 static MsgInfo *compose_msginfo_new_from_compose(Compose *compose);
 
@@ -566,156 +587,154 @@ static void from_name_activate_cb(GtkWidget *widget, gpointer data);
 
 static GtkActionEntry compose_popup_entries[] =
 {
-	{"Compose",			NULL, "Compose" },
-	{"Compose/Add",			NULL, N_("_Add..."), NULL, NULL, G_CALLBACK(compose_attach_cb) },
-	{"Compose/Remove",			NULL, N_("_Remove"), NULL, NULL, G_CALLBACK(compose_attach_remove_selected) },
-	{"Compose/---",			NULL, "---", NULL, NULL, NULL },
-	{"Compose/Properties",		NULL, N_("_Properties..."), NULL, NULL, G_CALLBACK(compose_attach_property) },
+	{"Compose",            NULL, "Compose", NULL, NULL, NULL },
+	{"Compose/Add",        NULL, N_("_Add..."), NULL, NULL, G_CALLBACK(compose_attach_cb) },
+	{"Compose/Remove",     NULL, N_("_Remove"), NULL, NULL, G_CALLBACK(compose_attach_remove_selected) },
+	{"Compose/---",        NULL, "---", NULL, NULL, NULL },
+	{"Compose/Properties", NULL, N_("_Properties..."), NULL, NULL, G_CALLBACK(compose_attach_property) },
 };
 
 static GtkActionEntry compose_entries[] =
 {
-	{"Menu",				NULL, "Menu" },
+	{"Menu",                          NULL, "Menu", NULL, NULL, NULL },
 /* menus */
-	{"Message",			NULL, N_("_Message") },
-	{"Edit",			NULL, N_("_Edit") },
+	{"Message",                       NULL, N_("_Message"), NULL, NULL, NULL },
+	{"Edit",                          NULL, N_("_Edit"), NULL, NULL, NULL },
 #if USE_ENCHANT
-	{"Spelling",			NULL, N_("_Spelling") },
+	{"Spelling",                      NULL, N_("_Spelling"), NULL, NULL, NULL },
 #endif
-	{"Options",			NULL, N_("_Options") },
-	{"Tools",			NULL, N_("_Tools") },
-	{"Help",			NULL, N_("_Help") },
+	{"Options",                       NULL, N_("_Options"), NULL, NULL, NULL },
+	{"Tools",                         NULL, N_("_Tools"), NULL, NULL, NULL },
+	{"Help",                          NULL, N_("_Help"), NULL, NULL, NULL },
 /* Message menu */
-	{"Message/Send",		NULL, N_("S_end"), "<control>Return", NULL, G_CALLBACK(compose_send_cb) },
-	{"Message/SendLater",		NULL, N_("Send _later"), "<shift><control>S", NULL, G_CALLBACK(compose_send_later_cb) },
-	{"Message/---",			NULL, "---" },
+	{"Message/Send",                  NULL, N_("S_end"), "<control>Return", NULL, G_CALLBACK(compose_send_cb) },
+	{"Message/SendLater",             NULL, N_("Send _later"), "<shift><control>S", NULL, G_CALLBACK(compose_send_later_cb) },
+	{"Message/---",                   NULL, "---", NULL, NULL, NULL },
 
-	{"Message/AttachFile",		NULL, N_("_Attach file"), "<control>M", NULL, G_CALLBACK(compose_attach_cb) },
-	{"Message/InsertFile",		NULL, N_("_Insert file"), "<control>I", NULL, G_CALLBACK(compose_insert_file_cb) },
-	{"Message/InsertSig",		NULL, N_("Insert si_gnature"), "<control>G", NULL, G_CALLBACK(compose_insert_sig_cb) },
-	{"Message/ReplaceSig",		NULL, N_("_Replace signature"), NULL, NULL, G_CALLBACK(compose_replace_sig_cb) },
-	/* {"Message/---",		NULL, "---" }, */
-	{"Message/Save",		NULL, N_("_Save"), "<control>S", NULL, G_CALLBACK(compose_save_cb) }, /*COMPOSE_KEEP_EDITING*/
-	/* {"Message/---",		NULL, "---" }, */
-	{"Message/Print",		NULL, N_("_Print"), NULL, NULL, G_CALLBACK(compose_print_cb) },
-	/* {"Message/---",		NULL, "---" }, */
-	{"Message/Close",		NULL, N_("_Close"), "<control>W", NULL, G_CALLBACK(compose_close_cb) },
+	{"Message/AttachFile",            NULL, N_("_Attach file"), "<control>M", NULL, G_CALLBACK(compose_attach_cb) },
+	{"Message/InsertFile",            NULL, N_("_Insert file"), "<control>I", NULL, G_CALLBACK(compose_insert_file_cb) },
+	{"Message/InsertSig",             NULL, N_("Insert si_gnature"), "<control>G", NULL, G_CALLBACK(compose_insert_sig_cb) },
+	{"Message/ReplaceSig",            NULL, N_("_Replace signature"), NULL, NULL, G_CALLBACK(compose_replace_sig_cb) },
+	/* {"Message/---",                NULL, "---", NULL, NULL, NULL }, */
+	{"Message/Save",                  NULL, N_("_Save"), "<control>S", NULL, G_CALLBACK(compose_save_cb) }, /*COMPOSE_KEEP_EDITING*/
+	/* {"Message/---",                NULL, "---", NULL, NULL, NULL }, */
+	{"Message/Print",                 NULL, N_("_Print"), NULL, NULL, G_CALLBACK(compose_print_cb) },
+	/* {"Message/---",                NULL, "---", NULL, NULL, NULL }, */
+	{"Message/Close",                 NULL, N_("_Close"), "<control>W", NULL, G_CALLBACK(compose_close_cb) },
 
 /* Edit menu */
-	{"Edit/Undo",			NULL, N_("_Undo"), "<control>Z", NULL, G_CALLBACK(compose_undo_cb) },
-	{"Edit/Redo",			NULL, N_("_Redo"), "<control>Y", NULL, G_CALLBACK(compose_redo_cb) },
-	{"Edit/---",			NULL, "---" },
+	{"Edit/Undo",                     NULL, N_("_Undo"), "<control>Z", NULL, G_CALLBACK(compose_undo_cb) },
+	{"Edit/Redo",                     NULL, N_("_Redo"), "<control>Y", NULL, G_CALLBACK(compose_redo_cb) },
+	{"Edit/---",                      NULL, "---", NULL, NULL, NULL },
 
-	{"Edit/Cut",			NULL, N_("Cu_t"), "<control>X", NULL, G_CALLBACK(compose_cut_cb) },
-	{"Edit/Copy",			NULL, N_("_Copy"), "<control>C", NULL, G_CALLBACK(compose_copy_cb) },
-	{"Edit/Paste",			NULL, N_("_Paste"), "<control>V", NULL, G_CALLBACK(compose_paste_cb) },
+	{"Edit/Cut",                      NULL, N_("Cu_t"), "<control>X", NULL, G_CALLBACK(compose_cut_cb) },
+	{"Edit/Copy",                     NULL, N_("_Copy"), "<control>C", NULL, G_CALLBACK(compose_copy_cb) },
+	{"Edit/Paste",                    NULL, N_("_Paste"), "<control>V", NULL, G_CALLBACK(compose_paste_cb) },
 
-	{"Edit/SpecialPaste",		NULL, N_("_Special paste") },
-	{"Edit/SpecialPaste/AsQuotation",	NULL, N_("As _quotation"), NULL, NULL, G_CALLBACK(compose_paste_as_quote_cb) },
-	{"Edit/SpecialPaste/Wrapped",	NULL, N_("_Wrapped"), NULL, NULL, G_CALLBACK(compose_paste_wrap_cb) },
-	{"Edit/SpecialPaste/Unwrapped",	NULL, N_("_Unwrapped"), NULL, NULL, G_CALLBACK(compose_paste_no_wrap_cb) },
+	{"Edit/SpecialPaste",             NULL, N_("_Special paste"), NULL, NULL, NULL },
+	{"Edit/SpecialPaste/AsQuotation", NULL, N_("As _quotation"), NULL, NULL, G_CALLBACK(compose_paste_as_quote_cb) },
+	{"Edit/SpecialPaste/Wrapped",     NULL, N_("_Wrapped"), NULL, NULL, G_CALLBACK(compose_paste_wrap_cb) },
+	{"Edit/SpecialPaste/Unwrapped",   NULL, N_("_Unwrapped"), NULL, NULL, G_CALLBACK(compose_paste_no_wrap_cb) },
 
-	{"Edit/SelectAll",		NULL, N_("Select _all"), "<control>A", NULL, G_CALLBACK(compose_allsel_cb) },
+	{"Edit/SelectAll",                NULL, N_("Select _all"), "<control>A", NULL, G_CALLBACK(compose_allsel_cb) },
 
-	{"Edit/Advanced",		NULL, N_("A_dvanced") },
-	{"Edit/Advanced/BackChar",	NULL, N_("Move a character backward"), "<shift><control>B", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BACKWARD_CHARACTER*/
-	{"Edit/Advanced/ForwChar",	NULL, N_("Move a character forward"), "<shift><control>F", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_CHARACTER*/
-	{"Edit/Advanced/BackWord",	NULL, N_("Move a word backward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BACKWARD_WORD*/
-	{"Edit/Advanced/ForwWord",	NULL, N_("Move a word forward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_WORD*/
-	{"Edit/Advanced/BegLine",	NULL, N_("Move to beginning of line"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BEGINNING_OF_LINE*/
-	{"Edit/Advanced/EndLine",	NULL, N_("Move to end of line"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_END_OF_LINE*/
-	{"Edit/Advanced/PrevLine",	NULL, N_("Move to previous line"), "<control>P", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_PREVIOUS_LINE*/
-	{"Edit/Advanced/NextLine",	NULL, N_("Move to next line"), "<control>N", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_NEXT_LINE*/
-	{"Edit/Advanced/DelBackChar",	NULL, N_("Delete a character backward"), "<control>H", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_BACKWARD_CHARACTER*/
-	{"Edit/Advanced/DelForwChar",	NULL, N_("Delete a character forward"), "<control>D", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_FORWARD_CHARACTER*/
-	{"Edit/Advanced/DelBackWord",	NULL, N_("Delete a word backward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_BACKWARD_WORD*/
-	{"Edit/Advanced/DelForwWord",	NULL, N_("Delete a word forward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_FORWARD_WORD*/
-	{"Edit/Advanced/DelLine",	NULL, N_("Delete line"), "<control>U", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_LINE*/
-	{"Edit/Advanced/DelEndLine",	NULL, N_("Delete to end of line"), "<control>K", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_TO_LINE_END*/
+	{"Edit/Advanced",                 NULL, N_("A_dvanced"), NULL, NULL, NULL },
+	{"Edit/Advanced/BackChar",        NULL, N_("Move a character backward"), "<shift><control>B", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BACKWARD_CHARACTER*/
+	{"Edit/Advanced/ForwChar",        NULL, N_("Move a character forward"), "<shift><control>F", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_CHARACTER*/
+	{"Edit/Advanced/BackWord",        NULL, N_("Move a word backward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BACKWARD_WORD*/
+	{"Edit/Advanced/ForwWord",        NULL, N_("Move a word forward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_FORWARD_WORD*/
+	{"Edit/Advanced/BegLine",         NULL, N_("Move to beginning of line"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_BEGINNING_OF_LINE*/
+	{"Edit/Advanced/EndLine",         NULL, N_("Move to end of line"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_END_OF_LINE*/
+	{"Edit/Advanced/PrevLine",        NULL, N_("Move to previous line"), "<control>P", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_PREVIOUS_LINE*/
+	{"Edit/Advanced/NextLine",        NULL, N_("Move to next line"), "<control>N", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_MOVE_NEXT_LINE*/
+	{"Edit/Advanced/DelBackChar",     NULL, N_("Delete a character backward"), "<control>H", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_BACKWARD_CHARACTER*/
+	{"Edit/Advanced/DelForwChar",     NULL, N_("Delete a character forward"), "<control>D", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_FORWARD_CHARACTER*/
+	{"Edit/Advanced/DelBackWord",     NULL, N_("Delete a word backward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_BACKWARD_WORD*/
+	{"Edit/Advanced/DelForwWord",     NULL, N_("Delete a word forward"), NULL, NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_FORWARD_WORD*/
+	{"Edit/Advanced/DelLine",         NULL, N_("Delete line"), "<control>U", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_LINE*/
+	{"Edit/Advanced/DelEndLine",      NULL, N_("Delete to end of line"), "<control>K", NULL, G_CALLBACK(compose_advanced_action_cb) }, /*COMPOSE_CALL_ADVANCED_ACTION_DELETE_TO_LINE_END*/
 
-	/* {"Edit/---",			NULL, "---" }, */
-	{"Edit/Find",		NULL, N_("_Find"), "<control>F", NULL, G_CALLBACK(compose_find_cb) },
+	/* {"Edit/---",                   NULL, "---", NULL, NULL, NULL }, */
+	{"Edit/Find",                     NULL, N_("_Find"), "<control>F", NULL, G_CALLBACK(compose_find_cb) },
 
-	/* {"Edit/---",			NULL, "---" }, */
-	{"Edit/WrapPara",		NULL, N_("_Wrap current paragraph"), "<control>L", NULL, G_CALLBACK(compose_wrap_cb) }, /* 0 */
-	{"Edit/WrapAllLines",		NULL, N_("Wrap all long _lines"), "<control><alt>L", NULL, G_CALLBACK(compose_wrap_all_cb) }, /* 1 */
-	/* {"Edit/---",			NULL, "---" }, */
-	{"Edit/ExtEditor",		NULL, N_("Edit with e_xternal editor"), "<shift><control>X", NULL, G_CALLBACK(compose_ext_editor_cb) },
+	/* {"Edit/---",                   NULL, "---", NULL, NULL, NULL }, */
+	{"Edit/WrapPara",                 NULL, N_("_Wrap current paragraph"), "<control>L", NULL, G_CALLBACK(compose_wrap_cb) }, /* 0 */
+	{"Edit/WrapAllLines",             NULL, N_("Wrap all long _lines"), "<control><alt>L", NULL, G_CALLBACK(compose_wrap_all_cb) }, /* 1 */
+	/* {"Edit/---",                   NULL, "---", NULL, NULL, NULL }, */
+	{"Edit/ExtEditor",                NULL, N_("Edit with e_xternal editor"), "<shift><control>X", NULL, G_CALLBACK(compose_ext_editor_cb) },
 #if USE_ENCHANT
 /* Spelling menu */
-	{"Spelling/CheckAllSel",	NULL, N_("_Check all or check selection"), NULL, NULL, G_CALLBACK(compose_check_all) },
-	{"Spelling/HighlightAll",	NULL, N_("_Highlight all misspelled words"), NULL, NULL, G_CALLBACK(compose_highlight_all) },
-	{"Spelling/CheckBackwards",	NULL, N_("Check _backwards misspelled word"), NULL, NULL, G_CALLBACK(compose_check_backwards) },
-	{"Spelling/ForwardNext",	NULL, N_("_Forward to next misspelled word"), NULL, NULL, G_CALLBACK(compose_check_forwards_go) },
+	{"Spelling/CheckAllSel",          NULL, N_("_Check all or check selection"), NULL, NULL, G_CALLBACK(compose_check_all) },
+	{"Spelling/HighlightAll",         NULL, N_("_Highlight all misspelled words"), NULL, NULL, G_CALLBACK(compose_highlight_all) },
+	{"Spelling/CheckBackwards",       NULL, N_("Check _backwards misspelled word"), NULL, NULL, G_CALLBACK(compose_check_backwards) },
+	{"Spelling/ForwardNext",          NULL, N_("_Forward to next misspelled word"), NULL, NULL, G_CALLBACK(compose_check_forwards_go) },
 
-	{"Spelling/---",		NULL, "---" },
-	{"Spelling/Options",		NULL, N_("_Options") },
+	{"Spelling/---",                  NULL, "---", NULL, NULL, NULL },
+	{"Spelling/Options",              NULL, N_("_Options"), NULL, NULL, NULL },
 #endif
 
 /* Options menu */
+	{"Options/ReplyMode",                 NULL, N_("Reply _mode"), NULL, NULL, NULL },
+	{"Options/---",                       NULL, "---", NULL, NULL, NULL },
+	{"Options/PrivacySystem",             NULL, N_("Privacy _System"), NULL, NULL, NULL },
+	{"Options/PrivacySystem/PlaceHolder", NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
 
-	{"Options/ReplyMode",		NULL, N_("Reply _mode") },
-	{"Options/---",			NULL, "---" },
-	{"Options/PrivacySystem",	NULL, N_("Privacy _System") },
-	{"Options/PrivacySystem/PlaceHolder",	NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
+	/* {"Options/---",                NULL, "---", NULL, NULL, NULL }, */
+	{"Options/Priority",              NULL, N_("_Priority"), NULL, NULL, NULL },
 
-	/* {"Options/---",		NULL, "---" }, */
-
-	{"Options/Priority",		NULL, N_("_Priority") },
-
-	{"Options/Encoding",		NULL, N_("Character _encoding") },
-	{"Options/Encoding/---",	NULL, "---" },
+	{"Options/Encoding",              NULL, N_("Character _encoding"), NULL, NULL, NULL },
+	{"Options/Encoding/---",          NULL, "---", NULL, NULL, NULL },
 #define ENC_ACTION(cs_char,c_char,string) \
-	{ "Options/Encoding/" cs_char, NULL, N_(string), NULL, NULL, c_char }
+	{"Options/Encoding/" cs_char, NULL, N_(string), NULL, NULL, c_char }
 
-	{"Options/Encoding/Western",	NULL, N_("Western European") },
-	{"Options/Encoding/Baltic",	NULL, N_("Baltic") },
-	{"Options/Encoding/Hebrew",	NULL, N_("Hebrew") },
-	{"Options/Encoding/Arabic",	NULL, N_("Arabic") },
-	{"Options/Encoding/Cyrillic",	NULL, N_("Cyrillic") },
-	{"Options/Encoding/Japanese",	NULL, N_("Japanese") },
-	{"Options/Encoding/Chinese",	NULL, N_("Chinese") },
-	{"Options/Encoding/Korean",	NULL, N_("Korean") },
-	{"Options/Encoding/Thai",	NULL, N_("Thai") },
+	{"Options/Encoding/Western",      NULL, N_("Western European"), NULL, NULL, NULL },
+	{"Options/Encoding/Baltic",       NULL, N_("Baltic"), NULL, NULL, NULL },
+	{"Options/Encoding/Hebrew",       NULL, N_("Hebrew"), NULL, NULL, NULL },
+	{"Options/Encoding/Arabic",       NULL, N_("Arabic"), NULL, NULL, NULL },
+	{"Options/Encoding/Cyrillic",     NULL, N_("Cyrillic"), NULL, NULL, NULL },
+	{"Options/Encoding/Japanese",     NULL, N_("Japanese"), NULL, NULL, NULL },
+	{"Options/Encoding/Chinese",      NULL, N_("Chinese"), NULL, NULL, NULL },
+	{"Options/Encoding/Korean",       NULL, N_("Korean"), NULL, NULL, NULL },
+	{"Options/Encoding/Thai",         NULL, N_("Thai"), NULL, NULL, NULL },
 
 /* Tools menu */
-	{"Tools/AddressBook",		NULL, N_("_Address book"), NULL, NULL, G_CALLBACK(compose_address_cb) }, 
+	{"Tools/AddressBook",             NULL, N_("_Address book"), NULL, NULL, G_CALLBACK(compose_address_cb) }, 
 
-	{"Tools/Template",	NULL, N_("_Template") },
-	{"Tools/Template/PlaceHolder",	NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
-	{"Tools/Actions",	NULL, N_("Actio_ns") },
-	{"Tools/Actions/PlaceHolder",	NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
+	{"Tools/Template",                NULL, N_("_Template"), NULL, NULL, NULL },
+	{"Tools/Template/PlaceHolder",    NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
+	{"Tools/Actions",                 NULL, N_("Actio_ns"), NULL, NULL, NULL },
+	{"Tools/Actions/PlaceHolder",     NULL, "Placeholder", NULL, NULL, G_CALLBACK(compose_nothing_cb) },
 
 /* Help menu */
-	{"Help/About",		NULL, N_("_About"), NULL, NULL, G_CALLBACK(about_show_cb) }, 
+	{"Help/About",                    NULL, N_("_About"), NULL, NULL, G_CALLBACK(about_show_cb) }, 
 };
 
 static GtkToggleActionEntry compose_toggle_entries[] =
 {
-	{"Edit/AutoWrap",		NULL, N_("Aut_o wrapping"), "<shift><control>L", NULL, G_CALLBACK(compose_toggle_autowrap_cb) }, /* TOGGLE */
-	{"Edit/AutoIndent",		NULL, N_("Auto _indent"), NULL, NULL, G_CALLBACK(compose_toggle_autoindent_cb) }, /* TOGGLE */
-	{"Options/Sign",		NULL, N_("Si_gn"), NULL, NULL, G_CALLBACK(compose_toggle_sign_cb) }, /* Toggle */
-	{"Options/Encrypt",		NULL, N_("_Encrypt"), NULL, NULL, G_CALLBACK(compose_toggle_encrypt_cb) }, /* Toggle */
-	{"Options/RequestRetRcpt",	NULL, N_("_Request Return Receipt"), NULL, NULL, G_CALLBACK(compose_toggle_return_receipt_cb) }, /* TOGGLE */
-	{"Options/RemoveReferences",	NULL, N_("Remo_ve references"), NULL, NULL, G_CALLBACK(compose_toggle_remove_refs_cb) }, /* TOGGLE */
-	{"Tools/ShowRuler",		NULL, N_("Show _ruler"), NULL, NULL, G_CALLBACK(compose_toggle_ruler_cb) }, /* Toggle */
+	{"Edit/AutoWrap",            NULL, N_("Aut_o wrapping"), "<shift><control>L", NULL, G_CALLBACK(compose_toggle_autowrap_cb), FALSE }, /* Toggle */
+	{"Edit/AutoIndent",          NULL, N_("Auto _indent"), NULL, NULL, G_CALLBACK(compose_toggle_autoindent_cb), FALSE }, /* Toggle */
+	{"Options/Sign",             NULL, N_("Si_gn"), NULL, NULL, G_CALLBACK(compose_toggle_sign_cb), FALSE }, /* Toggle */
+	{"Options/Encrypt",          NULL, N_("_Encrypt"), NULL, NULL, G_CALLBACK(compose_toggle_encrypt_cb), FALSE }, /* Toggle */
+	{"Options/RequestRetRcpt",   NULL, N_("_Request Return Receipt"), NULL, NULL, G_CALLBACK(compose_toggle_return_receipt_cb), FALSE }, /* Toggle */
+	{"Options/RemoveReferences", NULL, N_("Remo_ve references"), NULL, NULL, G_CALLBACK(compose_toggle_remove_refs_cb), FALSE }, /* Toggle */
+	{"Tools/ShowRuler",          NULL, N_("Show _ruler"), NULL, NULL, G_CALLBACK(compose_toggle_ruler_cb), FALSE }, /* Toggle */
 };
 
 static GtkRadioActionEntry compose_radio_rm_entries[] =
 {
-	{"Options/ReplyMode/Normal",	NULL, N_("_Normal"), NULL, NULL, COMPOSE_REPLY }, /* RADIO compose_reply_change_mode_cb */
-	{"Options/ReplyMode/All",	NULL, N_("_All"), NULL, NULL, COMPOSE_REPLY_TO_ALL }, /* RADIO compose_reply_change_mode_cb */
-	{"Options/ReplyMode/Sender",	NULL, N_("_Sender"), NULL, NULL, COMPOSE_REPLY_TO_SENDER }, /* RADIO compose_reply_change_mode_cb */
-	{"Options/ReplyMode/List",	NULL, N_("_Mailing-list"), NULL, NULL, COMPOSE_REPLY_TO_LIST }, /* RADIO compose_reply_change_mode_cb */
+	{"Options/ReplyMode/Normal", NULL, N_("_Normal"), NULL, NULL, COMPOSE_REPLY }, /* RADIO compose_reply_change_mode_cb */
+	{"Options/ReplyMode/All",    NULL, N_("_All"), NULL, NULL, COMPOSE_REPLY_TO_ALL }, /* RADIO compose_reply_change_mode_cb */
+	{"Options/ReplyMode/Sender", NULL, N_("_Sender"), NULL, NULL, COMPOSE_REPLY_TO_SENDER }, /* RADIO compose_reply_change_mode_cb */
+	{"Options/ReplyMode/List",   NULL, N_("_Mailing-list"), NULL, NULL, COMPOSE_REPLY_TO_LIST }, /* RADIO compose_reply_change_mode_cb */
 };
 
 static GtkRadioActionEntry compose_radio_prio_entries[] =
 {
-	{"Options/Priority/Highest",	NULL, N_("_Highest"), NULL, NULL, PRIORITY_HIGHEST }, /* RADIO compose_set_priority_cb */
-	{"Options/Priority/High",	NULL, N_("Hi_gh"), NULL, NULL, PRIORITY_HIGH }, /* RADIO compose_set_priority_cb */
-	{"Options/Priority/Normal",	NULL, N_("_Normal"), NULL, NULL, PRIORITY_NORMAL }, /* RADIO compose_set_priority_cb */
-	{"Options/Priority/Low",	NULL, N_("Lo_w"), NULL, NULL, PRIORITY_LOW }, /* RADIO compose_set_priority_cb */
-	{"Options/Priority/Lowest",	NULL, N_("_Lowest"), NULL, NULL, PRIORITY_LOWEST }, /* RADIO compose_set_priority_cb */
+	{"Options/Priority/Highest", NULL, N_("_Highest"), NULL, NULL, PRIORITY_HIGHEST }, /* RADIO compose_set_priority_cb */
+	{"Options/Priority/High",    NULL, N_("Hi_gh"), NULL, NULL, PRIORITY_HIGH }, /* RADIO compose_set_priority_cb */
+	{"Options/Priority/Normal",  NULL, N_("_Normal"), NULL, NULL, PRIORITY_NORMAL }, /* RADIO compose_set_priority_cb */
+	{"Options/Priority/Low",     NULL, N_("Lo_w"), NULL, NULL, PRIORITY_LOW }, /* RADIO compose_set_priority_cb */
+	{"Options/Priority/Lowest",  NULL, N_("_Lowest"), NULL, NULL, PRIORITY_LOWEST }, /* RADIO compose_set_priority_cb */
 };
 
 static GtkRadioActionEntry compose_radio_enc_entries[] =
@@ -899,7 +918,7 @@ static void compose_create_tags(GtkTextView *text, Compose *compose)
 
 	for (i = 0; i < 8; i++) {
 		if (success[i] == FALSE) {
-			g_warning("Compose: color allocation failed.\n");
+			g_warning("Compose: color allocation failed.");
 			quote_color1 = quote_color2 = quote_color3 = 
 				quote_bgcolor1 = quote_bgcolor2 = quote_bgcolor3 = 
 				signature_color = uri_color = black;
@@ -1199,7 +1218,7 @@ Compose *compose_generic_new(PrefsAccount *account, const gchar *mailto, FolderI
 		}
 
 	}
-	procmsg_msginfo_free( dummyinfo );
+	procmsg_msginfo_free( &dummyinfo );
 
 	if (attach_files) {
 		GList *curr;
@@ -1443,7 +1462,7 @@ static Compose *compose_reply_mode(ComposeMode mode, GSList *msginfo_list, gchar
 		compose = compose_redirect(NULL, msginfo, FALSE);
 		break;
 	default:
-		g_warning("compose_reply_mode(): invalid Compose Mode: %d\n", mode);
+		g_warning("compose_reply_mode(): invalid Compose Mode: %d", mode);
 	}
 	
 	if (compose == NULL) {
@@ -1529,7 +1548,7 @@ static void compose_extract_original_charset(Compose *compose)
 				g_strdup(procmime_mimeinfo_get_parameter(
 						partinfo, "charset"));
 		}
-		procmime_mimeinfo_free_all(mimeinfo);
+		procmime_mimeinfo_free_all(&mimeinfo);
 	}
 }
 
@@ -1751,9 +1770,7 @@ Compose *compose_forward(PrefsAccount *account, MsgInfo *msginfo,
 	cm_return_val_if_fail(msginfo != NULL, NULL);
 	cm_return_val_if_fail(msginfo->folder != NULL, NULL);
 
-	if (!account && 
-	    !(account = compose_guess_forward_account_from_msginfo
-				(msginfo)))
+	if (!account && !(account = compose_find_account(msginfo)))
 		account = cur_account;
 
 	if (!prefs_common.forward_as_attachment)
@@ -1820,7 +1837,7 @@ Compose *compose_forward(PrefsAccount *account, MsgInfo *msginfo,
 		quote_fmt_reset_vartable();
 
 		g_free(tmp);
-		procmsg_msginfo_free(full_msginfo);
+		procmsg_msginfo_free(&full_msginfo);
 	}
 
 	textview = GTK_TEXT_VIEW(compose->text);
@@ -1833,7 +1850,7 @@ Compose *compose_forward(PrefsAccount *account, MsgInfo *msginfo,
 
 		msgfile = procmsg_get_message_file(msginfo);
 		if (!is_file_exist(msgfile))
-			g_warning("%s: file not exist\n", msgfile);
+			g_warning("%s: file does not exist", msgfile);
 		else
 			compose_attach_append(compose, msgfile, msgfile,
 					      "message/rfc822", NULL);
@@ -1879,7 +1896,7 @@ Compose *compose_forward(PrefsAccount *account, MsgInfo *msginfo,
 		quote_fmt_reset_vartable();
 		compose_attach_parts(compose, msginfo);
 
-		procmsg_msginfo_free(full_msginfo);
+		procmsg_msginfo_free(&full_msginfo);
 	}
 
 	SIGNAL_BLOCK(textbuf);
@@ -1957,8 +1974,7 @@ static Compose *compose_forward_multiple(PrefsAccount *account, GSList *msginfo_
 
 	/* guess account from first selected message */
 	if (!account && 
-	    !(account = compose_guess_forward_account_from_msginfo
-				(msginfo_list->data)))
+	    !(account = compose_find_account(msginfo_list->data)))
 		account = cur_account;
 
 	cm_return_val_if_fail(account != NULL, NULL);
@@ -2024,7 +2040,7 @@ static Compose *compose_forward_multiple(PrefsAccount *account, GSList *msginfo_
 		msgfile = procmsg_get_message_file((MsgInfo *)msginfo->data);
 
 		if (!is_file_exist(msgfile))
-			g_warning("%s: file not exist\n", msgfile);
+			g_warning("%s: file does not exist", msgfile);
 		else
 			compose_attach_append(compose, msgfile, msgfile,
 				"message/rfc822", NULL);
@@ -2062,6 +2078,9 @@ static Compose *compose_forward_multiple(PrefsAccount *account, GSList *msginfo_
 	
 	gtk_text_buffer_get_start_iter(textbuf, &iter);
 	gtk_text_buffer_place_cursor(textbuf, &iter);
+
+	if (prefs_common.auto_exteditor)
+		compose_exec_ext_editor(compose);
 
 	gtk_widget_grab_focus(compose->header_last->entry);
 	undo_unblock(compose->undostruct);
@@ -2206,7 +2225,6 @@ Compose *compose_reedit(MsgInfo *msginfo, gboolean batch)
 	GtkTextMark *mark;
 	GtkTextIter iter;
 	FILE *fp;
-	gchar buf[BUFFSIZE];
 	gboolean use_signing = FALSE;
 	gboolean use_encryption = FALSE;
 	gchar *privacy_system = NULL;
@@ -2226,124 +2244,141 @@ Compose *compose_reedit(MsgInfo *msginfo, gboolean batch)
         if (folder_has_parent_of_type(msginfo->folder, F_QUEUE) ||
 	    folder_has_parent_of_type(msginfo->folder, F_DRAFT) ||
 	    folder_has_parent_of_type(msginfo->folder, F_OUTBOX)) {
-		gchar queueheader_buf[BUFFSIZE];
+		gchar *queueheader_buf = NULL;
 		gint id, param;
 
 		/* Select Account from queue headers */
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Claws-Account-Id:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+											"X-Claws-Account-Id:")) {
 			id = atoi(&queueheader_buf[strlen("X-Claws-Account-Id:")]);
 			account = account_find_from_id(id);
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Sylpheed-Account-Id:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+											"X-Sylpheed-Account-Id:")) {
 			id = atoi(&queueheader_buf[strlen("X-Sylpheed-Account-Id:")]);
 			account = account_find_from_id(id);
+			g_free(queueheader_buf);
 		}
-		if (!account && !procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "NAID:")) {
+		if (!account && !procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+											"NAID:")) {
 			id = atoi(&queueheader_buf[strlen("NAID:")]);
 			account = account_find_from_id(id);
+			g_free(queueheader_buf);
 		}
-		if (!account && !procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-		                                    sizeof(queueheader_buf), "MAID:")) {
+		if (!account && !procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+											"MAID:")) {
 			id = atoi(&queueheader_buf[strlen("MAID:")]);
 			account = account_find_from_id(id);
+			g_free(queueheader_buf);
 		}
-		if (!account && !procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-		                                                sizeof(queueheader_buf), "S:")) {
+		if (!account && !procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+											"S:")) {
 			account = account_find_from_address(queueheader_buf, FALSE);
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Claws-Sign:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Claws-Sign:")) {
 			param = atoi(&queueheader_buf[strlen("X-Claws-Sign:")]);
 			use_signing = param;
-			
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Sylpheed-Sign:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Sylpheed-Sign:")) {
 			param = atoi(&queueheader_buf[strlen("X-Sylpheed-Sign:")]);
 			use_signing = param;
-			
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Claws-Encrypt:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Claws-Encrypt:")) {
 			param = atoi(&queueheader_buf[strlen("X-Claws-Encrypt:")]);
 			use_encryption = param;
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Sylpheed-Encrypt:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Sylpheed-Encrypt:")) {
 			param = atoi(&queueheader_buf[strlen("X-Sylpheed-Encrypt:")]);
 			use_encryption = param;
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Claws-Auto-Wrapping:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Claws-Auto-Wrapping:")) {
 			param = atoi(&queueheader_buf[strlen("X-Claws-Auto-Wrapping:")]);
 			autowrap = param;
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Claws-Auto-Indent:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"X-Claws-Auto-Indent:")) {
 			param = atoi(&queueheader_buf[strlen("X-Claws-Auto-Indent:")]);
 			autoindent = param;
+			g_free(queueheader_buf);
 		}
-                if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-                                            sizeof(queueheader_buf), "X-Claws-Privacy-System:")) {
-                        privacy_system = g_strdup(&queueheader_buf[strlen("X-Claws-Privacy-System:")]);
-                }
-                if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-                                            sizeof(queueheader_buf), "X-Sylpheed-Privacy-System:")) {
-                        privacy_system = g_strdup(&queueheader_buf[strlen("X-Sylpheed-Privacy-System:")]);
-                }
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "X-Priority: ")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+                            		"X-Claws-Privacy-System:")) {
+			privacy_system = g_strdup(&queueheader_buf[strlen("X-Claws-Privacy-System:")]);
+			g_free(queueheader_buf);
+		}
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+                            		"X-Sylpheed-Privacy-System:")) {
+			privacy_system = g_strdup(&queueheader_buf[strlen("X-Sylpheed-Privacy-System:")]);
+			g_free(queueheader_buf);
+		}
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					    					"X-Priority: ")) {
 			param = atoi(&queueheader_buf[strlen("X-Priority: ")]); /* mind the space */
 			priority = param;
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "RMID:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf,
+											"RMID:")) {
 			gchar **tokens = g_strsplit(&queueheader_buf[strlen("RMID:")], "\t", 0);
-			if (tokens[0] && tokens[1] && tokens[2]) {
+			if (tokens && tokens[0] && tokens[1] && tokens[2]) {
 				FolderItem *orig_item = folder_find_item_from_identifier(tokens[0]);
 				if (orig_item != NULL) {
 					replyinfo = folder_item_get_msginfo_by_msgid(orig_item, tokens[2]);
 				}
+				g_strfreev(tokens);
 			}
-			g_strfreev(tokens);
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, 
-					     sizeof(queueheader_buf), "FMID:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, 
+					     					"FMID:")) {
 			gchar **tokens = g_strsplit(&queueheader_buf[strlen("FMID:")], "\t", 0);
-			if (tokens[0] && tokens[1] && tokens[2]) {
+			if (tokens && tokens[0] && tokens[1] && tokens[2]) {
 				FolderItem *orig_item = folder_find_item_from_identifier(tokens[0]);
 				if (orig_item != NULL) {
 					fwdinfo = folder_item_get_msginfo_by_msgid(orig_item, tokens[2]);
 				}
+				g_strfreev(tokens);
 			}
-			g_strfreev(tokens);
+			g_free(queueheader_buf);
 		}
 		/* Get manual headers */
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, sizeof(queueheader_buf), "X-Claws-Manual-Headers:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf,
+											"X-Claws-Manual-Headers:")) {
 			gchar *listmh = g_strdup(&queueheader_buf[strlen("X-Claws-Manual-Headers:")]);
-			if (*listmh != '\0') {
+			if (listmh && *listmh != '\0') {
 				debug_print("Got manual headers: %s\n", listmh);
 				manual_headers = procheader_entries_from_str(listmh);
+				g_free(listmh);
 			}
-			g_free(listmh);
+			g_free(queueheader_buf);
 		}
 	} else {
 		account = msginfo->folder->folder->account;
 	}
 
 	if (!account && prefs_common.reedit_account_autosel) {
-               	gchar from[BUFFSIZE];
-		if (!procheader_get_header_from_msginfo(msginfo, from, sizeof(from), "FROM:")) {
-		        extract_address(from);
-		        account = account_find_from_address(from, FALSE);
-                }
+		gchar *from = NULL;
+		if (!procheader_get_header_from_msginfo(msginfo, &from, "FROM:")) {
+			extract_address(from);
+			account = account_find_from_address(from, FALSE);
+			g_free(from);
+		}
 	}
-        if (!account) {
-        	account = cur_account;
-        }
+	if (!account) {
+		account = cur_account;
+	}
 	cm_return_val_if_fail(account != NULL, NULL);
 
 	compose = compose_create(account, msginfo->folder, COMPOSE_REEDIT, batch);
@@ -2370,21 +2405,23 @@ Compose *compose_reedit(MsgInfo *msginfo, gboolean batch)
 
 	compose_extract_original_charset(compose);
 
-        if (folder_has_parent_of_type(msginfo->folder, F_QUEUE) ||
+	if (folder_has_parent_of_type(msginfo->folder, F_QUEUE) ||
 	    folder_has_parent_of_type(msginfo->folder, F_DRAFT) ||
 	    folder_has_parent_of_type(msginfo->folder, F_OUTBOX)) {
-		gchar queueheader_buf[BUFFSIZE];
+		gchar *queueheader_buf = NULL;
 
 		/* Set message save folder */
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, sizeof(queueheader_buf), "SCF:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, "SCF:")) {
 			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(compose->savemsg_checkbtn), TRUE);
 			compose_set_save_to(compose, &queueheader_buf[4]);
+			g_free(queueheader_buf);
 		}
-		if (!procheader_get_header_from_msginfo(msginfo, queueheader_buf, sizeof(queueheader_buf), "RRCPT:")) {
+		if (!procheader_get_header_from_msginfo(msginfo, &queueheader_buf, "RRCPT:")) {
 			gint active = atoi(&queueheader_buf[strlen("RRCPT:")]);
 			if (active) {
 				cm_toggle_menu_set_active_full(compose->ui_manager, "Menu/Options/RequestRetRcpt", TRUE);
 			}
+			g_free(queueheader_buf);
 		}
 	}
 	
@@ -2415,10 +2452,11 @@ Compose *compose_reedit(MsgInfo *msginfo, gboolean batch)
 		fp = procmime_get_first_text_content(msginfo);
 	}
 	if (fp == NULL) {
-		g_warning("Can't get text part\n");
+		g_warning("Can't get text part");
 	}
 
 	if (fp != NULL) {
+		gchar buf[BUFFSIZE];
 		gboolean prev_autowrap;
 		GtkTextBuffer *buffer;
 		BLOCK_WRAP();
@@ -2635,6 +2673,7 @@ void compose_entry_append(Compose *compose, const gchar *address,
 			while (*tmp == ' ' || *tmp == '\t')
 				tmp++;
 			compose_add_header_entry(compose, header, tmp, pref_type);
+			compose_entry_indicate(compose, tmp);
 			g_free(o_tmp);
 			continue;
 		}
@@ -2647,50 +2686,26 @@ void compose_entry_append(Compose *compose, const gchar *address,
 		while (*tmp == ' ' || *tmp == '\t')
 			tmp++;
 		compose_add_header_entry(compose, header, tmp, pref_type);
+		compose_entry_indicate(compose, tmp);
 		g_free(o_tmp);		
 	}
 }
 
-static void compose_entry_mark_default_to(Compose *compose, const gchar *mailto)
+static void compose_entry_indicate(Compose *compose, const gchar *mailto)
 {
-#if !GTK_CHECK_VERSION(3, 0, 0)
-	static GdkColor yellow;
-	static GdkColor black;
-	static gboolean yellow_initialised = FALSE;
-#else
-	static GdkColor yellow = { (guint32)0, (guint16)0xf5, (guint16)0xf6, (guint16)0xbe };
-	static GdkColor black = { (guint32)0, (guint16)0x0, (guint16)0x0, (guint16)0x0 };
-#endif
 	GSList *h_list;
 	GtkEntry *entry;
 		
-#if !GTK_CHECK_VERSION(3, 0, 0)
-	if (!yellow_initialised) {
-		gdk_color_parse("#f5f6be", &yellow);
-		gdk_color_parse("#000000", &black);
-		yellow_initialised = gdk_colormap_alloc_color(
-			gdk_colormap_get_system(), &yellow, FALSE, TRUE);
-		yellow_initialised &= gdk_colormap_alloc_color(
-			gdk_colormap_get_system(), &black, FALSE, TRUE);
-	}
-#endif
-
 	for (h_list = compose->header_list; h_list != NULL; h_list = h_list->next) {
 		entry = GTK_ENTRY(((ComposeHeaderEntry *)h_list->data)->entry);
 		if (gtk_entry_get_text(entry) && 
 		    !g_utf8_collate(gtk_entry_get_text(entry), mailto)) {
-#if !GTK_CHECK_VERSION(3, 0, 0)
-			if (yellow_initialised) {
-#endif
 				gtk_widget_modify_base(
 					GTK_WIDGET(((ComposeHeaderEntry *)h_list->data)->entry),
-					GTK_STATE_NORMAL, &yellow);
+					GTK_STATE_NORMAL, &default_header_bgcolor);
 				gtk_widget_modify_text(
 					GTK_WIDGET(((ComposeHeaderEntry *)h_list->data)->entry),
-					GTK_STATE_NORMAL, &black);
-#if !GTK_CHECK_VERSION(3, 0, 0)
-			}
-#endif
+					GTK_STATE_NORMAL, &default_header_color);
 		}
 	}
 }
@@ -2706,7 +2721,7 @@ void compose_toolbar_cb(gint action, gpointer data)
 	case A_SEND:
 		compose_send_cb(NULL, compose);
 		break;
-	case A_SENDL:
+	case A_SEND_LATER:
 		compose_send_later_cb(NULL, compose);
 		break;
 	case A_DRAFT:
@@ -2850,26 +2865,28 @@ static MailField compose_entries_set(Compose *compose, const gchar *mailto, Comp
 
 static gint compose_parse_header(Compose *compose, MsgInfo *msginfo)
 {
-	static HeaderEntry hentry[] = {{"Reply-To:",	NULL, TRUE},
-				       {"Cc:",		NULL, TRUE},
-				       {"References:",	NULL, FALSE},
-				       {"Bcc:",		NULL, TRUE},
-				       {"Newsgroups:",  NULL, TRUE},
-				       {"Followup-To:", NULL, TRUE},
-				       {"List-Post:",	NULL, FALSE},
-				       {"X-Priority:",	NULL, FALSE},
-				       {NULL,		NULL, FALSE}};
+	static HeaderEntry hentry[] = {
+				       {"Reply-To:",    NULL, TRUE },
+				       {"Cc:",          NULL, TRUE },
+				       {"References:",  NULL, FALSE },
+				       {"Bcc:",         NULL, TRUE },
+				       {"Newsgroups:",  NULL, TRUE },
+				       {"Followup-To:", NULL, TRUE },
+				       {"List-Post:",   NULL, FALSE },
+				       {"X-Priority:",  NULL, FALSE },
+				       {NULL,           NULL, FALSE }
+	};
 
 	enum
 	{
-		H_REPLY_TO	= 0,
-		H_CC		= 1,
-		H_REFERENCES	= 2,
-		H_BCC		= 3,
-		H_NEWSGROUPS	= 4,
-		H_FOLLOWUP_TO	= 5,
-		H_LIST_POST	= 6,
- 		H_X_PRIORITY	= 7
+		H_REPLY_TO    = 0,
+		H_CC          = 1,
+		H_REFERENCES  = 2,
+		H_BCC         = 3,
+		H_NEWSGROUPS  = 4,
+		H_FOLLOWUP_TO = 5,
+		H_LIST_POST   = 6,
+ 		H_X_PRIORITY  = 7
 	};
 
 	FILE *fp;
@@ -2963,27 +2980,29 @@ static gint compose_parse_header(Compose *compose, MsgInfo *msginfo)
 	if (compose->mode == COMPOSE_REEDIT) {
 		if (msginfo->inreplyto && *msginfo->inreplyto)
 			compose->inreplyto = g_strdup(msginfo->inreplyto);
-		return 0;
-	}
 
-	if (msginfo->msgid && *msginfo->msgid)
-		compose->inreplyto = g_strdup(msginfo->msgid);
+		if (msginfo->msgid && *msginfo->msgid)
+			compose->msgid = g_strdup(msginfo->msgid);
+	} else {
+		if (msginfo->msgid && *msginfo->msgid)
+			compose->inreplyto = g_strdup(msginfo->msgid);
 
-	if (!compose->references) {
-		if (msginfo->msgid && *msginfo->msgid) {
-			if (msginfo->inreplyto && *msginfo->inreplyto)
+		if (!compose->references) {
+			if (msginfo->msgid && *msginfo->msgid) {
+				if (msginfo->inreplyto && *msginfo->inreplyto)
+					compose->references =
+						g_strdup_printf("<%s>\n\t<%s>",
+								msginfo->inreplyto,
+								msginfo->msgid);
+				else
+					compose->references =
+						g_strconcat("<", msginfo->msgid, ">",
+							    NULL);
+			} else if (msginfo->inreplyto && *msginfo->inreplyto) {
 				compose->references =
-					g_strdup_printf("<%s>\n\t<%s>",
-							msginfo->inreplyto,
-							msginfo->msgid);
-			else
-				compose->references =
-					g_strconcat("<", msginfo->msgid, ">",
+					g_strconcat("<", msginfo->inreplyto, ">",
 						    NULL);
-		} else if (msginfo->inreplyto && *msginfo->inreplyto) {
-			compose->references =
-				g_strconcat("<", msginfo->inreplyto, ">",
-					    NULL);
+			}
 		}
 	}
 
@@ -3183,7 +3202,7 @@ error:
 ok:
 	SIGNAL_UNBLOCK(buffer);
 
-	procmsg_msginfo_free( dummyinfo );
+	procmsg_msginfo_free( &dummyinfo );
 
 	return buf;
 }
@@ -3236,17 +3255,23 @@ static void compose_set_folder_prefs(Compose *compose, FolderItem *folder,
 	if (respect_default_to && folder->prefs->enable_default_to) {
 		compose_entry_append(compose, folder->prefs->default_to,
 					COMPOSE_TO, PREF_FOLDER);
-		compose_entry_mark_default_to(compose, folder->prefs->default_to);
+		compose_entry_indicate(compose, folder->prefs->default_to);
 	}
-	if (folder->prefs->enable_default_cc)
+	if (folder->prefs->enable_default_cc) {
 		compose_entry_append(compose, folder->prefs->default_cc,
 					COMPOSE_CC, PREF_FOLDER);
-	if (folder->prefs->enable_default_bcc)
+		compose_entry_indicate(compose, folder->prefs->default_cc);
+	}
+	if (folder->prefs->enable_default_bcc) {
 		compose_entry_append(compose, folder->prefs->default_bcc,
 					COMPOSE_BCC, PREF_FOLDER);
-	if (folder->prefs->enable_default_replyto)
+		compose_entry_indicate(compose, folder->prefs->default_bcc);
+	}
+	if (folder->prefs->enable_default_replyto) {
 		compose_entry_append(compose, folder->prefs->default_replyto,
 					COMPOSE_REPLYTO, PREF_FOLDER);
+		compose_entry_indicate(compose, folder->prefs->default_replyto);
+	}
 }
 
 static void compose_reply_set_subject(Compose *compose, MsgInfo *msginfo)
@@ -3325,7 +3350,7 @@ static void compose_reply_set_entry(Compose *compose, MsgInfo *msginfo,
 			compose_entry_append(compose,
 			    msginfo->folder->prefs->default_reply_to,
 			    COMPOSE_TO, PREF_FOLDER);
-			compose_entry_mark_default_to(compose,
+			compose_entry_indicate(compose,
 				msginfo->folder->prefs->default_reply_to);
 		} else {
 			gchar *tmp1 = NULL;
@@ -3342,6 +3367,10 @@ static void compose_reply_set_entry(Compose *compose, MsgInfo *msginfo,
 					  ? msginfo->from :
 					  msginfo->to,
 					  COMPOSE_TO, PREF_NONE);
+				if (compose->replyto)
+						compose_entry_append(compose,
+			    				compose->replyto,
+			    				COMPOSE_CC, PREF_NONE);
 			} else {
 				if (!folder_has_parent_of_type(msginfo->folder, F_QUEUE) &&
 				    !folder_has_parent_of_type(msginfo->folder, F_OUTBOX) &&
@@ -3387,6 +3416,11 @@ static void compose_reply_set_entry(Compose *compose, MsgInfo *msginfo,
 			 	 compose->followup_to ? compose->followup_to :
 			 	 compose->newsgroups ? compose->newsgroups : "",
 			 	 COMPOSE_NEWSGROUPS, PREF_NONE);
+
+			compose_entry_append
+				(compose,
+				 msginfo->cc ? msginfo->cc : "",
+				 COMPOSE_CC, PREF_NONE);
 		} 
 		else 
 			compose_entry_append
@@ -3608,7 +3642,7 @@ static ComposeInsertResult compose_insert_file(Compose *compose, const gchar *fi
 						"in the message body. Are you sure you want to do that?"),
 						to_human_readable(file_stat.st_size));
 			aval = alertpanel_full(_("Are you sure?"), msg, GTK_STOCK_CANCEL,
-					_("+_Insert"), NULL, TRUE, NULL, ALERT_QUESTION, G_ALERTDEFAULT);
+					g_strconcat("+", _("_Insert"), NULL), NULL, TRUE, NULL, ALERT_QUESTION, G_ALERTDEFAULT);
 			g_free(msg);
 
 			/* do we ask for confirmation next time? */
@@ -3722,7 +3756,7 @@ static gboolean compose_attach_append(Compose *compose, const gchar *file,
 		g_free(file_from_uri);
 		if (result)
 			return TRUE;
-		alertpanel_error("File %s doesn't exist\n", filename);
+		alertpanel_error("File %s doesn't exist or permission denied\n", filename);
 		return FALSE;
 	}
 	if ((size = get_file_size(file)) < 0) {
@@ -3734,7 +3768,7 @@ static gboolean compose_attach_append(Compose *compose, const gchar *file,
 	if (size == 0 && !compose->batch) {
 		gchar * msg = g_strdup_printf(_("File %s is empty."), filename);
 		AlertValue aval = alertpanel_full(_("Empty file"), msg, 
-				GTK_STOCK_CANCEL, _("+_Attach anyway"), NULL, FALSE,
+				GTK_STOCK_CANCEL,  g_strconcat("+", _("_Attach anyway"), NULL), NULL, FALSE,
 				NULL, ALERT_WARNING, G_ALERTDEFAULT);
 		g_free(msg);
 
@@ -3772,7 +3806,7 @@ static gboolean compose_attach_append(Compose *compose, const gchar *file,
 
 			ainfo->name = g_strdup_printf(_("Message: %s"), name);
 
-			procmsg_msginfo_free(msginfo);
+			procmsg_msginfo_free(&msginfo);
 		} else {
 			if (!g_ascii_strncasecmp(content_type, "text/", 5)) {
 				ainfo->charset = g_strdup(charset);
@@ -3868,7 +3902,7 @@ static void compose_attach_parts(Compose *compose, MsgInfo *msginfo)
 	if (!mimeinfo) return;
 
 	if (mimeinfo->node->children == NULL) {
-		procmime_mimeinfo_free_all(mimeinfo);
+		procmime_mimeinfo_free_all(&mimeinfo);
 		return;
 	}
 
@@ -3938,7 +3972,7 @@ static void compose_attach_parts(Compose *compose, MsgInfo *msginfo)
 		g_free(outfile);
 		NEXT_PART_NOT_CHILD(child);
 	}
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 }
 
 #undef NEXT_PART_NOT_CHILD
@@ -4144,7 +4178,7 @@ static gboolean compose_get_line_break_pos(GtkTextBuffer *buffer,
 	
 	if (len == 0) {
 		g_free(str);
-		g_warning("compose_get_line_break_pos: len = 0!\n");
+		g_warning("compose_get_line_break_pos: len = 0!");
 		return FALSE;
 	}
 
@@ -4219,7 +4253,7 @@ static gboolean compose_get_line_break_pos(GtkTextBuffer *buffer,
 		can_break = TRUE;
 	}
 
-//	debug_print("compose_get_line_break_pos(): do_break = %d, pos = %d, col = %d\n", do_break, pos, col);
+/*	debug_print("compose_get_line_break_pos(): do_break = %d, pos = %d, col = %d\n", do_break, pos, col); */
 
 	g_free(attrs);
 	g_free(str);
@@ -4339,7 +4373,7 @@ static gboolean compose_join_next_line(Compose *compose,
 		last->bp = (bp_); last->ep = (ep_); last->pti = (pti_); \
 		last->next = NULL; \
 	} else { \
-		g_warning("alloc error scanning URIs\n"); \
+		g_warning("alloc error scanning URIs"); \
 	}
 
 static gboolean compose_beautify_paragraph(Compose *compose, GtkTextIter *par_iter, gboolean force)
@@ -4465,7 +4499,7 @@ static gboolean compose_beautify_paragraph(Compose *compose, GtkTextIter *par_it
 		quote_str = compose_get_quote_str(buffer, &iter, &quote_len);
 
 		if (quote_str) {
-//			debug_print("compose_beautify_paragraph(): quote_str = '%s'\n", quote_str);
+/*			debug_print("compose_beautify_paragraph(): quote_str = '%s'\n", quote_str); */
 			if (startq_offset == -1) 
 				startq_offset = gtk_text_iter_get_offset(&iter);
 			quotelevel = get_quote_level(quote_str, prefs_common.quote_chars);
@@ -4711,11 +4745,11 @@ colorize:
 			}
 		}
 		if (!modified) {
-//			debug_print("not modified, out after %d lines\n", lines);
+/*			debug_print("not modified, out after %d lines\n", lines); */
 			goto end;
 		}
 	}
-//	debug_print("modified, out after %d lines\n", lines);
+/*	debug_print("modified, out after %d lines\n", lines); */
 end:
 	g_free(itemized_chars);
 	if (par_iter)
@@ -4818,7 +4852,7 @@ compose_current_mail_account(void)
 									\
 		len = strlen(str) + 3;					\
 		if ((__tmp = alloca(len)) == NULL) {			\
-			g_warning("can't allocate memory\n");		\
+			g_warning("can't allocate memory");		\
 			g_string_free(header, TRUE);			\
 			return NULL;					\
 		}							\
@@ -4828,7 +4862,7 @@ compose_current_mail_account(void)
 		gchar *__tmp;						\
 									\
 		if ((__tmp = alloca(strlen(str) + 1)) == NULL) {	\
-			g_warning("can't allocate memory\n");		\
+			g_warning("can't allocate memory");		\
 			g_string_free(header, TRUE);			\
 			return NULL;					\
 		} else 							\
@@ -4846,7 +4880,7 @@ compose_current_mail_account(void)
 									\
 		len = strlen(str) + 3;					\
 		if ((__tmp = alloca(len)) == NULL) {			\
-			g_warning("can't allocate memory\n");		\
+			g_warning("can't allocate memory");		\
 			errret;						\
 		}							\
 		g_snprintf(__tmp, len, "\"%s\"", str);			\
@@ -4855,7 +4889,7 @@ compose_current_mail_account(void)
 		gchar *__tmp;						\
 									\
 		if ((__tmp = alloca(strlen(str) + 1)) == NULL) {	\
-			g_warning("can't allocate memory\n");		\
+			g_warning("can't allocate memory");		\
 			errret;						\
 		} else 							\
 			strcpy(__tmp, str);				\
@@ -5019,12 +5053,16 @@ static gboolean compose_check_for_set_recipients(Compose *compose)
 		}
 		if (!found_other) {
 			AlertValue aval;
+			gchar *text;
 			if (compose->batch) {
 				gtk_widget_show_all(compose->window);
 			}
+			text = g_strdup_printf(_("The only recipient is the default '%s' address. Send anyway?"),
+					   prefs_common_translated_header_name("Cc"));
 			aval = alertpanel(_("Send"),
-					  _("The only recipient is the default CC address. Send anyway?"),
-					  GTK_STOCK_CANCEL, _("+_Send"), NULL);
+					  text,
+					  GTK_STOCK_CANCEL, g_strconcat("+", _("_Send"), NULL), NULL);
+			g_free(text);
 			if (aval != G_ALERTALTERNATE)
 				return FALSE;
 		}
@@ -5044,6 +5082,7 @@ static gboolean compose_check_for_set_recipients(Compose *compose)
 			||  strcmp(header, prefs_common_translated_header_name("Bcc:"))) {
 				found_other = TRUE;
 				g_free(entry);
+				g_free(header);
 				break;
 			}
 			g_free(entry);
@@ -5051,12 +5090,16 @@ static gboolean compose_check_for_set_recipients(Compose *compose)
 		}
 		if (!found_other) {
 			AlertValue aval;
+			gchar *text;
 			if (compose->batch) {
 				gtk_widget_show_all(compose->window);
 			}
+			text = g_strdup_printf(_("The only recipient is the default '%s' address. Send anyway?"),
+					   prefs_common_translated_header_name("Bcc"));
 			aval = alertpanel(_("Send"),
-					  _("The only recipient is the default BCC address. Send anyway?"),
-					  GTK_STOCK_CANCEL, _("+_Send"), NULL);
+					  text,
+					  GTK_STOCK_CANCEL, g_strconcat("+", _("_Send"), NULL), NULL);
+			g_free(text);
 			if (aval != G_ALERTALTERNATE)
 				return FALSE;
 		}
@@ -5089,9 +5132,9 @@ static gboolean compose_check_entries(Compose *compose, gboolean check_everythin
 			gchar *message;
 
 			if (compose->sending)
-				button_label = _("+_Send");
+				button_label = g_strconcat("+", _("_Send"), NULL);
 			else
-				button_label = _("+_Queue");
+				button_label = g_strconcat("+", _("_Queue"), NULL);
 			message = g_strdup_printf(_("Subject is empty. %s"),
 					compose->sending?_("Send it anyway?"):
 					_("Queue it anyway?"));
@@ -5103,6 +5146,54 @@ static gboolean compose_check_entries(Compose *compose, gboolean check_everythin
 			if (aval & G_ALERTDISABLE) {
 				aval &= ~G_ALERTDISABLE;
 				prefs_common.warn_empty_subj = FALSE;
+			}
+			if (aval != G_ALERTALTERNATE)
+				return FALSE;
+		}
+	}
+
+	if (!compose->batch && prefs_common.warn_sending_many_recipients_num > 0
+			&& check_everything == TRUE) {
+		GSList *list;
+		gint cnt = 0;
+
+		/* count To and Cc recipients */
+		for (list = compose->header_list; list; list = list->next) {
+			gchar *header;
+			gchar *entry;
+
+			header = gtk_editable_get_chars(GTK_EDITABLE(gtk_bin_get_child(GTK_BIN((((ComposeHeaderEntry *)list->data)->combo)))), 0, -1);
+			entry = gtk_editable_get_chars(GTK_EDITABLE(((ComposeHeaderEntry *)list->data)->entry), 0, -1);
+			g_strstrip(header);
+			g_strstrip(entry);
+			if ((entry[0] != '\0')
+			&&	(strcmp(header, prefs_common_translated_header_name("To:"))
+			||  strcmp(header, prefs_common_translated_header_name("Cc:")))) {
+				cnt++;
+			}
+			g_free(header);
+			g_free(entry);
+		}
+		if (cnt > prefs_common.warn_sending_many_recipients_num) {
+			AlertValue aval;
+			gchar *button_label;
+			gchar *message;
+
+			if (compose->sending)
+				button_label = g_strconcat("+", _("_Send"), NULL);
+			else
+				button_label = g_strconcat("+", _("_Queue"), NULL);
+			message = g_strdup_printf(_("Sending to %d recipients. %s"), cnt,
+					compose->sending?_("Send it anyway?"):
+					_("Queue it anyway?"));
+
+			aval = alertpanel_full(compose->sending?_("Send"):_("Send later"), message,
+					       GTK_STOCK_CANCEL, button_label, NULL, TRUE, NULL,
+					       ALERT_QUESTION, G_ALERTDEFAULT);
+			g_free(message);
+			if (aval & G_ALERTDISABLE) {
+				aval &= ~G_ALERTDISABLE;
+				prefs_common.warn_sending_many_recipients_num = 0;
 			}
 			if (aval != G_ALERTALTERNATE)
 				return FALSE;
@@ -5208,7 +5299,7 @@ gint compose_send(Compose *compose)
 				if (tmp) {
 					debug_print("removing %d via %s\n", tmp->msgnum, tmsgid);
 					folder_item_remove_msg(folder, tmp->msgnum);
-					procmsg_msginfo_free(tmp);
+					procmsg_msginfo_free(&tmp);
 				} 
 			}
 		}
@@ -5224,7 +5315,7 @@ gint compose_send(Compose *compose)
 			if (tmp) {
 				debug_print("removing %d via %s\n", tmp->msgnum, tmsgid);
 				folder_item_remove_msg(folder, tmp->msgnum);
-				procmsg_msginfo_free(tmp);
+				procmsg_msginfo_free(&tmp);
 			}
 		}
 		if (!discard_window) {
@@ -5354,6 +5445,7 @@ static gint compose_redirect_write_headers_from_headerlist(Compose *compose,
 
 static gint compose_redirect_write_headers(Compose *compose, FILE *fp)
 {
+	gchar date[RFC822_DATE_BUFFSIZE];
 	gchar buf[BUFFSIZE];
 	gchar *str;
 	const gchar *entstr;
@@ -5365,7 +5457,10 @@ static gint compose_redirect_write_headers(Compose *compose, FILE *fp)
 	cm_return_val_if_fail(compose->account->address != NULL, -1);
 
 	/* Resent-Date */
-	get_rfc822_date(buf, sizeof(buf));
+	if (prefs_common.hide_timezone)
+		get_rfc822_date_hide_tz(date, sizeof(date));
+	else
+		get_rfc822_date(date, sizeof(date));
 	err |= (fprintf(fp, "Resent-Date: %s\n", buf) < 0);
 
 	/* Resent-From */
@@ -5391,27 +5486,12 @@ static gint compose_redirect_write_headers(Compose *compose, FILE *fp)
 	}
 
 	/* Resent-Message-ID */
-	if (compose->account->set_domain && compose->account->domain) {
-		g_snprintf(buf, sizeof(buf), "%s", compose->account->domain); 
-	} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
-		g_snprintf(buf, sizeof(buf), "%s", 
-			strchr(compose->account->address, '@') ?
-				strchr(compose->account->address, '@')+1 :
-				compose->account->address);
-	} else {
-		g_snprintf(buf, sizeof(buf), "%s", "");
-	}
-
 	if (compose->account->gen_msgid) {
-		gchar *addr = NULL;
-		if (compose->account->msgid_with_addr) {
-			addr = compose->account->address;
-		}
-		generate_msgid(buf, sizeof(buf), addr);
-		err |= (fprintf(fp, "Resent-Message-ID: <%s>\n", buf) < 0);
+		gchar *addr = prefs_account_generate_msgid(compose->account);
+		err |= (fprintf(fp, "Resent-Message-ID: <%s>\n", addr) < 0);
 		if (compose->msgid)
 			g_free(compose->msgid);
-		compose->msgid = g_strdup(buf);
+		compose->msgid = addr;
 	} else {
 		compose->msgid = NULL;
 	}
@@ -5429,7 +5509,8 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 {
 	FILE *fp;
 	size_t len;
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
+	gchar rewrite_buf[BUFFSIZE];
 	int i = 0;
 	gboolean skip = FALSE;
 	gboolean err = FALSE;
@@ -5450,12 +5531,14 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 		"X-Claws-Auto-Wrapping:", "X-Claws-Auto-Indent:",
 		NULL
 		};
+	gint ret = 0;
+
 	if ((fp = g_fopen(compose->redirect_filename, "rb")) == NULL) {
 		FILE_OP_ERROR(compose->redirect_filename, "fopen");
 		return -1;
 	}
 
-	while (procheader_get_one_field_asis(buf, sizeof(buf), fp) != -1) {
+	while ((ret = procheader_get_one_field_asis(&buf, fp)) != -1) {
 		skip = FALSE;
 		for (i = 0; not_included[i] != NULL; i++) {
 			if (g_ascii_strncasecmp(buf, not_included[i],
@@ -5464,10 +5547,16 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 				break;
 			}
 		}
-		if (skip)
+		if (skip) {
+			g_free(buf);
+			buf = NULL;
 			continue;
-		if (fputs(buf, fdest) == -1)
+		}
+		if (fputs(buf, fdest) == -1) {
+			g_free(buf);
+			buf = NULL;
 			goto error;
+		}
 
 		if (!prefs_common.redirect_keep_from) {
 			if (g_ascii_strncasecmp(buf, "From:",
@@ -5475,13 +5564,15 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 				err |= (fputs(" (by way of ", fdest) == EOF);
 				if (compose->account->name
 				    && *compose->account->name) {
+					gchar buffer[BUFFSIZE];
+
 					compose_convert_header
-						(compose, buf, sizeof(buf),
+						(compose, buffer, sizeof(buffer),
 						 compose->account->name,
 						 strlen("From: "),
 						 FALSE);
 					err |= (fprintf(fdest, "%s <%s>",
-						buf,
+						buffer,
 						compose->account->address) < 0);
 				} else
 					err |= (fprintf(fdest, "%s",
@@ -5490,6 +5581,8 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 			}
 		}
 
+		g_free(buf);
+		buf = NULL;
 		if (fputs("\n", fdest) == -1)
 			goto error;
 	}
@@ -5500,14 +5593,15 @@ static gint compose_redirect_write_to_file(Compose *compose, FILE *fdest)
 	if (compose_redirect_write_headers(compose, fdest))
 		goto error;
 
-	while ((len = fread(buf, sizeof(gchar), sizeof(buf), fp)) > 0) {
-		if (fwrite(buf, sizeof(gchar), len, fdest) != len)
+	while ((len = fread(rewrite_buf, sizeof(gchar), sizeof(rewrite_buf), fp)) > 0) {
+		if (fwrite(rewrite_buf, sizeof(gchar), len, fdest) != len)
 			goto error;
 	}
 
 	fclose(fp);
 
 	return 0;
+
 error:
 	fclose(fp);
 
@@ -5517,7 +5611,7 @@ error:
 static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gboolean attach_parts)
 {
 	GtkTextBuffer *buffer;
-	GtkTextIter start, end;
+	GtkTextIter start, end, tmp;
 	gchar *chars, *tmp_enc_file, *content;
 	gchar *buf, *msg;
 	const gchar *out_codeset;
@@ -5529,8 +5623,16 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 	gchar *from_name = NULL;
 	FolderItem *outbox;
 
-	if (action == COMPOSE_WRITE_FOR_SEND)
+	if (action == COMPOSE_WRITE_FOR_SEND) {
 		attach_parts = TRUE;
+
+		/* We're sending the message, generate a Message-ID
+		 * if necessary. */
+		if (compose->msgid == NULL &&
+				compose->account->gen_msgid) {
+			compose->msgid = prefs_account_generate_msgid(compose->account);
+		}
+	}
 
 	/* create message MimeInfo */
 	mimemsg = procmime_mimeinfo_new();
@@ -5541,10 +5643,20 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 	mimemsg->data.mem = compose_get_header(compose);
 
 	/* Create text part MimeInfo */
-	/* get all composed text */
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(compose->text));
-	gtk_text_buffer_get_start_iter(buffer, &start);
 	gtk_text_buffer_get_end_iter(buffer, &end);
+	tmp = end;
+
+	/* We make sure that there is a newline at the end. */
+	if (action == COMPOSE_WRITE_FOR_SEND && gtk_text_iter_backward_char(&tmp)) {
+		chars = gtk_text_buffer_get_text(buffer, &tmp, &end, FALSE);
+		if (*chars != '\n') {
+			gtk_text_buffer_insert(buffer, &end, "\n", 1);
+		}
+	}
+
+	/* get all composed text */
+	gtk_text_buffer_get_start_iter(buffer, &start);
 	chars = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
 
 	out_codeset = conv_get_charset_str(compose->out_encoding);
@@ -5612,7 +5724,8 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 			msg = g_strdup_printf(_("Can't convert the character encoding of the message \n"
 						"to the specified %s charset.\n"
 						"Send it as %s?"), out_codeset, src_codeset);
-			aval = alertpanel_full(_("Error"), msg, GTK_STOCK_CANCEL, _("+_Send"), NULL, FALSE,
+			aval = alertpanel_full(_("Error"), msg, GTK_STOCK_CANCEL,
+					       g_strconcat("+", _("_Send"), NULL), NULL, FALSE,
 					      NULL, ALERT_ERROR, G_ALERTDEFAULT);
 			g_free(msg);
 
@@ -5632,7 +5745,7 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 	}
 	g_free(chars);
 
-	if (encoding == ENC_8BIT || encoding == ENC_7BIT) {
+	if (prefs_common.rewrite_first_from && (encoding == ENC_8BIT || encoding == ENC_7BIT)) {
 		if (!strncmp(buf, "From ", sizeof("From ")-1) ||
 		    strstr(buf, "\nFrom ") != NULL) {
 			encoding = ENC_QUOTED_PRINTABLE;
@@ -5655,8 +5768,12 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 	    privacy_system_can_sign(compose->privacy_system)) {
 		encoding = ENC_QUOTED_PRINTABLE;
 	}
-	
+
+#ifdef G_OS_WIN32
+	debug_print("main text: %Id bytes encoded as %s in %d\n",
+#else
 	debug_print("main text: %zd bytes encoded as %s in %d\n",
+#endif
 		strlen(buf), out_codeset, encoding);
 
 	/* check for line length limit */
@@ -5768,10 +5885,10 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 						procmsg_save_to_outbox(outbox, tmp_enc_file, TRUE);
 						claws_unlink(tmp_enc_file);
 					} else {
-						g_warning("Can't open file %s\n", tmp_enc_file);
+						g_warning("Can't open file '%s'", tmp_enc_file);
 					}
 				} else {
-					g_warning("couldn't get tempfile\n");
+					g_warning("couldn't get tempfile");
 				}
 			}
 			if (!privacy_encrypt(compose->privacy_system, mimemsg, compose->encdata)) {
@@ -5785,7 +5902,7 @@ static gint compose_write_to_file(Compose *compose, FILE *fp, gint action, gbool
 
 	procmime_write_mimeinfo(mimemsg, fp);
 	
-	procmime_mimeinfo_free_all(mimemsg);
+	procmime_mimeinfo_free_all(&mimemsg);
 
 	return 0;
 }
@@ -5806,7 +5923,7 @@ static gint compose_write_body_to_file(Compose *compose, const gchar *file)
 	/* chmod for security */
 	if (change_file_mode_rw(fp, file) < 0) {
 		FILE_OP_ERROR(file, "chmod");
-		g_warning("can't change file mode\n");
+		g_warning("can't change file mode");
 	}
 
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(compose->text));
@@ -5862,7 +5979,7 @@ static gint compose_remove_reedit_target(Compose *compose, gboolean force)
 	     folder_has_parent_of_type(item, F_DRAFT) 
 	     || msginfo == compose->autosaved_draft)) {
 		if (folder_item_remove_msg(item, msginfo->msgnum) < 0) {
-			g_warning("can't remove the old message\n");
+			g_warning("can't remove the old message");
 			return -1;
 		} else {
 			debug_print("removed reedit target %d\n", msginfo->msgnum);
@@ -5899,7 +6016,7 @@ static gboolean compose_warn_encryption(Compose *compose)
 		return TRUE;
 
 	val = alertpanel_full(_("Encryption warning"), warning,
-		  GTK_STOCK_CANCEL, _("+C_ontinue"), NULL,
+		  GTK_STOCK_CANCEL, g_strconcat("+", _("C_ontinue"), NULL), NULL,
 		  TRUE, NULL, ALERT_WARNING, G_ALERTALTERNATE);
 	if (val & G_ALERTDISABLE) {
 		val &= ~G_ALERTDISABLE;
@@ -5916,7 +6033,7 @@ static gboolean compose_warn_encryption(Compose *compose)
 }
 
 static gint compose_queue_sub(Compose *compose, gint *msgnum, FolderItem **item, 
-			      gchar **msgpath, gboolean check_subject,
+			      gchar **msgpath, gboolean perform_checks,
 			      gboolean remove_reedit_target)
 {
 	FolderItem *queue;
@@ -5930,7 +6047,7 @@ static gint compose_queue_sub(Compose *compose, gint *msgnum, FolderItem **item,
 	debug_print("queueing message...\n");
 	cm_return_val_if_fail(compose->account != NULL, -1);
 
-	if (compose_check_entries(compose, check_subject) == FALSE) {
+	if (compose_check_entries(compose, perform_checks) == FALSE) {
 		if (compose->batch) {
 			gtk_widget_show_all(compose->window);
 		}
@@ -5974,7 +6091,7 @@ static gint compose_queue_sub(Compose *compose, gint *msgnum, FolderItem **item,
 
 	if (change_file_mode_rw(fp, tmp) < 0) {
 		FILE_OP_ERROR(tmp, "chmod");
-		g_warning("can't change file mode\n");
+		g_warning("can't change file mode");
 	}
 
 	/* queueing variables */
@@ -6122,7 +6239,7 @@ static gint compose_queue_sub(Compose *compose, gint *msgnum, FolderItem **item,
 		}
 	}
 	if (err == TRUE) {
-		g_warning("failed to write queue message\n");
+		g_warning("failed to write queue message");
 		fclose(fp);
 		claws_unlink(tmp);
 		g_free(tmp);
@@ -6141,14 +6258,14 @@ static gint compose_queue_sub(Compose *compose, gint *msgnum, FolderItem **item,
 		queue = account_get_special_folder(compose->account, F_QUEUE);
 	}
 	if (!queue) {
-		g_warning("can't find queue folder\n");
+		g_warning("can't find queue folder");
 		claws_unlink(tmp);
 		g_free(tmp);
 		return -1;
 	}
 	folder_item_scan(queue);
 	if ((num = folder_item_add_msg(queue, tmp, NULL, FALSE)) < 0) {
-		g_warning("can't queue the message\n");
+		g_warning("can't queue the message");
 		claws_unlink(tmp);
 		g_free(tmp);
 		return -1;
@@ -6187,9 +6304,7 @@ static int compose_add_attachments(Compose *compose, MimeInfo *parent)
 	if (!gtk_tree_model_get_iter_first(model, &iter))
 		return 0;
 	do {
-		gtk_tree_model_get(model, &iter,
-				   COL_DATA, &ainfo,
-				   -1);
+		gtk_tree_model_get(model, &iter, COL_DATA, &ainfo, -1);
 		
 		if (!is_file_exist(ainfo->file)) {
 			gchar *msg = g_strdup_printf(_("Attachment %s doesn't exist anymore. Ignore?"), ainfo->file);
@@ -6218,11 +6333,11 @@ static int compose_add_attachments(Compose *compose, MimeInfo *parent)
 			type = g_strdup("application/octet-stream");
 		}
 
-    		subtype = strchr(type, '/') + 1;
-	        *(subtype - 1) = '\0';
-    		mimepart->type = procmime_get_media_type(type);
-    		mimepart->subtype = g_strdup(subtype);
-    		g_free(type);
+		subtype = strchr(type, '/') + 1;
+		*(subtype - 1) = '\0';
+		mimepart->type = procmime_get_media_type(type);
+		mimepart->subtype = g_strdup(subtype);
+		g_free(type);
 
 		if (mimepart->type == MIMETYPE_MESSAGE && 
 		    !g_ascii_strcasecmp(mimepart->subtype, "rfc822")) {
@@ -6260,8 +6375,6 @@ static int compose_add_attachments(Compose *compose, MimeInfo *parent)
 				ainfo->encoding = ENC_BASE64;
 		}
 
-		
-		
 		procmime_encode_content(mimepart, ainfo->encoding);
 
 		g_node_append(parent->node, mimepart->node);
@@ -6291,7 +6404,7 @@ static gchar *compose_quote_list_of_addresses(gchar *str)
 				faddr = g_strconcat(name, addr, NULL);
 				g_free(name);
 				g_free(addr);
-				debug_print("new auto-quoted address: '%s'", faddr);
+				debug_print("new auto-quoted address: '%s'\n", faddr);
 			}
 		}
 		if (result == NULL)
@@ -6315,6 +6428,40 @@ static gchar *compose_quote_list_of_addresses(gchar *str)
 #define IS_IN_CUSTOM_HEADER(header) \
 	(compose->account->add_customhdr && \
 	 custom_header_find(compose->account->customhdr_list, header) != NULL)
+
+static const gchar *compose_untranslated_header_name(gchar *header_name)
+{
+	/* return the untranslated header name, if header_name is a known
+	   header name, in either its translated or untranslated form, with
+	   or without trailing colon. otherwise, returns header_name. */
+	gchar *translated_header_name;
+	gchar *translated_header_name_wcolon;
+	const gchar *untranslated_header_name;
+	const gchar *untranslated_header_name_wcolon;
+	gint i;
+
+	cm_return_val_if_fail(header_name != NULL, NULL);
+
+	for (i = 0; HEADERS[i].header_name != NULL; i++) {
+		untranslated_header_name = HEADERS[i].header_name;
+		untranslated_header_name_wcolon = HEADERS[i].header_name_w_colon;
+
+		translated_header_name = gettext(untranslated_header_name);
+		translated_header_name_wcolon = gettext(untranslated_header_name_wcolon);
+
+		if (!strcmp(header_name, untranslated_header_name) ||
+			!strcmp(header_name, translated_header_name)) {
+			return untranslated_header_name;
+		} else {
+			if (!strcmp(header_name, untranslated_header_name_wcolon) ||
+				!strcmp(header_name, translated_header_name_wcolon)) {
+				return untranslated_header_name_wcolon;
+			}
+		}
+	}
+	debug_print("compose_untranslated_header_name: unknown header '%s'\n", header_name);
+	return header_name;
+}
 
 static void compose_add_headerfield_from_headerlist(Compose *compose, 
 						    GString *header, 
@@ -6425,6 +6572,7 @@ static gchar *compose_get_manual_headers_info(Compose *compose)
 
 static gchar *compose_get_header(Compose *compose)
 {
+	gchar date[RFC822_DATE_BUFFSIZE];
 	gchar buf[BUFFSIZE];
 	const gchar *entry_str;
 	gchar *str;
@@ -6441,8 +6589,11 @@ static gchar *compose_get_header(Compose *compose)
 	header = g_string_sized_new(64);
 
 	/* Date */
-	get_rfc822_date(buf, sizeof(buf));
-	g_string_append_printf(header, "Date: %s\n", buf);
+	if (prefs_common.hide_timezone)
+		get_rfc822_date_hide_tz(date, sizeof(date));
+	else
+		get_rfc822_date(date, sizeof(date));
+	g_string_append_printf(header, "Date: %s\n", date);
 
 	/* From */
 	
@@ -6487,11 +6638,22 @@ static gchar *compose_get_header(Compose *compose)
 		
 		g_string_append_printf(header, "From: %s <%s>\n",
 			qname, from_address);
+		if (!IS_IN_CUSTOM_HEADER("Disposition-Notification-To") &&
+		    compose->return_receipt) {
+			compose_convert_header(compose, buf, sizeof(buf), from_name,
+					       strlen("Disposition-Notification-To: "),
+					       TRUE);
+			g_string_append_printf(header, "Disposition-Notification-To: %s <%s>\n", buf, from_address);
+		}
 		if (qname != name)
 			g_free(qname);
-	} else
+	} else {
 		g_string_append_printf(header, "From: %s\n", from_address);
-	
+		if (!IS_IN_CUSTOM_HEADER("Disposition-Notification-To") &&
+		    compose->return_receipt)
+			g_string_append_printf(header, "Disposition-Notification-To: %s\n", from_address);
+
+	}
 	g_free(from_name);
 	g_free(from_address);
 
@@ -6526,29 +6688,9 @@ static gchar *compose_get_header(Compose *compose)
 	g_free(str);
 
 	/* Message-ID */
-	if (compose->account->set_domain && compose->account->domain) {
-		g_snprintf(buf, sizeof(buf), "%s", compose->account->domain); 
-	} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
-		g_snprintf(buf, sizeof(buf), "%s", 
-			strchr(compose->account->address, '@') ?
-				strchr(compose->account->address, '@')+1 :
-				compose->account->address);
-	} else {
-		g_snprintf(buf, sizeof(buf), "%s", "");
-	}
-	
-	if (compose->account->gen_msgid) {
-		gchar *addr = NULL;
-		if (compose->account->msgid_with_addr) {
-			addr = compose->account->address;
-		}
-		generate_msgid(buf, sizeof(buf), addr);
-		g_string_append_printf(header, "Message-ID: <%s>\n", buf);
-		if (compose->msgid)
-			g_free(compose->msgid);
-		compose->msgid = g_strdup(buf);
-	} else {
-		compose->msgid = NULL;
+	if (compose->msgid != NULL && strlen(compose->msgid) > 0) {
+		g_string_append_printf(header, "Message-ID: <%s>\n",
+				compose->msgid);
 	}
 
 	if (compose->remove_references == FALSE) {
@@ -6647,21 +6789,6 @@ static gchar *compose_get_header(Compose *compose)
 				     compose->priority);
 	}
 
-	/* Request Return Receipt */
-	if (!IS_IN_CUSTOM_HEADER("Disposition-Notification-To")) {
-		if (compose->return_receipt) {
-			if (compose->account->name
-			    && *compose->account->name) {
-				compose_convert_header(compose, buf, sizeof(buf), 
-						       compose->account->name, 
-						       strlen("Disposition-Notification-To: "),
-						       TRUE);
-				g_string_append_printf(header, "Disposition-Notification-To: %s <%s>\n", buf, compose->account->address);
-			} else
-				g_string_append_printf(header, "Disposition-Notification-To: %s\n", compose->account->address);
-		}
-	}
-
 	/* get special headers */
 	for (list = compose->header_list; list; list = list->next) {
     		ComposeHeaderEntry *headerentry;
@@ -6695,16 +6822,22 @@ static gchar *compose_get_header(Compose *compose)
 		Xstrdup_a(headervalue, entry_str, return NULL);
 		subst_char(headervalue, '\r', ' ');
 		subst_char(headervalue, '\n', ' ');
-		string = std_headers;
-		while (*string != NULL) {
-			headername_trans = prefs_common_translated_header_name(*string);
-			if (!strcmp(headername_trans, headername_wcolon))
-				standard_header = TRUE;
-			string++;
-		}
-		if (!standard_header && !IS_IN_CUSTOM_HEADER(headername))
-			g_string_append_printf(header, "%s %s\n", headername_wcolon, headervalue);
-				
+		g_strstrip(headervalue);
+		if (*headervalue != '\0') {
+			string = std_headers;
+			while (*string != NULL && !standard_header) {
+				headername_trans = prefs_common_translated_header_name(*string);
+				/* support mixed translated and untranslated headers */
+				if (!strcmp(headername_trans, headername_wcolon) || !strcmp(*string, headername_wcolon))
+					standard_header = TRUE;
+				string++;
+			}
+			if (!standard_header && !IS_IN_CUSTOM_HEADER(headername)) {
+				/* store untranslated header name */
+				g_string_append_printf(header, "%s %s\n",
+						compose_untranslated_header_name(headername_wcolon), headervalue);
+			}
+		}				
 		g_free(headername);
 		g_free(headername_wcolon);		
 	}
@@ -6791,7 +6924,7 @@ static void compose_add_to_addressbook_cb(GtkMenuItem *menuitem, gpointer user_d
 	if (*address != '\0') {
 		gchar *name = procheader_get_fromname(address);
 		extract_address(address);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 		addressbook_add_contact(name, address, NULL, NULL);
 #else
 		debug_print("%s: %s\n", name, address);
@@ -6963,6 +7096,10 @@ static void compose_create_header_entry(Compose *compose)
 	if (header)
 		gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN((combo)))), header);
 
+	gtk_editable_set_editable(
+		GTK_EDITABLE(gtk_bin_get_child(GTK_BIN((combo)))),
+		prefs_common.type_any_header);
+
 	g_signal_connect_after(G_OBJECT(gtk_bin_get_child(GTK_BIN((combo)))), "grab_focus",
 			 G_CALLBACK(compose_grab_focus_cb), compose);
 
@@ -7108,21 +7245,14 @@ static void compose_remove_header_entries(Compose *compose)
 static GtkWidget *compose_create_header(Compose *compose) 
 {
 	GtkWidget *from_optmenu_hbox;
-	GtkWidget *header_scrolledwin_main;
 	GtkWidget *header_table_main;
 	GtkWidget *header_scrolledwin;
 	GtkWidget *header_table;
 
 	/* parent with account selection and from header */
-	header_scrolledwin_main = gtk_scrolled_window_new(NULL, NULL);
-	gtk_widget_show(header_scrolledwin_main);
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(header_scrolledwin_main), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-
 	header_table_main = gtk_table_new(2, 2, FALSE);
 	gtk_widget_show(header_table_main);
 	gtk_container_set_border_width(GTK_CONTAINER(header_table_main), BORDER_WIDTH);
-	gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(header_scrolledwin_main), header_table_main);
-	gtk_viewport_set_shadow_type(GTK_VIEWPORT(gtk_bin_get_child(GTK_BIN((header_scrolledwin_main)))), GTK_SHADOW_NONE);
 
 	from_optmenu_hbox = compose_account_option_menu_create(compose);
 	gtk_table_attach(GTK_TABLE(header_table_main), from_optmenu_hbox,
@@ -7152,7 +7282,7 @@ static GtkWidget *compose_create_header(Compose *compose)
 
 	compose->table = NULL;
 
-	return header_scrolledwin_main;
+	return header_table_main;
 }
 
 static gboolean popup_attach_button_pressed(GtkWidget *widget, gpointer data)
@@ -7325,7 +7455,8 @@ static void compose_savemsg_select_cb(GtkWidget *widget, Compose *compose)
 	FolderItem *dest;
 	gchar * path;
 
-	dest = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE);
+	dest = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE,
+			_("Select folder to save message to"));
 	if (!dest) return;
 
 	path = folder_item_get_identifier(dest);
@@ -7512,6 +7643,11 @@ static Compose *compose_create(PrefsAccount *account,
 	static GdkGeometry geometry;
 
 	cm_return_val_if_fail(account != NULL, NULL);
+
+	gtkut_convert_int_to_gdk_color(prefs_common.default_header_bgcolor,
+					   &default_header_bgcolor);
+	gtkut_convert_int_to_gdk_color(prefs_common.default_header_color,
+					   &default_header_color);
 
 	debug_print("Creating compose window...\n");
 	compose = g_new0(Compose, 1);
@@ -8008,6 +8144,7 @@ static Compose *compose_create(PrefsAccount *account,
 	compose->exteditor_file    = NULL;
 	compose->exteditor_pid     = -1;
 	compose->exteditor_tag     = -1;
+	compose->exteditor_socket  = NULL;
 	compose->draft_timeout_tag = COMPOSE_DRAFT_TIMEOUT_FORBIDDEN; /* inhibit auto-drafting while loading */
 
 	compose->folder_update_callback_id =
@@ -8070,7 +8207,7 @@ static Compose *compose_create(PrefsAccount *account,
 		gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN((compose->header_last->combo)))),
 				prefs_common_translated_header_name("Newsgroups:"));
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_set_target_compose(compose);
 #endif	
 	if (mode != COMPOSE_REDIRECT)
@@ -8143,7 +8280,7 @@ static GtkWidget *compose_account_option_menu_create(Compose *compose)
 
 		if (ac == compose->account) def_menu = num;
 
-		name = g_markup_printf_escaped(_("<i>%s</i>"),
+		name = g_markup_printf_escaped("<i>%s</i>",
 				       ac->account_name);
 		
 		if (ac == compose->account) {
@@ -8157,6 +8294,14 @@ static GtkWidget *compose_account_option_menu_create(Compose *compose)
 				from = g_strdup_printf("%s",
 						       ac->address);
 				gtk_entry_set_text(GTK_ENTRY(from_name), from);
+			}
+			if (cur_account != compose->account) {
+				gtk_widget_modify_base(
+					GTK_WIDGET(from_name),
+					GTK_STATE_NORMAL, &default_header_bgcolor);
+				gtk_widget_modify_text(
+					GTK_WIDGET(from_name),
+					GTK_STATE_NORMAL, &default_header_color);
 			}
 		}
 		COMBOBOX_ADD(menu, name, ac->account_id);
@@ -8607,7 +8752,7 @@ static void compose_template_apply(Compose *compose, Template *tmpl,
 
 			parsed_str = compose_quote_fmt(compose, dummyinfo,
 							   tmpl->value, qmark, tmp, FALSE, FALSE, err_msg);
-			procmsg_msginfo_free( dummyinfo );
+			procmsg_msginfo_free( &dummyinfo );
 
 			g_free( tmp );
 		} 
@@ -8649,6 +8794,20 @@ static void compose_template_apply(Compose *compose, Template *tmpl,
 #endif
 }
 
+static void compose_template_apply_fields_error(const gchar *header)
+{
+	gchar *tr;
+	gchar *text;
+
+	tr = g_strdup(C_("'%s' stands for a header name",
+				  "Template '%s' format error."));
+	text = g_strdup_printf(tr, prefs_common_translated_header_name(header));
+	alertpanel_error("%s", text);
+
+	g_free(text);
+	g_free(tr);
+}
+
 static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 {
 	MsgInfo* dummyinfo = NULL;
@@ -8676,7 +8835,7 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template From format error."));
+			compose_template_apply_fields_error("From");
 		} else {
 			gtk_entry_set_text(GTK_ENTRY(compose->from_name), buf);
 		}
@@ -8694,7 +8853,7 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template To format error."));
+			compose_template_apply_fields_error("To");
 		} else {
 			compose_entry_append(compose, buf, COMPOSE_TO, PREF_TEMPLATE);
 		}
@@ -8712,7 +8871,7 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template Cc format error."));
+			compose_template_apply_fields_error("Cc");
 		} else {
 			compose_entry_append(compose, buf, COMPOSE_CC, PREF_TEMPLATE);
 		}
@@ -8730,7 +8889,7 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template Bcc format error."));
+			compose_template_apply_fields_error("Bcc");
 		} else {
 			compose_entry_append(compose, buf, COMPOSE_BCC, PREF_TEMPLATE);
 		}
@@ -8748,7 +8907,7 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template Reply-To format error."));
+			compose_template_apply_fields_error("Reply-To");
 		} else {
 			compose_entry_append(compose, buf, COMPOSE_REPLYTO, PREF_TEMPLATE);
 		}
@@ -8767,13 +8926,13 @@ static void compose_template_apply_fields(Compose *compose, Template *tmpl)
 
 		buf = quote_fmt_get_buffer();
 		if (buf == NULL) {
-			alertpanel_error(_("Template subject format error."));
+			compose_template_apply_fields_error("Subject");
 		} else {
 			gtk_entry_set_text(GTK_ENTRY(compose->subject_entry), buf);
 		}
 	}
 
-	procmsg_msginfo_free( dummyinfo );
+	procmsg_msginfo_free( &dummyinfo );
 }
 
 static void compose_destroy(Compose *compose)
@@ -8808,9 +8967,9 @@ static void compose_destroy(Compose *compose)
 	hooks_unregister_hook(FOLDER_UPDATE_HOOKLIST,
 			compose->folder_update_callback_id);
 
-	procmsg_msginfo_free(compose->targetinfo);
-	procmsg_msginfo_free(compose->replyinfo);
-	procmsg_msginfo_free(compose->fwdinfo);
+	procmsg_msginfo_free(&(compose->targetinfo));
+	procmsg_msginfo_free(&(compose->replyinfo));
+	procmsg_msginfo_free(&(compose->fwdinfo));
 
 	g_free(compose->replyto);
 	g_free(compose->cc);
@@ -8838,7 +8997,7 @@ static void compose_destroy(Compose *compose)
 	g_free(compose->privacy_system);
 	g_free(compose->encdata);
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	if (addressbook_get_target_compose() == compose)
 		addressbook_set_target_compose(NULL);
 #endif
@@ -8885,20 +9044,26 @@ static void compose_attach_update_label(Compose *compose)
 	gint i = 1;
 	gchar *text;
 	GtkTreeModel *model;
-	
-	if(compose == NULL)
+	goffset total_size;
+	AttachInfo *ainfo;
+
+	if (compose == NULL)
 		return;
-		
+
 	model = gtk_tree_view_get_model(GTK_TREE_VIEW(compose->attach_clist));
-	if(!gtk_tree_model_get_iter_first(model, &iter)) {
+	if (!gtk_tree_model_get_iter_first(model, &iter)) {
 		gtk_label_set_text(GTK_LABEL(compose->attach_label), "");	
 		return;
 	}
-	
-	while(gtk_tree_model_iter_next(model, &iter))
+
+	gtk_tree_model_get(model, &iter, COL_DATA, &ainfo, -1);
+	total_size = ainfo->size;
+	while(gtk_tree_model_iter_next(model, &iter)) {
+		gtk_tree_model_get(model, &iter, COL_DATA, &ainfo, -1);
+		total_size += ainfo->size;
 		i++;
-	
-	text = g_strdup_printf("(%d)", i);
+	}
+	text = g_strdup_printf(" (%d/%s)", i, to_human_readable(total_size));
 	gtk_label_set_text(GTK_LABEL(compose->attach_label), text);
 	g_free(text);
 }
@@ -9273,11 +9438,36 @@ static void compose_exec_ext_editor(Compose *compose)
 {
 #ifdef G_OS_UNIX
 	gchar *tmp;
+	GtkWidget *socket;
+	GdkNativeWindow socket_wid = 0;
 	pid_t pid;
 	gint pipe_fds[2];
 
 	tmp = g_strdup_printf("%s%ctmpmsg.%p", get_tmp_dir(),
 			      G_DIR_SEPARATOR, compose);
+
+	if (compose_get_ext_editor_uses_socket()) {
+		/* Only allow one socket */
+		if (compose->exteditor_socket != NULL) {
+			if (gtk_widget_is_focus(compose->exteditor_socket)) {
+				/* Move the focus off of the socket */
+				gtk_widget_child_focus(compose->window, GTK_DIR_TAB_BACKWARD);
+			}
+			g_free(tmp);
+			return;
+		}
+		/* Create the receiving GtkSocket */
+		socket = gtk_socket_new ();
+		g_signal_connect (GTK_OBJECT(socket), "plug-removed",
+			          G_CALLBACK(compose_ext_editor_plug_removed_cb),
+				  compose);
+		gtk_box_pack_start(GTK_BOX(compose->edit_vbox), socket, TRUE, TRUE, 0);
+		gtk_widget_set_size_request(socket, prefs_common.compose_width, -1);
+		/* Realize the socket so that we can use its ID */
+		gtk_widget_realize(socket);
+		socket_wid = gtk_socket_get_id(GTK_SOCKET (socket));
+		compose->exteditor_socket = socket;
+	}
 
 	if (pipe(pipe_fds) < 0) {
 		perror("pipe");
@@ -9323,7 +9513,7 @@ static void compose_exec_ext_editor(Compose *compose)
 			_exit(1);
 		}
 
-		pid_ed = compose_exec_ext_editor_real(tmp);
+		pid_ed = compose_exec_ext_editor_real(tmp, socket_wid);
 		if (pid_ed < 0) {
 			fd_write_all(pipe_fds[1], "1\n", 2);
 			_exit(1);
@@ -9342,11 +9532,43 @@ static void compose_exec_ext_editor(Compose *compose)
 #endif /* G_OS_UNIX */
 }
 
-#ifdef G_OS_UNIX
-static gint compose_exec_ext_editor_real(const gchar *file)
+static gboolean compose_can_autosave(Compose *compose)
 {
-	gchar buf[1024];
-	gchar *p;
+	if (compose->privacy_system && compose->use_encryption)
+		return prefs_common.autosave && prefs_common.autosave_encrypted;
+	else
+		return prefs_common.autosave;
+}
+
+#ifdef G_OS_UNIX
+static gboolean compose_get_ext_editor_cmd_valid()
+{
+	gboolean has_s = FALSE;
+	gboolean has_w = FALSE;
+	const gchar *p = prefs_common_get_ext_editor_cmd();
+	if (!p)
+		return FALSE;
+	while ((p = strchr(p, '%'))) {
+		p++;
+		if (*p == 's') {
+			if (has_s)
+				return FALSE;
+			has_s = TRUE;
+		} else if (*p == 'w') {
+			if (has_w)
+				return FALSE;
+			has_w = TRUE;
+		} else {
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+static gint compose_exec_ext_editor_real(const gchar *file, GdkNativeWindow socket_wid)
+{
+	gchar *buf;
+	gchar *p, *s;
 	gchar **cmdline;
 	pid_t pid;
 
@@ -9364,18 +9586,28 @@ static gint compose_exec_ext_editor_real(const gchar *file)
 	if (setpgid(0, getppid()))
 		perror("setpgid");
 
-	if (prefs_common_get_ext_editor_cmd() &&
-	    (p = strchr(prefs_common_get_ext_editor_cmd(), '%')) &&
-	    *(p + 1) == 's' && !strchr(p + 2, '%')) {
-		g_snprintf(buf, sizeof(buf), prefs_common_get_ext_editor_cmd(), file);
+	if (compose_get_ext_editor_cmd_valid()) {
+		if (compose_get_ext_editor_uses_socket()) {
+			p = g_strdup(prefs_common_get_ext_editor_cmd());
+			s = strstr(p, "%w");
+			s[1] = 'u';
+			if (strstr(p, "%s") < s)
+				buf = g_strdup_printf(p, file, socket_wid);
+			else
+				buf = g_strdup_printf(p, socket_wid, file);
+			g_free(p);
+		} else {
+			buf = g_strdup_printf(prefs_common_get_ext_editor_cmd(), file);
+		}
 	} else {
 		if (prefs_common_get_ext_editor_cmd())
-			g_warning("External editor command-line is invalid: '%s'\n",
+			g_warning("External editor command-line is invalid: '%s'",
 				  prefs_common_get_ext_editor_cmd());
-		g_snprintf(buf, sizeof(buf), DEFAULT_EDITOR_CMD, file);
+		buf = g_strdup_printf(DEFAULT_EDITOR_CMD, file);
 	}
 
-	cmdline = strsplit_with_quote(buf, " ", 1024);
+	cmdline = strsplit_with_quote(buf, " ", 0);
+	g_free(buf);
 	execvp(cmdline[0], cmdline);
 
 	perror("execvp");
@@ -9413,9 +9645,8 @@ static gboolean compose_ext_editor_kill(Compose *compose)
 			if (kill(pgid, SIGTERM) < 0) perror("kill");
 			waitpid(compose->exteditor_pid, NULL, 0);
 
-			g_warning("Terminated process group id: %d", -pgid);
-			g_warning("Temporary file: %s",
-				  compose->exteditor_file);
+			g_warning("Terminated process group id: %d. "
+				  "Temporary file: %s", -pgid, compose->exteditor_file);
 
 			compose_set_ext_editor_sensitive(compose, TRUE);
 
@@ -9440,7 +9671,10 @@ static gboolean compose_input_cb(GIOChannel *source, GIOCondition condition,
 
 	debug_print("Compose: input from monitoring process\n");
 
-	g_io_channel_read_chars(source, buf, sizeof(buf), &bytes_read, NULL);
+	if (g_io_channel_read_chars(source, buf, sizeof(buf), &bytes_read, NULL) != G_IO_STATUS_NORMAL) {
+		bytes_read = 0;
+		buf[0] = '\0';
+	}
 
 	g_io_channel_shutdown(source, FALSE, NULL);
 	g_io_channel_unref(source);
@@ -9456,7 +9690,10 @@ static gboolean compose_input_cb(GIOChannel *source, GIOCondition condition,
 		gtk_text_buffer_set_text(buffer, "", -1);
 		compose_insert_file(compose, compose->exteditor_file);
 		compose_changed_cb(NULL, compose);
-		compose_draft((gpointer)compose, COMPOSE_AUTO_SAVE);
+
+		/* Check if we should save the draft or not */
+		if (compose_can_autosave(compose))
+		  compose_draft((gpointer)compose, COMPOSE_AUTO_SAVE);
 
 		if (claws_unlink(compose->exteditor_file) < 0)
 			FILE_OP_ERROR(compose->exteditor_file, "unlink");
@@ -9469,13 +9706,13 @@ static gboolean compose_input_cb(GIOChannel *source, GIOCondition condition,
 			compose->modified = TRUE;
 		g_free(chars);
 	} else if (buf[0] == '1') {	/* failed */
-		g_warning("Couldn't exec external editor\n");
+		g_warning("Couldn't exec external editor");
 		if (claws_unlink(compose->exteditor_file) < 0)
 			FILE_OP_ERROR(compose->exteditor_file, "unlink");
 	} else if (buf[0] == '2') {
-		g_warning("Couldn't write to file\n");
+		g_warning("Couldn't write to file");
 	} else if (buf[0] == '3') {
-		g_warning("Pipe read failed\n");
+		g_warning("Pipe read failed");
 	}
 
 	compose_set_ext_editor_sensitive(compose, TRUE);
@@ -9485,23 +9722,66 @@ static gboolean compose_input_cb(GIOChannel *source, GIOCondition condition,
 	compose->exteditor_pid     = -1;
 	compose->exteditor_ch      = NULL;
 	compose->exteditor_tag     = -1;
+	if (compose->exteditor_socket) {
+		gtk_widget_destroy(compose->exteditor_socket);
+		compose->exteditor_socket = NULL;
+	}
+
 
 	return FALSE;
 }
 
+static char *ext_editor_menu_entries[] = {
+	"Menu/Message/Send",
+	"Menu/Message/SendLater",
+	"Menu/Message/InsertFile",
+	"Menu/Message/InsertSig",
+	"Menu/Message/ReplaceSig",
+	"Menu/Message/Save",
+	"Menu/Message/Print",
+	"Menu/Edit",
+#if USE_ENCHANT
+	"Menu/Spelling",
+#endif
+	"Menu/Tools/ShowRuler",
+	"Menu/Tools/Actions",
+	"Menu/Help",
+	NULL
+};
+
 static void compose_set_ext_editor_sensitive(Compose *compose,
 					     gboolean sensitive)
 {
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Message/Send", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Message/SendLater", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Message/InsertFile", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Message/InsertSig", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Message/ReplaceSig", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Edit/WrapPara", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Edit/WrapAllLines", sensitive);
-	cm_menu_set_sensitive_full(compose->ui_manager, "Menu/Edit/ExtEditor", sensitive);
+	int i;
 
-	gtk_widget_set_sensitive(compose->text,                       sensitive);
+	for (i = 0; ext_editor_menu_entries[i]; ++i) {
+		cm_menu_set_sensitive_full(compose->ui_manager,
+			ext_editor_menu_entries[i], sensitive);
+	}
+
+	if (compose_get_ext_editor_uses_socket()) {
+		if (sensitive) {
+			if (compose->exteditor_socket)
+				gtk_widget_hide(compose->exteditor_socket);
+			gtk_widget_show(compose->scrolledwin);
+			if (prefs_common.show_ruler)
+				gtk_widget_show(compose->ruler_hbox);
+			/* Fix the focus, as it doesn't go anywhere when the
+			 * socket is hidden or destroyed */
+			gtk_widget_child_focus(compose->window, GTK_DIR_TAB_BACKWARD);
+		} else {
+			g_assert (compose->exteditor_socket != NULL);
+			/* Fix the focus, as it doesn't go anywhere when the
+			 * edit box is hidden */
+			if (gtk_widget_is_focus(compose->text))
+				gtk_widget_child_focus(compose->window, GTK_DIR_TAB_BACKWARD);
+			gtk_widget_hide(compose->scrolledwin);
+			gtk_widget_hide(compose->ruler_hbox);
+			gtk_widget_show(compose->exteditor_socket);
+		}
+	} else {
+		gtk_widget_set_sensitive(compose->text,                   sensitive);
+	}
 	if (compose->toolbar->send_btn)
 		gtk_widget_set_sensitive(compose->toolbar->send_btn,      sensitive);
 	if (compose->toolbar->sendl_btn)
@@ -9518,6 +9798,19 @@ static void compose_set_ext_editor_sensitive(Compose *compose,
 		gtk_widget_set_sensitive(compose->toolbar->linewrap_current_btn, sensitive);
 	if (compose->toolbar->linewrap_all_btn)
 		gtk_widget_set_sensitive(compose->toolbar->linewrap_all_btn, sensitive);
+}
+
+static gboolean compose_get_ext_editor_uses_socket()
+{
+	return (prefs_common_get_ext_editor_cmd() &&
+	        strstr(prefs_common_get_ext_editor_cmd(), "%w"));
+}
+
+static gboolean compose_ext_editor_plug_removed_cb(GtkSocket *socket, Compose *compose)
+{
+	compose->exteditor_socket = NULL;
+	/* returning FALSE allows destruction of the socket */
+	return FALSE;
 }
 #endif /* G_OS_UNIX */
 
@@ -9630,13 +9923,6 @@ static void account_activated(GtkComboBox *optmenu, gpointer data)
 	GtkTreeIter iter;
 	GSList *list, *saved_list = NULL;
 	HeaderEntryState *state;
-	GtkRcStyle *style = NULL;
-#if !GTK_CHECK_VERSION(3, 0, 0)
-	static GdkColor yellow;
-	static gboolean color_set = FALSE;
-#else
-	static GdkColor yellow = { (guint32)0, (guint32)0xf5, (guint32)0xf6, (guint32)0xbe };
-#endif
 
 	/* Get ID of active account in the combo box */
 	menu = gtk_combo_box_get_model(optmenu);
@@ -9656,26 +9942,12 @@ static void account_activated(GtkComboBox *optmenu, gpointer data)
 				compose_destroy_headerentry(compose, hentry);
 				continue;
 			}
-			
 			state = g_malloc0(sizeof(HeaderEntryState));
 			state->header = gtk_editable_get_chars(GTK_EDITABLE(
 					gtk_bin_get_child(GTK_BIN(hentry->combo))), 0, -1);
 			state->entry = gtk_editable_get_chars(
 					GTK_EDITABLE(hentry->entry), 0, -1);
 			state->type = hentry->type;
-				
-#if !GTK_CHECK_VERSION(3, 0, 0)
-			if (!color_set) {
-				gdk_color_parse("#f5f6be", &yellow);
-				color_set = gdk_colormap_alloc_color(
-							gdk_colormap_get_system(),
-							&yellow, FALSE, TRUE);
-			}
-#endif
-				
-			style = gtk_widget_get_modifier_style(hentry->entry);
-			state->entry_marked = gdk_color_equal(&yellow,
-						&style->base[GTK_STATE_NORMAL]);
 
 			saved_list = g_slist_append(saved_list, state);
 			compose_destroy_headerentry(compose, hentry);
@@ -9690,29 +9962,25 @@ static void account_activated(GtkComboBox *optmenu, gpointer data)
 		if (ac->set_autocc && ac->auto_cc)
 			compose_entry_append(compose, ac->auto_cc,
 						COMPOSE_CC, PREF_ACCOUNT);
-
-		if (ac->set_autobcc && ac->auto_bcc) 
+		if (ac->set_autobcc && ac->auto_bcc)
 			compose_entry_append(compose, ac->auto_bcc,
 						COMPOSE_BCC, PREF_ACCOUNT);
-	
 		if (ac->set_autoreplyto && ac->auto_replyto)
 			compose_entry_append(compose, ac->auto_replyto,
 						COMPOSE_REPLYTO, PREF_ACCOUNT);
 		
 		for (list = saved_list; list; list = list->next) {
 			state = (HeaderEntryState *) list->data;
-			
+
 			compose_add_header_entry(compose, state->header,
 						state->entry, state->type);
-			if (state->entry_marked)
-				compose_entry_mark_default_to(compose, state->entry);
-			
-			g_free(state->header);	
+
+			g_free(state->header);
 			g_free(state->entry);
 			g_free(state);
 		}
 		g_slist_free(saved_list);
-		
+
 		combobox_select_by_data(GTK_COMBO_BOX(compose->header_last->combo),
 					(ac->protocol == A_NNTP) ? 
 					COMPOSE_NEWSGROUPS : COMPOSE_TO);
@@ -9819,6 +10087,12 @@ static void compose_send_cb(GtkAction *action, gpointer data)
 {
 	Compose *compose = (Compose *)data;
 
+#ifdef G_OS_UNIX
+	if (compose->exteditor_tag != -1) {
+		debug_print("ignoring send: external editor still open\n");
+		return;
+	}
+#endif
 	if (prefs_common.work_offline && 
 	    !inc_offline_should_override(TRUE,
 		_("Claws Mail needs network access in order "
@@ -9925,7 +10199,7 @@ gboolean compose_draft (gpointer data, guint action)
 	/* chmod for security */
 	if (change_file_mode_rw(fp, tmp) < 0) {
 		FILE_OP_ERROR(tmp, "chmod");
-		g_warning("can't change file mode\n");
+		g_warning("can't change file mode");
 	}
 
 	/* Save draft infos */
@@ -10013,7 +10287,7 @@ gboolean compose_draft (gpointer data, guint action)
 		}
 		if (tmpinfo) {
 			msgnum = tmpinfo->msgnum;
-			procmsg_msginfo_free(tmpinfo);
+			procmsg_msginfo_free(&tmpinfo);
 			debug_print("got draft msgnum %d from scanning\n", msgnum);
 		} else {
 			debug_print("didn't get draft msgnum after scanning\n");
@@ -10071,7 +10345,7 @@ warn_err:
 		if (action == COMPOSE_DRAFT_FOR_EXIT) {
 			compose_register_draft(newmsginfo);
 		}
-		procmsg_msginfo_free(newmsginfo);
+		procmsg_msginfo_free(&newmsginfo);
 	}
 	
 	folder_item_scan(draft);
@@ -10097,7 +10371,7 @@ warn_err:
 		}
 		g_free(path);
 
-		procmsg_msginfo_free(compose->targetinfo);
+		procmsg_msginfo_free(&(compose->targetinfo));
 		compose->targetinfo = procmsg_msginfo_new();
 		compose->targetinfo->msgnum = msgnum;
 		compose->targetinfo->size = (goffset)s.st_size;
@@ -10194,7 +10468,7 @@ static void compose_attach_cb(GtkAction *action, gpointer data)
 	 * which unsets it (via focus_out_event callback on compose window). */
 	manage_window_focus_in(compose->window, NULL, NULL);
 
-	file_list = filesel_select_multiple_files_open(_("Select file"));
+	file_list = filesel_select_multiple_files_open(_("Select file"), NULL);
 
 	if (file_list) {
 		compose_attach_from_list(compose, file_list, TRUE);
@@ -10208,7 +10482,7 @@ static void compose_insert_file_cb(GtkAction *action, gpointer data)
 	GList *file_list;
 	gint files_inserted = 0;
 
-	file_list = filesel_select_multiple_files_open(_("Select file"));
+	file_list = filesel_select_multiple_files_open(_("Select file"), NULL);
 
 	if (file_list) {
 		GList *tmp;
@@ -10280,14 +10554,6 @@ void compose_close_toolbar(Compose *compose)
 	compose_close_cb(NULL, compose);
 }
 
-static gboolean compose_can_autosave(Compose *compose)
-{
-	if (compose->privacy_system && compose->use_encryption)
-		return prefs_common.autosave && prefs_common.autosave_encrypted;
-	else
-		return prefs_common.autosave;
-}
-
 static void compose_close_cb(GtkAction *action, gpointer data)
 {
 	Compose *compose = (Compose *)data;
@@ -10317,7 +10583,8 @@ static void compose_close_cb(GtkAction *action, gpointer data)
 		} else {
 			val = alertpanel(_("Save changes"),
 				 _("This message has been modified. Save the latest changes?"),
-				 _("_Don't save"), _("+_Save to Drafts"), GTK_STOCK_CANCEL);
+				 _("_Don't save"), g_strconcat("+", _("_Save to Drafts"), NULL),
+				GTK_STOCK_CANCEL);
 		}
 		g_mutex_unlock(compose->mutex);
 		switch (val) {
@@ -10359,7 +10626,7 @@ static void compose_address_cb(GtkAction *action, gpointer data)
 {
 	Compose *compose = (Compose *)data;
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_open(compose);
 #else
 	GError* error = NULL;
@@ -10403,6 +10670,12 @@ static void compose_ext_editor_cb(GtkAction *action, gpointer data)
 {
 	Compose *compose = (Compose *)data;
 
+#ifdef G_OS_UNIX
+	if (compose->exteditor_tag != -1) {
+		debug_print("ignoring open external editor: external editor still open\n");
+		return;
+	}
+#endif
 	compose_exec_ext_editor(compose);
 }
 
@@ -10925,14 +11198,14 @@ static ComposeCallAdvancedAction compose_call_advanced_action_from_path(GtkActio
 	DO_ACTION("Edit/Advanced/DelForwWord", COMPOSE_CALL_ADVANCED_ACTION_DELETE_FORWARD_WORD);
 	DO_ACTION("Edit/Advanced/DelLine", COMPOSE_CALL_ADVANCED_ACTION_DELETE_LINE);
 	DO_ACTION("Edit/Advanced/DelEndLine", COMPOSE_CALL_ADVANCED_ACTION_DELETE_TO_LINE_END);
-	return -1;
+	return COMPOSE_CALL_ADVANCED_ACTION_UNDEFINED;
 }
 
 static void compose_advanced_action_cb(GtkAction *gaction, gpointer data)
 {
 	Compose *compose = (Compose *)data;
 	GtkTextView *text = GTK_TEXT_VIEW(compose->text);
-	ComposeCallAdvancedAction action = -1;
+	ComposeCallAdvancedAction action = COMPOSE_CALL_ADVANCED_ACTION_UNDEFINED;
 	
 	action = compose_call_advanced_action_from_path(gaction);
 
@@ -11051,7 +11324,7 @@ static void compose_grab_focus_cb(GtkWidget *widget, Compose *compose)
 static void compose_changed_cb(GtkTextBuffer *textbuf, Compose *compose)
 {
 	compose->modified = TRUE;
-//	compose_beautify_paragraph(compose, NULL, TRUE);
+/*	compose_beautify_paragraph(compose, NULL, TRUE); */
 #ifndef GENERIC_UMPC
 	compose_set_title(compose);
 #endif
@@ -11144,11 +11417,8 @@ static void compose_attach_drag_received_cb (GtkWidget		*widget,
 	GdkAtom type;
 
 	type = gtk_selection_data_get_data_type(data);
-	if (((gdk_atom_name(type) && !strcmp(gdk_atom_name(type), "text/uri-list"))
-#ifdef G_OS_WIN32
-	 || (gdk_atom_name(type) && !strcmp(gdk_atom_name(type), "DROPFILES_DND"))
-#endif
-	   ) && gtk_drag_get_source_widget(context) != 
+	if ((gdk_atom_name(type) && !strcmp(gdk_atom_name(type), "text/uri-list"))
+	   && gtk_drag_get_source_widget(context) !=
 	        summary_get_main_widget(mainwindow_get_mainwindow()->summaryview)) {
 		list = uri_list_extract_filenames(
 			(const gchar *)gtk_selection_data_get_data(data));
@@ -11227,19 +11497,18 @@ static void compose_insert_drag_received_cb (GtkWidget		*widget,
 	Compose *compose = (Compose *)user_data;
 	GList *list, *tmp;
 	GdkAtom type;
+	guint num_files;
+	gchar *msg;
 
 	/* strangely, testing data->type == gdk_atom_intern("text/uri-list", TRUE)
 	 * does not work */
 	type = gtk_selection_data_get_data_type(data);
-#ifndef G_OS_WIN32
 	if (gdk_atom_name(type) && !strcmp(gdk_atom_name(type), "text/uri-list")) {
-#else
-	if (gdk_atom_name(type) && !strcmp(gdk_atom_name(type), "DROPFILES_DND")) {
-#endif
 		AlertValue val = G_ALERTDEFAULT;
 		const gchar* ddata = (const gchar *)gtk_selection_data_get_data(data);
 
 		list = uri_list_extract_filenames(ddata);
+		num_files = g_list_length(list);
 		if (list == NULL && strstr(ddata, "://")) {
 			/* Assume a list of no files, and data has ://, is a remote link */
 			gchar *tmpdata = g_strstrip(g_strdup(ddata));
@@ -11255,11 +11524,18 @@ static void compose_insert_drag_received_cb (GtkWidget		*widget,
 		}
 		switch (prefs_common.compose_dnd_mode) {
 			case COMPOSE_DND_ASK:
-				val = alertpanel_full(_("Insert or attach?"),
-					 _("Do you want to insert the contents of the file(s) "
-					   "into the message body, or attach it to the email?"),
-					  GTK_STOCK_CANCEL, _("+_Insert"), _("_Attach"),
+				msg = g_strdup_printf(
+						ngettext(
+							"Do you want to insert the contents of the file "
+							"into the message body, or attach it to the email?",
+							"Do you want to insert the contents of the %d files "
+							"into the message body, or attach them to the email?",
+							num_files),
+						num_files);
+				val = alertpanel_full(_("Insert or attach?"), msg,
+					  GTK_STOCK_CANCEL, g_strconcat("+", _("_Insert"), NULL), _("_Attach"),
 					  TRUE, NULL, ALERT_QUESTION, G_ALERTALTERNATE);
+				g_free(msg);
 				break;
 			case COMPOSE_DND_INSERT:
 				val = G_ALERTALTERNATE;
@@ -11607,7 +11883,7 @@ static void compose_check_forwards_go(GtkAction *action, gpointer data)
  *\brief	Guess originating forward account from MsgInfo and several 
  *		"common preference" settings. Return NULL if no guess. 
  */
-static PrefsAccount *compose_guess_forward_account_from_msginfo(MsgInfo *msginfo)
+static PrefsAccount *compose_find_account(MsgInfo *msginfo)
 {
 	PrefsAccount *account = NULL;
 	
@@ -11618,9 +11894,6 @@ static PrefsAccount *compose_guess_forward_account_from_msginfo(MsgInfo *msginfo
 	if (msginfo->folder->prefs->enable_default_account)
 		account = account_find_from_id(msginfo->folder->prefs->default_account);
 		
-	if (!account) 
-		account = msginfo->folder->folder->account;
-		
 	if (!account && msginfo->to && prefs_common.forward_account_autosel) {
 		gchar *to;
 		Xstrdup_a(to, msginfo->to, return NULL);
@@ -11629,24 +11902,29 @@ static PrefsAccount *compose_guess_forward_account_from_msginfo(MsgInfo *msginfo
 	}
 
 	if (!account && prefs_common.forward_account_autosel) {
-		gchar cc[BUFFSIZE];
+		gchar *cc = NULL;
 		if (!procheader_get_header_from_msginfo
-			(msginfo, cc,sizeof cc , "Cc:")) { 
+				(msginfo, &cc, "Cc:")) { 
 			gchar *buf = cc + strlen("Cc:");
-		        extract_address(buf);
-		        account = account_find_from_address(buf, FALSE);
-                }
+			extract_address(buf);
+			account = account_find_from_address(buf, FALSE);
+			g_free(cc);
+		}
 	}
 	
 	if (!account && prefs_common.forward_account_autosel) {
-		gchar deliveredto[BUFFSIZE];
+		gchar *deliveredto = NULL;
 		if (!procheader_get_header_from_msginfo
-			(msginfo, deliveredto,sizeof deliveredto , "Delivered-To:")) { 
+				(msginfo, &deliveredto, "Delivered-To:")) { 
 			gchar *buf = deliveredto + strlen("Delivered-To:");
-		        extract_address(buf);
-		        account = account_find_from_address(buf, FALSE);
-                }
+			extract_address(buf);
+			account = account_find_from_address(buf, FALSE);
+			g_free(deliveredto);
+		}
 	}
+
+	if (!account)
+		account = msginfo->folder->folder->account;
 	
 	return account;
 }
@@ -11747,7 +12025,7 @@ static void compose_reply_from_messageview_real(MessageView *msgview, GSList *ms
 
 	if (new_msglist) {
 		compose = compose_reply_mode((ComposeMode)action, new_msglist, body);
-		procmsg_msginfo_free(tmp_msginfo);
+		procmsg_msginfo_free(&tmp_msginfo);
 		g_slist_free(new_msglist);
 	} else
 		compose = compose_reply_mode((ComposeMode)action, msginfo_list, body);
@@ -11872,15 +12150,15 @@ static MsgInfo *compose_msginfo_new_from_compose(Compose *compose)
 {
 	MsgInfo *newmsginfo;
 	GSList *list;
-	gchar buf[BUFFSIZE];
+	gchar date[RFC822_DATE_BUFFSIZE];
 
 	cm_return_val_if_fail( compose != NULL, NULL );
 
 	newmsginfo = procmsg_msginfo_new();
 
 	/* date is now */
-	get_rfc822_date(buf, sizeof(buf));
-	newmsginfo->date = g_strdup(buf);
+	get_rfc822_date(date, sizeof(date));
+	newmsginfo->date = g_strdup(date);
 
 	/* from */
 	if (compose->from_name) {

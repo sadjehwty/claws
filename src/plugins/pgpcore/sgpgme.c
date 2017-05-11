@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 the Claws Mail team
+ * Copyright (C) 1999-2016 the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -36,6 +35,9 @@
 #include <sys/types.h>
 #ifndef G_OS_WIN32
 #  include <sys/wait.h>
+#else
+#  include <pthread.h>
+#  include <windows.h>
 #endif
 #if (defined(__DragonFly__) || defined(SOLARIS) || defined (__NetBSD__) || defined (__FreeBSD__) || defined (__OpenBSD__))
 #  include <sys/signal.h>
@@ -56,6 +58,7 @@
 #include "prefs_gpg.h"
 #include "account.h"
 #include "select-keys.h"
+#include "claws.h"
 
 static void sgpgme_disable_all(void)
 {
@@ -169,6 +172,40 @@ static const gchar *get_owner_trust_str(unsigned long owner_trust)
 	}
 }
 
+gchar *get_gpg_executable_name()
+{
+	gpgme_engine_info_t e;
+
+	if (!gpgme_get_engine_info(&e)) {
+		while (e != NULL) {
+			if (e->protocol == GPGME_PROTOCOL_OpenPGP
+					&& e->file_name != NULL) {
+				debug_print("Found gpg executable: '%s'\n", e->file_name);
+				return e->file_name;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static gchar *get_gpg_version_string()
+{
+	gpgme_engine_info_t e;
+
+	if (!gpgme_get_engine_info(&e)) {
+		while (e != NULL) {
+			if (e->protocol == GPGME_PROTOCOL_OpenPGP
+					&& e->version != NULL) {
+				debug_print("Got OpenPGP version: '%s'\n", e->version);
+				return e->version;
+			}
+		}
+	}
+
+	return NULL;
+}
+
 static gchar *extract_name(const char *uid)
 {
 	if (uid == NULL)
@@ -213,12 +250,13 @@ gchar *sgpgme_sigstat_info_short(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		if (!warned)
 			alertpanel_error(_("PGP Core: Can't get key - no gpg-agent running."));
 		else
-			g_warning(_("PGP Core: Can't get key - no gpg-agent running."));
+			g_warning("PGP Core: Can't get key - no gpg-agent running.");
 		warned = TRUE;
 	} else if (gpg_err_code(err) != GPG_ERR_NO_ERROR && gpg_err_code(err) != GPG_ERR_EOF) {
 		return g_strdup_printf(_("The signature can't be checked - %s"), 
 			gpgme_strerror(err));
-	}
+  }
+
 	if (key)
 		uname = extract_name(key->uids->uid);
 	else
@@ -226,7 +264,7 @@ gchar *sgpgme_sigstat_info_short(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 
 	switch (gpg_err_code(sig->status)) {
 	case GPG_ERR_NO_ERROR:
-               switch (key->uids?key->uids->validity:GPGME_VALIDITY_UNKNOWN) {
+               switch ((key && key->uids) ? key->uids->validity : GPGME_VALIDITY_UNKNOWN) {
 		case GPGME_VALIDITY_ULTIMATE:
 			result = g_strdup_printf(_("Good signature from \"%s\" [ultimate]"), uname);
 			break;
@@ -240,7 +278,13 @@ gchar *sgpgme_sigstat_info_short(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		case GPGME_VALIDITY_UNDEFINED:
 		case GPGME_VALIDITY_NEVER:
 		default:
-			result = g_strdup_printf(_("Good signature from \"%s\""), uname);
+			if (key) {
+				result = g_strdup_printf(_("Good signature from \"%s\""), uname);
+			} else {
+				gchar *id = g_strdup(sig->fpr + strlen(sig->fpr)-8);
+				result = g_strdup_printf(_("Key 0x%s not available to verify this signature"), id);
+				g_free(id);
+			}
 			break;
                }
 		break;
@@ -325,7 +369,7 @@ gchar *sgpgme_sigstat_info_full(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		case GPG_ERR_NO_ERROR:
 			g_string_append_printf(siginfo,
 				_("Good signature from uid \"%s\" (Validity: %s)\n"),
-				uid, get_validity_str(key->uids?key->uids->validity:GPGME_VALIDITY_UNKNOWN));
+				uid, get_validity_str((key && key->uids) ? key->uids->validity:GPGME_VALIDITY_UNKNOWN));
 			break;
 		case GPG_ERR_KEY_EXPIRED:
 			g_string_append_printf(siginfo,
@@ -335,7 +379,7 @@ gchar *sgpgme_sigstat_info_full(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		case GPG_ERR_SIG_EXPIRED:
 			g_string_append_printf(siginfo,
 				_("Expired signature from uid \"%s\" (Validity: %s)\n"),
-				uid, get_validity_str(key->uids?key->uids->validity:GPGME_VALIDITY_UNKNOWN));
+				uid, get_validity_str((key && key->uids) ? key->uids->validity:GPGME_VALIDITY_UNKNOWN));
 			break;
 		case GPG_ERR_CERT_REVOKED:
 			g_string_append_printf(siginfo,
@@ -352,17 +396,20 @@ gchar *sgpgme_sigstat_info_full(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		}
 		if (sig->status != GPG_ERR_BAD_SIGNATURE) {
 			gint j = 1;
-			key->uids = key->uids ? key->uids->next : NULL;
-			while (key->uids != NULL) {
-				g_string_append_printf(siginfo,
-					_("                    uid \"%s\" (Validity: %s)\n"),
-					key->uids->uid,
-					key->uids->revoked==TRUE?_("Revoked"):get_validity_str(key->uids->validity));
-				j++;
-				key->uids = key->uids->next;
+			if (key) {
+				key->uids = key->uids ? key->uids->next : NULL;
+				while (key->uids != NULL) {
+					g_string_append_printf(siginfo,
+						g_strconcat("                    ",
+							    _("uid \"%s\" (Validity: %s)\n"), NULL),
+						key->uids->uid,
+						key->uids->revoked==TRUE?_("Revoked"):get_validity_str(key->uids->validity));
+					j++;
+					key->uids = key->uids->next;
+				}
 			}
 			g_string_append_printf(siginfo,_("Owner Trust: %s\n"),
-					       get_owner_trust_str(key->owner_trust));
+					       key ? get_owner_trust_str(key->owner_trust) : _("No key!"));
 			g_string_append(siginfo,
 				_("Primary key fingerprint:"));
 			const char* primary_fpr = NULL;
@@ -444,7 +491,7 @@ gpgme_data_t sgpgme_decrypt_verify(gpgme_data_t cipher, gpgme_verify_result_t *s
 	
 	if (gpgme_get_protocol(ctx) == GPGME_PROTOCOL_OpenPGP) {
 		prefs_gpg_enable_agent(prefs_gpg_get_config()->use_gpg_agent);
-    		if (!getenv("GPG_AGENT_INFO") || !prefs_gpg_get_config()->use_gpg_agent) {
+		if (!g_getenv("GPG_AGENT_INFO") || !prefs_gpg_get_config()->use_gpg_agent) {
         		info.c = ctx;
         		gpgme_set_passphrase_cb (ctx, gpgmegtk_passphrase_cb, &info);
     		}
@@ -574,17 +621,17 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 			}
 
 			if (key->expired) {
-				debug_print("skipping a key, expired");
+				debug_print("skipping a key, expired\n");
 				gpgme_key_release(key);
 				continue;
 			}
 			if (key->revoked) {
-				debug_print("skipping a key, revoked");
+				debug_print("skipping a key, revoked\n");
 				gpgme_key_release(key);
 				continue;
 			}
 			if (key->disabled) {
-				debug_print("skipping a key, disabled");
+				debug_print("skipping a key, disabled\n");
 				gpgme_key_release(key);
 				continue;
 			}
@@ -592,7 +639,7 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 			if (found_key != NULL) {
 				gpgme_key_release(key);
 				gpgme_op_keylist_end(ctx);
-				g_warning("ambiguous specification of secret key '%s'\n", keyid);
+				g_warning("ambiguous specification of secret key '%s'", keyid);
 				privacy_set_error(_("Secret key specification is ambiguous"));
 				goto bail;
 			}
@@ -614,7 +661,7 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 		gpgme_key_release(found_key);
 
 		if (err) {
-			g_warning("error adding secret key: %s\n",
+			g_warning("error adding secret key: %s",
 				  gpgme_strerror(err));
 			privacy_set_error(_("Error setting secret key: %s"),
 					  gpgme_strerror(err));
@@ -634,8 +681,17 @@ void sgpgme_init()
 {
 	gchar *ctype_locale = NULL, *messages_locale = NULL;
 	gchar *ctype_utf8_locale = NULL, *messages_utf8_locale = NULL;
+	gpgme_error_t err = 0;
 
 	gpgme_engine_info_t engineInfo;
+
+	if (strcmp(prefs_gpg_get_config()->gpg_path, "") != 0
+	    && access(prefs_gpg_get_config()->gpg_path, X_OK) != -1) {
+		err = gpgme_set_engine_info(GPGME_PROTOCOL_OpenPGP, prefs_gpg_get_config()->gpg_path, NULL);
+		if (err != GPG_ERR_NO_ERROR)
+			g_warning("failed to set crypto engine configuration: %s", gpgme_strerror(err));
+	}
+
 	if (gpgme_check_version("1.0.0")) {
 #ifdef LC_CTYPE
 		debug_print("setting gpgme CTYPE locale\n");
@@ -746,6 +802,48 @@ void sgpgme_done()
         gpgmegtk_free_passphrase();
 }
 
+#ifdef G_OS_WIN32
+struct _ExportCtx {
+	gboolean done;
+	gchar *cmd;
+	DWORD exitcode;
+};
+
+static void *_export_threaded(void *arg)
+{
+	struct _ExportCtx *ctx = (struct _ExportCtx *)arg;
+	gboolean result;
+
+	PROCESS_INFORMATION pi = {0};
+	STARTUPINFO si = {0};
+
+	result = CreateProcess(NULL, ctx->cmd, NULL, NULL, FALSE,
+			NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW,
+			NULL, NULL, &si, &pi);
+
+	if (!result) {
+		debug_print("Couldn't execute '%s'\n", ctx->cmd);
+	} else {
+		WaitForSingleObject(pi.hProcess, 10000);
+		result = GetExitCodeProcess(pi.hProcess, &ctx->exitcode);
+		if (ctx->exitcode == STILL_ACTIVE) {
+			debug_print("Process still running, terminating it.\n");
+			TerminateProcess(pi.hProcess, 255);
+		}
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+
+		if (!result) {
+			debug_print("Process executed, but we couldn't get its exit code (huh?)\n");
+		}
+	}
+
+	ctx->done = TRUE;
+	return NULL;
+}
+#endif
+
 void sgpgme_create_secret_key(PrefsAccount *account, gboolean ask_create)
 {
 	AlertValue val = G_ALERTDEFAULT;
@@ -754,11 +852,12 @@ void sgpgme_create_secret_key(PrefsAccount *account, gboolean ask_create)
 	gchar *email = NULL;
 	gchar *passphrase = NULL, *passphrase_second = NULL;
 	gint prev_bad = 0;
-	gchar *tmp = NULL;
+	gchar *tmp = NULL, *gpgver;
 	gpgme_error_t err = 0;
 	gpgme_ctx_t ctx;
 	GtkWidget *window = NULL;
 	gpgme_genkey_result_t key;
+	gboolean exported = FALSE;
 
 	if (account == NULL)
 		account = account_get_default();
@@ -776,8 +875,6 @@ void sgpgme_create_secret_key(PrefsAccount *account, gboolean ask_create)
 				  "Do you want to create a new key pair now?"),
 				  GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
 		if (val == G_ALERTDEFAULT) {
-			prefs_gpg_get_config()->gpg_ask_create_key = FALSE;
-			prefs_gpg_save_config();
 			return;
 		}
 	}
@@ -789,27 +886,40 @@ void sgpgme_create_secret_key(PrefsAccount *account, gboolean ask_create)
 	}
 	email = g_strdup(account->address);
 	tmp = g_strdup_printf("%s <%s>", account->name?account->name:account->address, account->address);
+	gpgver = get_gpg_version_string();
+	if (gpgver == NULL || !strncmp(gpgver, "1.", 2)) {
+		debug_print("Using gpg 1.x, using builtin passphrase dialog.\n");
 again:
-	passphrase = passphrase_mbox(tmp, NULL, prev_bad, 1);
-	if (passphrase == NULL) {
-		g_free(tmp);
-		g_free(email);
-		g_free(name);		
-		return;
-	}
-	passphrase_second = passphrase_mbox(tmp, NULL, 0, 2);
-	if (passphrase_second == NULL) {
-		g_free(tmp);
-		g_free(email);
-		g_free(passphrase);		
-		g_free(name);		
-		return;
-	}
-	if (strcmp(passphrase, passphrase_second)) {
-		g_free(passphrase);
-		g_free(passphrase_second);
-		prev_bad = 1;
-		goto again;
+		passphrase = passphrase_mbox(tmp, NULL, prev_bad, 1);
+		if (passphrase == NULL) {
+			g_free(tmp);
+			g_free(email);
+			g_free(name);
+			return;
+		}
+		passphrase_second = passphrase_mbox(tmp, NULL, 0, 2);
+		if (passphrase_second == NULL) {
+			g_free(tmp);
+			g_free(email);
+			if (passphrase != NULL) {
+				memset(passphrase, 0, strlen(passphrase));
+				g_free(passphrase);
+			}
+			g_free(name);
+			return;
+		}
+		if (strcmp(passphrase, passphrase_second)) {
+			if (passphrase != NULL) {
+				memset(passphrase, 0, strlen(passphrase));
+				g_free(passphrase);
+			}
+			if (passphrase_second != NULL) {
+				memset(passphrase_second, 0, strlen(passphrase_second));
+				g_free(passphrase_second);
+			}
+			prev_bad = 1;
+			goto again;
+		}
 	}
 	
 	key_parms = g_strdup_printf("<GnupgKeyParms format=\"internal\">\n"
@@ -823,26 +933,37 @@ again:
 					"%s%s%s"
 					"</GnupgKeyParms>\n",
 					name, email, 
-					strlen(passphrase)?"Passphrase: ":"",
-					passphrase,
-					strlen(passphrase)?"\n":"");
+					passphrase?"Passphrase: ":"",
+					passphrase?passphrase:"",
+					passphrase?"\n":"");
 #ifndef G_PLATFORM_WIN32
-	if (mlock(passphrase, strlen(passphrase)) == -1)
+	if (passphrase &&
+			mlock(passphrase, strlen(passphrase)) == -1)
 		debug_print("couldn't lock passphrase\n");
-	if (mlock(passphrase_second, strlen(passphrase_second)) == -1)
+	if (passphrase_second &&
+			mlock(passphrase_second, strlen(passphrase_second)) == -1)
 		debug_print("couldn't lock passphrase2\n");
 #endif
 	g_free(tmp);
 	g_free(email);
 	g_free(name);
-	g_free(passphrase_second);
-	g_free(passphrase);
+	if (passphrase_second != NULL) {
+		memset(passphrase_second, 0, strlen(passphrase_second));
+		g_free(passphrase_second);
+	}
+	if (passphrase != NULL) {
+		memset(passphrase, 0, strlen(passphrase));
+		g_free(passphrase);
+	}
 	
 	err = gpgme_new (&ctx);
 	if (err) {
 		alertpanel_error(_("Couldn't generate a new key pair: %s"),
 				 gpgme_strerror(err));
-		g_free(key_parms);
+		if (key_parms != NULL) {
+			memset(key_parms, 0, strlen(key_parms));
+			g_free(key_parms);
+		}
 		return;
 	}
 	
@@ -851,7 +972,10 @@ again:
 			      "around to help generate entropy..."));
 
 	err = gpgme_op_genkey(ctx, key_parms, NULL, NULL);
-	g_free(key_parms);
+	if (key_parms != NULL) {
+		memset(key_parms, 0, strlen(key_parms));
+		g_free(key_parms);
+	}
 
 	label_window_destroy(window);
 
@@ -874,8 +998,12 @@ again:
 				  GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
 		g_free(buf);
 		if (val == G_ALERTALTERNATE) {
+			gchar *gpgbin = get_gpg_executable_name();
+			gchar *cmd = g_strdup_printf("\"%s\" --batch --no-tty --send-keys %s",
+				(gpgbin ? gpgbin : "gpg"), key->fpr);
+			debug_print("Executing command: %s\n", cmd);
+
 #ifndef G_OS_WIN32
-			gchar *cmd = g_strdup_printf("gpg --no-tty --send-keys %s", key->fpr);
 			int res = 0;
 			pid_t pid = 0;
 			pid = fork();
@@ -908,19 +1036,46 @@ again:
 					}
 				} while(1);
 			}
-			if (res == 0) {
+
+			if (res == 0)
+				exported = TRUE;
+#else
+			/* We need to call gpg in a separate thread, so that waiting for
+			 * it to finish does not block the UI. */
+			pthread_t pt;
+			struct _ExportCtx *ectx = malloc(sizeof(struct _ExportCtx));
+
+			ectx->done = FALSE;
+			ectx->exitcode = STILL_ACTIVE;
+			ectx->cmd = cmd;
+
+			if (pthread_create(&pt, PTHREAD_CREATE_JOINABLE,
+						_export_threaded, (void *)ectx) != 0) {
+				debug_print("Couldn't create thread, continuing unthreaded.\n");
+				_export_threaded(ctx);
+			} else {
+				debug_print("Thread created, waiting for it to finish...\n");
+				while (!ectx->done)
+					claws_do_idle();
+			}
+
+			debug_print("Thread finished.\n");
+			pthread_join(pt, NULL);
+
+			if (ectx->exitcode == 0)
+				exported = TRUE;
+
+			g_free(ectx);
+#endif
+			g_free(cmd);
+
+			if (exported) {
 				alertpanel_notice(_("Key exported."));
 			} else {
 				alertpanel_error(_("Couldn't export key."));
 			}
-			g_free(cmd);
-#else
-			alertpanel_error(_("Key export isn't implemented in Windows."));
-#endif
 		}
 	}
-	prefs_gpg_get_config()->gpg_ask_create_key = FALSE;
-	prefs_gpg_save_config();
 	gpgme_release(ctx);
 }
 
@@ -958,10 +1113,10 @@ void sgpgme_check_create_key(void)
 	if (prefs_gpg_get_config()->gpg_ask_create_key &&
 	    !sgpgme_has_secret_key()) {
 		sgpgme_create_secret_key(NULL, TRUE);
-	} else {
-		prefs_gpg_get_config()->gpg_ask_create_key = FALSE;
-		prefs_gpg_save_config();
-	}	
+	}
+
+	prefs_gpg_get_config()->gpg_ask_create_key = FALSE;
+	prefs_gpg_save_config();
 }
 
 void *sgpgme_data_release_and_get_mem(gpgme_data_t data, size_t *len)
@@ -971,17 +1126,15 @@ void *sgpgme_data_release_and_get_mem(gpgme_data_t data, size_t *len)
 	ssize_t r = 0;
 	size_t w = 0;
 	
-	if (data == NULL)
-		return NULL;
-	if (len == NULL)
-		return NULL;
+	cm_return_val_if_fail(data != NULL, NULL);
+	cm_return_val_if_fail(len != NULL, NULL);
 
 	/* I know it's deprecated, but we don't compile with _LARGEFILE */
 	cm_gpgme_data_rewind(data);
 	while ((r = gpgme_data_read(data, buf, BUFSIZ)) > 0) {
 		void *rresult = realloc(result, r + w);
 		if (rresult == NULL) {
-			g_warning("can't allocate memory\n");
+			g_warning("can't allocate memory");
 			if (result != NULL)
 				free(result);
 			return NULL;
@@ -995,6 +1148,7 @@ void *sgpgme_data_release_and_get_mem(gpgme_data_t data, size_t *len)
 
 	gpgme_data_release(data);
 	if (r < 0) {
+		g_warning("gpgme_data_read() returned an error: %d", (int)r);
 		free(result);
 		*len = 0;
 		return NULL;

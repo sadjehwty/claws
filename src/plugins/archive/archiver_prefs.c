@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2008 Michael Rasmussen and the Claws Mail Team
+ * Copyright (C) 1999-2017 Michael Rasmussen and the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@
 #include "filesel.h"
 
 #include "archiver_prefs.h"
+#include "libarchive_archive.h"
 
 #define PREFS_BLOCK_NAME "Archiver"
 
@@ -48,9 +49,24 @@ struct ArchiverPrefsPage {
         PrefsPage page;
         GtkWidget *save_folder;
 	gint compression;
-	GtkWidget *zip_radiobtn;
+	GtkWidget *gzip_radiobtn;
 	GtkWidget *bzip_radiobtn;
     GtkWidget *compress_radiobtn;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	GtkWidget *lzma_radiobtn;
+	GtkWidget *xz_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	GtkWidget *lzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	GtkWidget *lrzip_radiobtn;
+	GtkWidget *lzop_radiobtn;
+	GtkWidget *grzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	GtkWidget *lz4_radiobtn;
+#endif
 	GtkWidget *none_radiobtn;
 	GtkWidget *tar_radiobtn;
 	GtkWidget *shar_radiobtn;
@@ -157,9 +173,24 @@ static void create_archiver_prefs_page(PrefsPage * _page,
   	GtkWidget *save_folder_select;
 	GtkWidget *frame;
 	GSList    *compression_group = NULL;
-	GtkWidget *zip_radiobtn;
+	GtkWidget *gzip_radiobtn;
 	GtkWidget *bzip_radiobtn;
     GtkWidget *compress_radiobtn;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	GtkWidget *lzma_radiobtn;
+	GtkWidget *xz_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	GtkWidget *lzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	GtkWidget *lrzip_radiobtn;
+	GtkWidget *lzop_radiobtn;
+	GtkWidget *grzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	GtkWidget *lz4_radiobtn;
+#endif
 	GtkWidget *none_radiobtn;
 	GSList    *format_group = NULL;
 	GtkWidget *tar_radiobtn;
@@ -211,37 +242,83 @@ static void create_archiver_prefs_page(PrefsPage * _page,
 	gtk_container_set_border_width(GTK_CONTAINER(hbox1), 4);
 	gtk_container_add(GTK_CONTAINER(frame), hbox1);
 
-	zip_radiobtn = gtk_radio_button_new_with_label(compression_group, "ZIP");
-	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(zip_radiobtn));
-	gtk_widget_show(zip_radiobtn);
- 	gtk_box_pack_start(GTK_BOX (hbox1), zip_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(zip_radiobtn,
-			_("Choose this option to use ZIP compression by default"));
+	gzip_radiobtn = gtk_radio_button_new_with_label(compression_group, "GZIP");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(gzip_radiobtn));
+	gtk_widget_show(gzip_radiobtn);
+ 	gtk_box_pack_start(GTK_BOX (hbox1), gzip_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(gzip_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "GZIP"));
 
 	bzip_radiobtn = gtk_radio_button_new_with_label(compression_group, "BZIP2");
 	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(bzip_radiobtn));
 	gtk_widget_show(bzip_radiobtn);
 	gtk_box_pack_start(GTK_BOX (hbox1), bzip_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(bzip_radiobtn,
-			_("Choose this option to use BZIP2 compression by default"));
+        archiver_set_tooltip(bzip_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "BZIP2"));
 
 	compress_radiobtn = gtk_radio_button_new_with_label(compression_group, "COMPRESS");
 	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(compress_radiobtn));
 	gtk_widget_show(compress_radiobtn);
 	gtk_box_pack_start(GTK_BOX (hbox1), compress_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(compress_radiobtn,
-			_("Choose this option to use COMPRESS compression by default"));
+        archiver_set_tooltip(compress_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "COMPRESS"));
+
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	lzma_radiobtn = gtk_radio_button_new_with_label(compression_group, "LZMA");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(lzma_radiobtn));
+	gtk_widget_show(lzma_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), lzma_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(lzma_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "LZMA"));
+
+	xz_radiobtn = gtk_radio_button_new_with_label(compression_group, "XZ");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(xz_radiobtn));
+	gtk_widget_show(xz_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), xz_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(xz_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "XZ"));
+#endif
+
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	lzip_radiobtn = gtk_radio_button_new_with_label(compression_group, "LZIP");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(lzip_radiobtn));
+	gtk_widget_show(lzip_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), lzip_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(lzip_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "LZIP"));
+#endif
+
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	lrzip_radiobtn = gtk_radio_button_new_with_label(compression_group, "LRZIP");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(lrzip_radiobtn));
+	gtk_widget_show(lrzip_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), lrzip_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(lrzip_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "LRZIP"));
+
+	lzop_radiobtn = gtk_radio_button_new_with_label(compression_group, "LZOP");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(lzop_radiobtn));
+	gtk_widget_show(lzop_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), lzop_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(lzop_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "LZOP"));
+
+	grzip_radiobtn = gtk_radio_button_new_with_label(compression_group, "GRZIP");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(grzip_radiobtn));
+	gtk_widget_show(grzip_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), grzip_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(grzip_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "GRZIP"));
+#endif
+
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	lz4_radiobtn = gtk_radio_button_new_with_label(compression_group, "LZ4");
+	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(lz4_radiobtn));
+	gtk_widget_show(lz4_radiobtn);
+	gtk_box_pack_start(GTK_BOX (hbox1), lz4_radiobtn, FALSE, FALSE, 0);
+	archiver_set_tooltip(lz4_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "LZ4"));
+#endif
 
     none_radiobtn = gtk_radio_button_new_with_label(compression_group, _("None"));
 	compression_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(none_radiobtn));
 	gtk_widget_show(none_radiobtn);
 	gtk_box_pack_start(GTK_BOX (hbox1), none_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(none_radiobtn,
-			_("Choose this option to disable compression by default"));
+	archiver_set_tooltip(none_radiobtn, g_strdup_printf(_("Choose this option to use %s compression by default"), "NO"));
 
 	switch (archiver_prefs.compression) {
-	case COMPRESSION_ZIP:
-		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(zip_radiobtn), TRUE);
+	case COMPRESSION_GZIP:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gzip_radiobtn), TRUE);
 		break;
 	case COMPRESSION_BZIP:
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bzip_radiobtn), TRUE);
@@ -249,6 +326,35 @@ static void create_archiver_prefs_page(PrefsPage * _page,
     case COMPRESSION_COMPRESS:       
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(compress_radiobtn), TRUE);
 		break;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	case COMPRESSION_LZMA:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lzma_radiobtn), TRUE);
+		break;
+	case COMPRESSION_XZ:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(xz_radiobtn), TRUE);
+		break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	case COMPRESSION_LZIP:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lzip_radiobtn), TRUE);
+		break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	case COMPRESSION_LRZIP:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lrzip_radiobtn), TRUE);
+		break;
+	case COMPRESSION_LZOP:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lzop_radiobtn), TRUE);
+		break;
+	case COMPRESSION_GRZIP:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(grzip_radiobtn), TRUE);
+		break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	case COMPRESSION_LZ4:
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(lz4_radiobtn), TRUE);
+		break;
+#endif
 	case COMPRESSION_NONE:
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(none_radiobtn), TRUE);
 		break;
@@ -265,29 +371,25 @@ static void create_archiver_prefs_page(PrefsPage * _page,
 	format_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(tar_radiobtn));
 	gtk_widget_show(tar_radiobtn);
  	gtk_box_pack_start(GTK_BOX (hbox1), tar_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(tar_radiobtn,
-			_("Choose this option to use the TAR format by default"));
+	archiver_set_tooltip(tar_radiobtn, g_strdup_printf(_("Choose this option to use the %s as format by default"), "TAR"));
 
 	shar_radiobtn = gtk_radio_button_new_with_label(format_group, "SHAR");
 	format_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(shar_radiobtn));
 	gtk_widget_show(shar_radiobtn);
  	gtk_box_pack_start(GTK_BOX (hbox1), shar_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(shar_radiobtn,
-			_("Choose this option to use the SHAR format by default"));
+	archiver_set_tooltip(shar_radiobtn, g_strdup_printf(_("Choose this option to use the %s as format by default"), "SHAR"));
 
 	cpio_radiobtn = gtk_radio_button_new_with_label(format_group, "CPIO");
 	format_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(cpio_radiobtn));
 	gtk_widget_show(cpio_radiobtn);
  	gtk_box_pack_start(GTK_BOX (hbox1), cpio_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(cpio_radiobtn,
-			_("Choose this option to use the CPIO format by default"));
+	archiver_set_tooltip(cpio_radiobtn, g_strdup_printf(_("Choose this option to use the %s as format by default"), "CPIO"));
 
 	pax_radiobtn = gtk_radio_button_new_with_label(format_group, "PAX");
 	format_group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(pax_radiobtn));
 	gtk_widget_show(pax_radiobtn);
  	gtk_box_pack_start(GTK_BOX (hbox1), pax_radiobtn, FALSE, FALSE, 0);
-	CLAWS_SET_TIP(pax_radiobtn,
-			_("Choose this option to use the PAX format by default"));
+	archiver_set_tooltip(pax_radiobtn, g_strdup_printf(_("Choose this option to use the %s as format by default"), "PAX"));
 
 	switch (archiver_prefs.format) {
 	case FORMAT_TAR:
@@ -341,9 +443,24 @@ static void create_archiver_prefs_page(PrefsPage * _page,
 
 
 	page->save_folder = save_folder;
-	page->zip_radiobtn = zip_radiobtn;
+	page->gzip_radiobtn = gzip_radiobtn;
 	page->bzip_radiobtn = bzip_radiobtn;
     page->compress_radiobtn = compress_radiobtn;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	page->lzma_radiobtn = lzma_radiobtn;
+	page->xz_radiobtn = xz_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	page->lzip_radiobtn = lzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	page->lrzip_radiobtn = lrzip_radiobtn;
+	page->lzop_radiobtn = lzop_radiobtn;
+	page->grzip_radiobtn = grzip_radiobtn;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	page->lz4_radiobtn = lz4_radiobtn;
+#endif
 	page->none_radiobtn = none_radiobtn;
 	page->tar_radiobtn = tar_radiobtn;
 	page->shar_radiobtn = shar_radiobtn;
@@ -370,12 +487,34 @@ static void save_archiver_prefs(PrefsPage * _page)
                                           COMMON_RC, NULL);
 
 	archiver_prefs.save_folder = gtk_editable_get_chars(GTK_EDITABLE(page->save_folder), 0, -1);
-	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->zip_radiobtn)))
-		archiver_prefs.compression = COMPRESSION_ZIP;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->gzip_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_GZIP;
 	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->bzip_radiobtn)))
 		archiver_prefs.compression = COMPRESSION_BZIP;
 	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->compress_radiobtn)))
 		archiver_prefs.compression = COMPRESSION_COMPRESS;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->lzma_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_LZMA;
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->xz_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_XZ;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->lzip_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_LZIP;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->lrzip_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_LRZIP;
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->lzop_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_LZOP;
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->grzip_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_GRZIP;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->lz4_radiobtn)))
+		archiver_prefs.compression = COMPRESSION_LZ4;
+#endif
 	else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->none_radiobtn)))
 		archiver_prefs.compression = COMPRESSION_NONE;
 
@@ -414,7 +553,7 @@ static void save_archiver_prefs(PrefsPage * _page)
           return;
         
         if (prefs_write_param(param, pref_file->fp) < 0) {
-          g_warning("failed to write Archiver Plugin configuration\n");
+          g_warning("failed to write Archiver Plugin configuration");
           prefs_file_close_revert(pref_file);
           return;
         }

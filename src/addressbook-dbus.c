@@ -64,7 +64,7 @@ static gboolean init(GError** error) {
     if (connection == NULL || *error) {
 		if (! *error)
 			g_set_error(error, client_object_error_quark(), 1, "Unable to connect to dbus");
-        g_warning("Unable to connect to dbus: %s\n", (*error)->message);
+        g_warning("Unable to connect to dbus: %s", (*error)->message);
         return FALSE;
     }
     
@@ -73,7 +73,7 @@ static gboolean init(GError** error) {
             "/org/clawsmail/contacts",
             "org.clawsmail.Contacts");
     if (proxy == NULL) {
-        g_warning("Could not get a proxy object\n");
+        g_warning("Could not get a proxy object");
         g_set_error(error, client_object_error_quark(), 1, "Could not get a proxy object");
         return FALSE;
     }
@@ -125,7 +125,7 @@ static gchar* convert_2_utf8(gchar* locale) {
 
     utf8 = g_convert(locale, -1, "UTF-8", current, &read, &write, &error);
     if (error) {
-        g_warning("Fail to convert [%s]: %s\n", charset, error->message);
+        g_warning("Failed to convert [%s]: %s", charset, error->message);
         g_free(current);
         return NULL;
     }
@@ -399,7 +399,7 @@ void contact_data_free(ContactData** data) {
 	g_free(contact->name);
 	g_free(contact->book);
 	g_free(contact);
-	contact = NULL;
+	*data = NULL;
 }
 
 void addressbook_harvest(FolderItem *folderItem,
@@ -425,7 +425,7 @@ void addressbook_connect_signals(Compose* compose) {
 	compose_instance = compose;
 	dbus_bus_add_match(bus, "type='signal',interface='org.clawsmail.Contacts'", error);
 	if (error) {
-    	debug_print("Failed to add match to the D-BUS daemon: %s", error->message);
+		debug_print("Failed to add match to the D-BUS daemon: %s\n", error->message);
     	dbus_error_free(error);
     	return;
 	}
@@ -478,7 +478,7 @@ static gboolean my_compose_create_hook(gpointer source, gpointer user_data) {
 void addressbook_install_hooks(GError** error) {
 	if ((guint)-1 == hooks_register_hook(
 			COMPOSE_CREATED_HOOKLIST, my_compose_create_hook, NULL)) {
-		g_warning("Could not register hook for adding vCards\n");
+		g_warning("Could not register hook for adding vCards");
 		if (error) {
 			g_set_error(error, client_object_error_quark(), 1,
 				"Could not register hook for adding vCards");

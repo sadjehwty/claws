@@ -33,9 +33,9 @@ claws_mail_res_ldflag =
 claws_mail_deps =
 endif
 
-new_abook_source = \
+alt_abook_source = \
 	addressbook-dbus.c
-old_abook_source = \
+orig_abook_source = \
 	addrbook.c \
 	addrclip.c \
 	addrcustomattr.c \
@@ -73,12 +73,12 @@ old_abook_source = \
 	pine.c \
 	vcard.c
 
-if BUILD_NEWADDRBOOK
-abook_source = $(new_abook_source)
-abook_extra = $(old_abook_source)
+if BUILD_ALTADDRBOOK
+abook_source = $(alt_abook_source)
+abook_extra = $(orig_abook_source)
 else
-abook_source = $(old_abook_source)
-abook_extra = $(new_abook_source)
+abook_source = $(orig_abook_source)
+abook_extra = $(alt_abook_source)
 endif
 
 abook_headers = \
@@ -176,6 +176,9 @@ claws_mail_SOURCES = \
 	news_gtk.c \
 	noticeview.c \
 	partial_download.c \
+	password.c \
+	password_gtk.c \
+	passwordstore.c \
 	pop.c \
 	prefs_account.c \
 	prefs_actions.c \
@@ -193,6 +196,7 @@ claws_mail_SOURCES = \
 	prefs_logging.c \
 	prefs_matcher.c \
 	prefs_message.c \
+	prefs_migration.c \
 	prefs_msg_colors.c \
 	prefs_other.c \
 	prefs_quote.c \
@@ -219,7 +223,6 @@ claws_mail_SOURCES = \
 	remotefolder.c \
 	send_message.c \
 	setup.c \
-	simple-gettext.c \
 	sourcewindow.c \
 	ssl_manager.c \
 	statusbar.c \
@@ -292,6 +295,9 @@ claws_mailinclude_HEADERS = \
 	news_gtk.h \
 	noticeview.h \
 	partial_download.h \
+	password.h \
+	password_gtk.h \
+	passwordstore.h \
 	pop.h \
 	prefs_account.h \
 	prefs_actions.h \
@@ -309,6 +315,7 @@ claws_mailinclude_HEADERS = \
 	prefs_logging.h \
 	prefs_matcher.h \
 	prefs_message.h \
+	prefs_migration.h \
 	prefs_msg_colors.h \
 	prefs_other.h \
 	prefs_quote.h \
@@ -357,7 +364,7 @@ BUILT_SOURCES = \
 	client-bindings.h
 
 client-bindings.h: claws-contacts.xml
-if BUILD_NEWADDRBOOK
+if BUILD_ALTADDRBOOK
 	dbus-binding-tool --prefix=abook --mode=glib-client --output=$@ claws-contacts.xml
 
 CLEANFILES = \
@@ -365,6 +372,7 @@ CLEANFILES = \
 endif
 
 EXTRA_DIST = \
+	claws-contacts.xml \
 	w32-logo.ico w32-resource.rc \
 	pixmaps/addr_one.xpm \
 	pixmaps/addr_two.xpm \
@@ -379,47 +387,69 @@ EXTRA_DIST = \
 	pixmaps/checkbox_on.xpm \
 	pixmaps/check_spelling.xpm \
 	pixmaps/clipkey.xpm \
-	pixmaps/claws-mail_icon.xpm \
-	pixmaps/claws-mail_compose_logo.xpm \
-	pixmaps/claws-mail_logo.xpm \
-	pixmaps/claws-mail_logo-small.xpm \
-	pixmaps/claws-mail.xpm \
+	pixmaps/claws_mail_icon.xpm \
+	pixmaps/claws_mail_icon_64.xpm \
+	pixmaps/claws_mail_compose_logo.xpm \
+	pixmaps/claws_mail_logo.xpm \
+	pixmaps/claws_mail_logo_small.xpm \
 	pixmaps/clip.xpm \
 	pixmaps/clip_gpg_signed.xpm \
 	pixmaps/close.xpm \
 	pixmaps/complete.xpm \
 	pixmaps/continue.xpm \
+	pixmaps/copied.xpm \
 	pixmaps/delete_btn.xpm \
+	pixmaps/delete_dup_btn.xpm \
 	pixmaps/deleted.xpm \
 	pixmaps/dir_close.xpm \
 	pixmaps/dir_close_hrm.xpm \
-	pixmaps/dir_noselect.xpm \
-	pixmaps/dir_open_hrm.xpm \
+	pixmaps/dir_close_hrm_mark.xpm \
+	pixmaps/dir_close_mark.xpm \
 	pixmaps/dir_open.xpm \
+	pixmaps/dir_open_hrm.xpm \
+	pixmaps/dir_open_hrm_mark.xpm \
+	pixmaps/dir_open_mark.xpm \
+	pixmaps/dir_noselect_close.xpm \
+	pixmaps/dir_noselect_close_mark.xpm \
+	pixmaps/dir_noselect_open.xpm \
+	pixmaps/dir_subs_close_mark.xpm \
+	pixmaps/dir_subs_close.xpm \
+	pixmaps/dir_subs_open.xpm \
+	pixmaps/doc_index.xpm \
+	pixmaps/doc_index_close.xpm \
+	pixmaps/doc_info.xpm \
 	pixmaps/down_arrow.xpm \
 	pixmaps/drafts_close.xpm \
+	pixmaps/drafts_close_mark.xpm \
 	pixmaps/drafts_open.xpm \
-	pixmaps/drafts_close.xpm \
-	pixmaps/drafts_open.xpm \
+	pixmaps/drafts_open_mark.xpm \
 	pixmaps/edit_extern.xpm \
+	pixmaps/empty.xpm \
 	pixmaps/error.xpm \
 	pixmaps/exec.xpm \
+	pixmaps/first_arrow.xpm \
 	pixmaps/forwarded.xpm \
 	pixmaps/gpg_signed.xpm \
 	pixmaps/go_folders.xpm \
 	pixmaps/group.xpm \
 	pixmaps/ham_btn.xpm \
 	pixmaps/ignorethread.xpm \
-	pixmaps/inbox_open_hrm.xpm \
 	pixmaps/inbox_open.xpm \
-	pixmaps/inbox_close_hrm.xpm \
+	pixmaps/inbox_open_hrm.xpm \
+	pixmaps/inbox_open_hrm_mark.xpm \
+	pixmaps/inbox_open_mark.xpm \
 	pixmaps/inbox_close.xpm \
+	pixmaps/inbox_close_hrm.xpm \
+	pixmaps/inbox_close_hrm_mark.xpm \
+	pixmaps/inbox_close_mark.xpm \
 	pixmaps/interface.xpm \
 	pixmaps/insert_file.xpm \
 	pixmaps/jpilot.xpm \
 	pixmaps/key.xpm \
 	pixmaps/key_gpg_signed.xpm \
+	pixmaps/last_arrow.xpm \
 	pixmaps/ldap.xpm \
+	pixmaps/left_arrow.xpm \
 	pixmaps/linewrap.xpm \
 	pixmaps/linewrapcurrent.xpm \
 	pixmaps/locked.xpm \
@@ -435,8 +465,18 @@ EXTRA_DIST = \
 	pixmaps/mail_send_queue.xpm \
 	pixmaps/mail_send.xpm \
 	pixmaps/mail_sign.xpm \
-	pixmaps/mail.xpm \
+	pixmaps/mail_draft.xpm \
 	pixmaps/mark.xpm \
+	pixmaps/mark_allread.xpm \
+	pixmaps/mark_allunread.xpm \
+	pixmaps/mark_ignorethread.xpm \
+	pixmaps/mark_locked.xpm \
+	pixmaps/mark_mark.xpm \
+	pixmaps/mark_read.xpm \
+	pixmaps/mark_unlocked.xpm \
+	pixmaps/mark_unmark.xpm \
+	pixmaps/mark_unread.xpm \
+	pixmaps/mark_watchthread.xpm \
 	pixmaps/mime_application.xpm \
 	pixmaps/mime_audio.xpm \
 	pixmaps/mime_image.xpm \
@@ -450,6 +490,7 @@ EXTRA_DIST = \
 	pixmaps/mime_text_patch.xpm \
 	pixmaps/mime_text_plain.xpm \
 	pixmaps/mime_unknown.xpm \
+	pixmaps/moved.xpm \
 	pixmaps/news_compose.xpm \
 	pixmaps/new.xpm \
 	pixmaps/notice_error.xpm \
@@ -469,6 +510,7 @@ EXTRA_DIST = \
 	pixmaps/paste.xpm \
 	pixmaps/preferences.xpm \
 	pixmaps/printer.xpm \
+	pixmaps/printer_btn.xpm \
 	pixmaps/privacy_expired.xpm \
 	pixmaps/privacy_failed.xpm \
 	pixmaps/privacy_passed.xpm \
@@ -491,45 +533,41 @@ EXTRA_DIST = \
 	pixmaps/queue_open_mark.xpm \
 	pixmaps/quicksearch.xpm \
 	pixmaps/replied.xpm \
-	pixmaps/search.xpm \
+	pixmaps/replied_and_forwarded.xpm \
+	pixmaps/right_arrow.xpm \
+	pixmaps/rotate_left.xpm \
+	pixmaps/rotate_right.xpm \
 	pixmaps/selection.xpm \
 	pixmaps/spam.xpm \
 	pixmaps/spam_btn.xpm \
-	pixmaps/trash_hrm.xpm \
-	pixmaps/trash.xpm \
 	pixmaps/trash_btn.xpm \
+	pixmaps/trash_close.xpm \
+	pixmaps/trash_close_hrm.xpm \
+	pixmaps/trash_close_hrm_mark.xpm \
+	pixmaps/trash_close_mark.xpm \
+	pixmaps/trash_open.xpm \
+	pixmaps/trash_open_hrm.xpm \
+	pixmaps/trash_open_hrm_mark.xpm \
+	pixmaps/trash_open_mark.xpm \
+	pixmaps/tray_newmail_offline.xpm \
+	pixmaps/tray_newmail.xpm \
+	pixmaps/tray_newmarkedmail_offline.xpm \
+	pixmaps/tray_newmarkedmail.xpm \
+	pixmaps/tray_nomail_offline.xpm \
+	pixmaps/tray_nomail.xpm \
+	pixmaps/tray_unreadmail_offline.xpm \
+	pixmaps/tray_unreadmail.xpm \
+	pixmaps/tray_unreadmarkedmail_offline.xpm \
+	pixmaps/tray_unreadmarkedmail.xpm \
 	pixmaps/unread.xpm \
 	pixmaps/read.xpm \
 	pixmaps/up_arrow.xpm \
 	pixmaps/vcard.xpm \
-	pixmaps/dir_close_mark.xpm \
-	pixmaps/dir_close_hrm_mark.xpm \
-	pixmaps/dir_open_hrm_mark.xpm \
-	pixmaps/dir_open_mark.xpm \
-	pixmaps/drafts_close_mark.xpm \
-	pixmaps/drafts_open_mark.xpm \
-	pixmaps/inbox_open_hrm_mark.xpm \
-	pixmaps/inbox_open_mark.xpm \
-	pixmaps/inbox_close_hrm_mark.xpm \
-	pixmaps/inbox_close_mark.xpm \
-	pixmaps/trash_hrm_mark.xpm \
-	pixmaps/trash_mark.xpm \
-	pixmaps/moved.xpm \
-	pixmaps/copied.xpm \
 	pixmaps/watchthread.xpm \
-	pixmaps/tray_newmail.offline.xpm \
-	pixmaps/tray_newmail.xpm \
-	pixmaps/tray_newmarkedmail.offline.xpm \
-	pixmaps/tray_newmarkedmail.xpm \
-	pixmaps/tray_nomail.offline.xpm \
-	pixmaps/tray_nomail.xpm \
-	pixmaps/tray_unreadmail.offline.xpm \
-	pixmaps/tray_unreadmail.xpm \
-	pixmaps/tray_unreadmarkedmail.offline.xpm \
-	pixmaps/tray_unreadmarkedmail.xpm \
-	pixmaps/empty.xpm \
-	pixmaps/replied_and_forwarded.xpm \
-	claws-contacts.xml \
+	pixmaps/zoom_fit.xpm \
+	pixmaps/zoom_in.xpm \
+	pixmaps/zoom_out.xpm \
+	pixmaps/zoom_width.xpm \
 	$(abook_extra)
 
 
@@ -539,14 +577,8 @@ IFLAGS = \
 	-I$(srcdir)/gtk \
 	-I$(srcdir)/etpan
 
-if PLATFORM_WIN32
-arch_ldflags := -Wl,--export-all-symbols
-else
-arch_ldflags := -Wl,--export-dynamic
-endif
-
 claws_mail_LDFLAGS = \
-	$(arch_ldflags) $(claws_mail_res_ldflag)
+	$(claws_mail_res_ldflag)
 
 claws_mail_DEPENDENCIES = $(claws_mail_deps) \
 	$(etpan_library) \
@@ -568,6 +600,7 @@ claws_mail_LDADD = \
 	$(STARTUP_NOTIFICATION_LIBS) \
 	$(LIBETPAN_LIBS) \
 	$(DBUS_LIBS) \
+	$(SVG_LIBS) \
 	$(CONTACTS_LIBS)
 
 pixmapdir=$(datadir)/icons/hicolor/48x48/apps
@@ -583,10 +616,12 @@ AM_CPPFLAGS = \
 	$(IFLAGS) \
 	$(ENCHANT_CFLAGS) \
 	$(GTK_CFLAGS) \
+	$(GNUTLS_CFLAGS) \
 	$(GPGME_CFLAGS) \
 	$(LIBETPAN_CPPFLAGS) \
 	$(STARTUP_NOTIFICATION_CFLAGS) \
 	$(DBUS_CFLAGS) \
+	$(SVG_CFLAGS) \
 	$(NETWORKMANAGER_SUPPORT_CFLAGS) \
 	$(VALGRIND_CFLAGS) \
 	$(CONTACTS_CFLAGS)

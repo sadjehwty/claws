@@ -202,18 +202,21 @@ claws_input_add    (gint	      source,
 		    gpointer	      data,
 		    gboolean          is_sock);
 
-#define CLAWS_SET_TIP(widget,tip) { 					\
-	if (tip != NULL)						\
-		gtk_widget_set_tooltip_text(GTK_WIDGET(widget), tip); 	\
-	else								\
-		gtk_widget_set_has_tooltip(GTK_WIDGET(widget), FALSE);	\
+#define CLAWS_SET_TIP(widget,tip) { 						\
+	if (widget != NULL) {							\
+		if (tip != NULL)						\
+			gtk_widget_set_tooltip_text(GTK_WIDGET(widget), tip); 	\
+		else								\
+			gtk_widget_set_has_tooltip(GTK_WIDGET(widget), FALSE);	\
+	}									\
 }
 
 #if (defined USE_GNUTLS && GLIB_CHECK_VERSION(2,22,0))
 typedef struct _AutoConfigureData {
 	const gchar *ssl_service;
 	const gchar *tls_service;
-	gchar *domain;
+	gchar *address;
+	gint resolver_error;
 
 	GtkEntry *hostname_entry;
 	GtkToggleButton *set_port;
@@ -223,6 +226,7 @@ typedef struct _AutoConfigureData {
 	GtkToggleButton *tls_checkbtn;
 	GtkToggleButton *ssl_checkbtn;
 	GtkToggleButton *auth_checkbtn;
+	GtkEntry *uid_entry;
 	GtkLabel *info_label;
 	GtkButton *configure_button;
 	GtkButton *cancel_button;

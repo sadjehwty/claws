@@ -33,7 +33,8 @@
 #include "stock_pixmap.h"
 #include "prefs_gtk.h"
 
-#define ICONS 21
+#define ICONS 23
+#define ROWS ((ICONS % 2 == 0)? ICONS / 2: (ICONS + 1) / 2)
 
 StockPixmap legend_icons[ICONS] = {
 	STOCK_PIXMAP_NEW,
@@ -57,6 +58,8 @@ StockPixmap legend_icons[ICONS] = {
 	STOCK_PIXMAP_DIR_OPEN, 
 	STOCK_PIXMAP_DIR_OPEN_HRM,
 	STOCK_PIXMAP_DIR_OPEN_MARK,
+	STOCK_PIXMAP_DIR_NOSELECT_OPEN,
+	STOCK_PIXMAP_DIR_SUBS_OPEN,
 };
 
 static gchar *legend_icon_desc[] = {
@@ -86,6 +89,8 @@ static gchar *legend_icon_desc[] = {
 	N_("Folder (normal, opened)"),
 	N_("Folder with read messages hidden"),
 	N_("Folder contains marked messages"),
+	N_("IMAP folder which contains sub-folders only"),
+	N_("IMAP mailbox showing only subscribed folders"),
 };
 
 static struct LegendDialog {
@@ -114,15 +119,15 @@ static void legend_create(void)
 	GtkWidget *label;
 	GtkWidget *icon_label;
 	GtkWidget *desc_label;
-	GtkWidget *scrolled_window;
 	GtkWidget *table;
-	gint i;
+	GtkWidget *frame;
+	gint i, j, k;
 
 	window = gtkut_window_new(GTK_WINDOW_TOPLEVEL, "icon_legend");
 	gtk_window_set_title(GTK_WINDOW(window), _("Icon Legend"));
 	gtk_container_set_border_width(GTK_CONTAINER(window), 8);
 	gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
-	gtk_widget_set_size_request(window, 360, 570);
+	gtk_window_set_default_size(GTK_WINDOW(window), 666, 340);
 	g_signal_connect(G_OBJECT(window), "delete_event",
 			 G_CALLBACK(legend_close), NULL);
 	g_signal_connect(G_OBJECT(window), "key_press_event",
@@ -137,39 +142,38 @@ static void legend_create(void)
 	gtk_widget_show(hbox);
 	gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
 
-	label = gtk_label_new(_("<span weight=\"bold\">The following icons "
+	label = gtk_label_new(g_strconcat("<span weight=\"bold\">",_("The following icons "
 				"are used to show the status of messages and "
-				"folders:</span>"));
+				"folders:"), "</span>", NULL));
 	gtk_label_set_use_markup(GTK_LABEL(label), TRUE);
-	gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
 	gtk_widget_show(label);
-	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(hbox), label, TRUE, TRUE, 0);
 
-	scrolled_window = gtk_scrolled_window_new (NULL, NULL);
-	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled_window),
-                                        GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-	gtk_box_pack_start(GTK_BOX(vbox), scrolled_window, TRUE, TRUE, 0);
-
-	table = gtk_table_new(ICONS, 2, FALSE);
+	table = gtk_table_new(ROWS, 4, FALSE);
 	gtk_container_set_border_width(GTK_CONTAINER(table), 8);
 	gtk_table_set_row_spacings(GTK_TABLE(table), 4);
 	gtk_table_set_col_spacings(GTK_TABLE(table), 8);
 
-	for (i = 0; i < ICONS; ++i) {
-		icon_label = stock_pixmap_widget(window, legend_icons[i]);
+	for (i = 0, j = 0, k = 0; i < ICONS; ++i, ++k) {
+		icon_label = stock_pixmap_widget(legend_icons[i]);
 		gtk_misc_set_alignment (GTK_MISC (icon_label), 0.5, 0.5);
-		gtk_table_attach(GTK_TABLE(table), icon_label, 0, 1, i, i+1,
+		gtk_table_attach(GTK_TABLE(table), icon_label, j, j + 1, k, k + 1,
 				GTK_FILL, 0, 0, 0);
 
 		desc_label = gtk_label_new(gettext(legend_icon_desc[i]));
 		gtk_misc_set_alignment (GTK_MISC (desc_label), 0, 0.5);
 		gtk_label_set_line_wrap(GTK_LABEL(desc_label), TRUE);
-		gtk_table_attach(GTK_TABLE(table), desc_label, 1, 2, i, i+1,
+		gtk_table_attach(GTK_TABLE(table), desc_label, j + 1, j + 2, k, k + 1,
 				GTK_FILL, 0, 0, 0);
-	}	
 
-	gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scrolled_window),
- 					      table);
+		if (i == ICONS / 2) {
+			j = 2;
+			k = -1;
+		}
+	}
+
+	PACK_FRAME(vbox, frame, NULL);
+	gtk_container_add(GTK_CONTAINER(frame), table);
 
 	gtkut_stock_button_set_create(&confirm_area, &close_button, GTK_STOCK_CLOSE,
 				      NULL, NULL, NULL, NULL);

@@ -32,6 +32,7 @@
 #include "common/claws.h"
 #include "common/version.h"
 #include "main.h"
+#include "password.h"
 #include "plugin.h"
 #include "prefs_common.h"
 #include "utils.h"
@@ -140,11 +141,13 @@ static gchar *spamreport_strreplace(gchar *source, gchar *pattern,
 
 static gboolean check_debian_listid(MsgInfo *msginfo)
 {
-	gchar buf[1024];
-	if (!procheader_get_header_from_msginfo(msginfo, buf, sizeof(buf), "List-Id:")) {
+	gchar *buf = NULL;
+	if (!procheader_get_header_from_msginfo(msginfo, &buf, "List-Id:") && buf != NULL) {
 		if (strstr(buf, "lists.debian.org")) {
+			g_free(buf);
 			return TRUE;
 		}
+		g_free(buf);
 	}
 	return FALSE;
 }
@@ -221,7 +224,12 @@ static void report_spam(gint id, ReportInterface *intf, MsgInfo *msginfo, gchar 
 	switch(intf->type) {
 	case INTF_HTTP_AUTH:
 		if (spamreport_prefs.user[id] && *(spamreport_prefs.user[id])) {
-			auth = g_strdup_printf("%s:%s", spamreport_prefs.user[id], spamreport_prefs.pass[id]);
+			gchar *pass = spamreport_passwd_get(spam_interfaces[id].name);
+			auth = g_strdup_printf("%s:%s", spamreport_prefs.user[id], (pass != NULL ? pass : ""));
+			if (pass != NULL) {
+				memset(pass, 0, strlen(pass));
+			}
+			g_free(pass);
 
 			curl = curl_easy_init();
 			curl_easy_setopt(curl, CURLOPT_URL, intf->url);
@@ -267,7 +275,7 @@ static void report_spam(gint id, ReportInterface *intf, MsgInfo *msginfo, gchar 
 		}
 		break;
 	default:
-		g_warning("Unknown method\n");
+		g_warning("Unknown method");
 	}
 	g_free(reqbody);
 	g_free(geturl);
@@ -335,7 +343,7 @@ gint plugin_init(gchar **error)
 {
 	MainWindow *mainwin = mainwindow_get_mainwindow();
 
-	if (!check_plugin_version(MAKE_NUMERIC_VERSION(3,7,3,13),
+	if (!check_plugin_version(MAKE_NUMERIC_VERSION(3,13,2,39),
 				VERSION_NUMERIC, _("SpamReport"), error))
 		return -1;
 

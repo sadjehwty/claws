@@ -1,6 +1,6 @@
 /*
  * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@
 #include "filtering.h"
 #include "prefs_actions.h"
 #include "hooks.h"
+#include "passwordstore.h"
 
 enum {
 	ACCOUNT_IS_DEFAULT,
@@ -375,6 +376,9 @@ GList *account_get_list(void)
 
 void account_edit_focus(void)
 {
+	if (edit_account.window == NULL) {
+		return;
+	}
 	manage_window_set_transient(GTK_WINDOW(edit_account.window));
 	gtk_widget_grab_focus(edit_account.close_btn);
 	gtk_widget_show(edit_account.window);
@@ -1055,6 +1059,27 @@ static void account_clone(GtkWidget *widget, gpointer data)
 #undef ACP_FDUP
 #undef ACP_FASSIGN
 
+static void account_empty_cache(PrefsAccount *ac_prefs)
+{
+	gchar *cache_dir;
+
+	cache_dir = prefs_account_cache_dir(ac_prefs, FALSE);
+	if (cache_dir == NULL)
+		return; /* no cache dir, nothing to do */
+
+	if (is_dir_exist(cache_dir) && remove_dir_recursive(cache_dir) < 0) {
+		g_warning("can't remove directory '%s'", cache_dir);
+	} else {
+		gchar *server_dir =  prefs_account_cache_dir(ac_prefs, TRUE);
+		if (g_rmdir(server_dir) == 0)
+			debug_print("Removed empty cache server directory\n");
+		else
+			debug_print("Cache server directory not empty: not removed\n");
+		g_free(server_dir);
+	}
+	g_free(cache_dir);
+}
+
 static void account_delete(GtkWidget *widget, gpointer data)
 {
 	PrefsAccount *ac_prefs;
@@ -1062,7 +1087,7 @@ static void account_delete(GtkWidget *widget, gpointer data)
 	GList *list;
 	Folder *folder;
 	GSList *cur;
- 
+
  	ac_prefs = account_list_view_get_selected_account(edit_account.list_view);
  	if (ac_prefs == NULL)
  		return;
@@ -1100,6 +1125,10 @@ static void account_delete(GtkWidget *widget, gpointer data)
 				GINT_TO_POINTER(ac_prefs->account_id));
 	}
 
+	gchar *uid = g_strdup_printf("%d", ac_prefs->account_id);
+	passwd_store_delete_block(PWS_ACCOUNT, uid);
+	g_free(uid);
+
 	debug_print("Removing filter rules relative to this account...\n");
 	for(cur = filtering_rules ; cur != NULL ;) {
 		FilteringProp * prop = (FilteringProp *) cur->data;
@@ -1115,6 +1144,10 @@ static void account_delete(GtkWidget *widget, gpointer data)
 			cur = g_slist_next(cur);
 		}
 	}
+
+	debug_print("Removing cache directory of this account...\n");
+	account_empty_cache(ac_prefs);
+
 	folder_write_list();
 }
 
@@ -1280,22 +1313,22 @@ static void account_list_view_add(PrefsAccount *ac_prefs)
 #ifdef USE_GNUTLS
 	protocol = ac_prefs->protocol == A_POP3 ?
 		  (ac_prefs->ssl_pop == SSL_TUNNEL ?
-		   "POP3 (SSL)" :
+		   "POP (SSL/TLS)" :
 		   ac_prefs->ssl_pop == SSL_STARTTLS ?
-		   "POP3 (TLS)" : "POP3") :
+		   "POP (STARTTLS)" : "POP") :
 		   ac_prefs->protocol == A_IMAP4 ?
 		  (ac_prefs->ssl_imap == SSL_TUNNEL ?
-		   "IMAP4 (SSL)" :
+		   "IMAP (SSL/TLS)" :
 		   ac_prefs->ssl_imap == SSL_STARTTLS ?
-		   "IMAP4 (TLS)" : "IMAP4") :
+		   "IMAP (STARTTLS)" : "IMAP") :
 		   ac_prefs->protocol == A_NNTP ?
 		  (ac_prefs->ssl_nntp == SSL_TUNNEL ?
-		   "NNTP (SSL)" : "NNTP") :
+		   "NNTP (SSL/TLS)" : "NNTP") :
 		   ac_prefs->protocol == A_LOCAL ? "Local" :
 		   ac_prefs->protocol == A_NONE ?  "SMTP" : "-";
 #else
-	protocol = ac_prefs->protocol == A_POP3  ? "POP3" :
-		   ac_prefs->protocol == A_IMAP4 ? "IMAP4" :
+	protocol = ac_prefs->protocol == A_POP3  ? "POP" :
+		   ac_prefs->protocol == A_IMAP4 ? "IMAP" :
 		   ac_prefs->protocol == A_LOCAL ? "Local" :
 		   ac_prefs->protocol == A_NNTP  ? "NNTP" :
 		   ac_prefs->protocol == A_NONE ?  "SMTP" : "-";
@@ -1364,7 +1397,7 @@ static void account_list_set(void)
 		GtkTreeIter iter;
 
 		if (!gtk_tree_model_iter_nth_child(model, &iter, NULL, row)) {
-			g_warning("%s(%d) - no iter found???\n", __FILE__, __LINE__); 					      
+			g_warning("%s(%d) - no iter found???", __FILE__, __LINE__);
 			continue;
 		}
 	
@@ -1391,7 +1424,18 @@ PrefsAccount *account_get_reply_account(MsgInfo *msginfo, gboolean reply_autosel
 	/* select the account set in folderitem's property (if enabled) */
 	if (msginfo->folder->prefs && msginfo->folder->prefs->enable_default_account)
 		account = account_find_from_id(msginfo->folder->prefs->default_account);
-	
+	else if (folder_has_parent_of_type(msginfo->folder, F_QUEUE) ||
+		 folder_has_parent_of_type(msginfo->folder, F_OUTBOX) ||
+		 folder_has_parent_of_type(msginfo->folder, F_DRAFT)) {
+			gchar *from = NULL;
+			if (!procheader_get_header_from_msginfo
+				(msginfo, &from, "From:")) {
+				gchar *buf = from + strlen("From:");
+		        	extract_address(buf);
+		        	account = account_find_from_address(buf, FALSE);
+		        g_free(from);
+			}
+	}
 	/* select account by to: and cc: header if enabled */
 	if (reply_autosel) {
 		gchar * field = NULL;
@@ -1420,13 +1464,14 @@ PrefsAccount *account_get_reply_account(MsgInfo *msginfo, gboolean reply_autosel
 			}
 		}
 		if (!account) {
-			gchar deliveredto[BUFFSIZE];
+			gchar *deliveredto = NULL;
 			if (!procheader_get_header_from_msginfo
-				(msginfo, deliveredto,sizeof deliveredto , "Delivered-To:")) { 
+				(msginfo, &deliveredto, "Delivered-To:")) {
 				gchar *buf = deliveredto + strlen("Delivered-To:");
 		        	extract_address(buf);
 		        	account = account_find_from_address(buf, FALSE);
-                	}
+		        g_free(deliveredto);
+			}
 		}
 	}
 
@@ -1814,23 +1859,30 @@ gchar *account_get_signature_str(PrefsAccount *account)
 		return NULL;
 
 	if (account->sig_type == SIG_FILE) {
-		if (!is_file_or_fifo_exist(account->sig_path)) {
-			g_warning("can't open signature file: %s\n",
-				  account->sig_path);
+		gchar *sig_full_path;
+		if (!g_path_is_absolute(account->sig_path)) {
+			sig_full_path = g_build_filename(get_home_dir(), account->sig_path, NULL);
+		} else {
+			sig_full_path = g_strdup(account->sig_path);
+		}
+
+		if (!is_file_or_fifo_exist(sig_full_path)) {
+			g_warning("can't open signature file: '%s'", sig_full_path);
+			g_free(sig_full_path);
 			return NULL;
 		}
-	}
 
-	if (account->sig_type == SIG_COMMAND)
-		sig_body = get_command_output(account->sig_path);
-	else {
-		gchar *tmp;
+		debug_print("Reading signature from file '%s'\n", sig_full_path);
+		gchar *tmp = file_read_to_str(sig_full_path);
+		g_free(sig_full_path);
 
-		tmp = file_read_to_str(account->sig_path);
 		if (!tmp)
 			return NULL;
+
 		sig_body = normalize_newlines(tmp);
 		g_free(tmp);
+	} else {
+		sig_body = get_command_output(account->sig_path);
 	}
 
 	if (account->sig_sep) {

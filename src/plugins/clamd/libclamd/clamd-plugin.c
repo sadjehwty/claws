@@ -2,7 +2,7 @@
 
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2008 Michael Rasmussen and the Claws Mail Team
+ * Copyright (C) 1999-2017 Michael Rasmussen and the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,10 @@
 #include "statusbar.h"
 #include "alertpanel.h"
 #include "clamd-plugin.h"
+
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
 
 /* needs to be generic */
 static const gchar* config_dirs[] = { 
@@ -136,7 +140,6 @@ void clamd_create_config_automatic(const gchar* path) {
 					/* UNIX socket */
 					Socket = (Clamd_Socket *) malloc(sizeof(Clamd_Socket *));
 					if (Socket) {
-						Socket->socket.path = NULL;
 						Socket->socket.host = NULL;
 						Socket->socket.port = -1;
 						Socket->type = UNIX_SOCKET;
@@ -154,7 +157,6 @@ void clamd_create_config_automatic(const gchar* path) {
 						Socket = (Clamd_Socket *) malloc(sizeof(Clamd_Socket *));
 						if (Socket) {
 							Socket->socket.path = NULL;
-							Socket->socket.host = NULL;
 							Socket->socket.port = -1;
 							Socket->type = INET_SOCKET;
 							Socket->socket.port = atoi(value);
@@ -182,7 +184,6 @@ void clamd_create_config_automatic(const gchar* path) {
 						Socket = (Clamd_Socket *) malloc(sizeof(Clamd_Socket));
 						if (Socket) {
 							Socket->socket.path = NULL;
-							Socket->socket.host = NULL;
 							Socket->socket.port = 3310; /* default port */
 							Socket->type = INET_SOCKET;
 							Socket->socket.host = g_strdup(value);
@@ -298,16 +299,24 @@ static int create_socket() {
 		case UNIX_SOCKET:
 			debug_print("socket path: %s\n", Socket->socket.path);
 			new_sock = socket(PF_UNIX, SOCK_STREAM, 0);
-			debug_print("socket file (create): %d\n", new_sock);
-			if (new_sock < 0) 
+			if (new_sock < 0) {
+				perror("create socket");
 				return new_sock;
+			}
+			debug_print("socket file (create): %d\n", new_sock);
 			addr_u.sun_family = AF_UNIX;
-			memcpy(addr_u.sun_path, Socket->socket.path, 
-					strlen(Socket->socket.path));
-			if (connect(new_sock, (struct sockaddr *) &addr_u, sizeof(addr_u)) < 0) {
-				perror("connect socket");
-				close(new_sock);
+			if (strlen(Socket->socket.path) > UNIX_PATH_MAX) {
+				g_error("socket path longer than %d-char: %s",
+					UNIX_PATH_MAX, Socket->socket.path);
 				new_sock = -2;
+			} else {
+				memcpy(addr_u.sun_path, Socket->socket.path, 
+						strlen(Socket->socket.path));
+				if (connect(new_sock, (struct sockaddr *) &addr_u, sizeof(addr_u)) < 0) {
+					perror("connect socket");
+					close(new_sock);
+					new_sock = -2;
+				}
 			}
 			debug_print("socket file (connect): %d\n", new_sock);
 			break;
@@ -315,15 +324,21 @@ static int create_socket() {
 			addr_i.sin_family = AF_INET;
 			addr_i.sin_port = htons(Socket->socket.port);
 			hp = gethostbyname(Socket->socket.host);
+			debug_print("IP socket host: %s:%d\n",
+					Socket->socket.host, Socket->socket.port);
 			bcopy((void *)hp->h_addr, (void *)&addr_i.sin_addr, hp->h_length);
 			new_sock = socket(PF_INET, SOCK_STREAM, 0);
-			if (new_sock < 0)
+			if (new_sock < 0) {
+				perror("create socket");
 				return new_sock;
+			}
+			debug_print("IP socket (create): %d\n", new_sock);
 			if (connect(new_sock, (struct sockaddr *)&addr_i, sizeof(addr_i)) < 0) {
 				perror("connect socket");
 				close(new_sock);
 				new_sock = -2;
 			}
+			debug_print("IP socket (connect): %d\n", new_sock);
 			break;
 	}
 
@@ -332,13 +347,13 @@ static int create_socket() {
 
 static void copy_socket(Clamd_Socket* sock) {
 	Socket = (Clamd_Socket *) malloc(sizeof(Clamd_Socket));
-	Socket->socket.path = NULL;
-	Socket->socket.host = NULL;
 	Socket->type = sock->type;
 	if (Socket->type == UNIX_SOCKET) {
 		Socket->socket.path = g_strdup(sock->socket.path);
+		Socket->socket.host = NULL;
 	}
 	else {
+		Socket->socket.path = NULL;
 		Socket->socket.host = g_strdup(sock->socket.host);
 		Socket->socket.port = sock->socket.port;
 	}
@@ -368,7 +383,8 @@ Clamd_Stat clamd_init(Clamd_Socket* config) {
 		return NO_CONNECTION;
 	}
 	memset(buf, '\0', sizeof(buf));
-	while ((n_read = read(sock, buf, BUFSIZ)) > 0) {
+	while ((n_read = read(sock, buf, BUFSIZ - 1)) > 0) {
+		buf[n_read] = '\0';
 		if (buf[strlen(buf) - 1] == '\n')
 			buf[strlen(buf) - 1] = '\0';
 		debug_print("Ping result: %s\n", buf);
@@ -387,8 +403,8 @@ Clamd_Stat clamd_init(Clamd_Socket* config) {
 	    return NO_CONNECTION;
 	}
 	memset(buf, '\0', sizeof(buf));
-        while ((n_read = read(sock, buf, sizeof(buf))) > 0) {
-	    buf[sizeof(buf) - 1] = '\0';
+        while ((n_read = read(sock, buf, BUFSIZ - 1)) > 0) {
+	    buf[n_read] = '\0';
 	    if (buf[strlen(buf) - 1] == '\n')
 		buf[strlen(buf) - 1] = '\0';
 	    debug_print("Version: %s\n", buf);
@@ -497,7 +513,7 @@ Clamd_Stat clamd_verify_email(const gchar* path, response* result) {
 	}
 	sock = create_socket();
 	if (sock < 0) {
-		debug_print("no connection\n");
+		debug_print("no connection (socket create)\n");
 		return NO_CONNECTION;
 	}
 	memset(buf, '\0', sizeof(buf));
@@ -519,13 +535,14 @@ Clamd_Stat clamd_verify_email(const gchar* path, response* result) {
 		command = g_strconcat(scan, " ", path, "\n", NULL);
 		debug_print("command: %s\n", command);
 		if (write(sock, command, strlen(command)) == -1) {
-			debug_print("no connection\n");
-			stat = NO_CONNECTION;
+			debug_print("no connection (socket write)\n");
+			g_free(command);
+			return NO_CONNECTION;
 		}
 		g_free(command);
 		memset(buf, '\0', sizeof(buf));
-		while ((n_read = read(sock, buf, BUFSIZ)) > 0) {
-			buf[sizeof(buf) - 1] = '\0';
+		while ((n_read = read(sock, buf, BUFSIZ - 1)) > 0) {
+			buf[n_read] = '\0';
 			if (buf[strlen(buf) - 1] == '\n')
 				buf[strlen(buf) - 1] = '\0';
 		}
@@ -573,7 +590,7 @@ GSList* clamd_verify_dir(const gchar* path) {
 	}
 	g_free(command);
 	memset(buf, '\0', sizeof(buf));
-	while ((n_read = read(sock, buf, BUFSIZ)) > 0) {
+	while ((n_read = read(sock, buf, BUFSIZ - 1)) > 0) {
 		gchar** tmp = g_strsplit(buf, "\n", 0);
 		gchar** head = tmp;
 		while (*tmp) {

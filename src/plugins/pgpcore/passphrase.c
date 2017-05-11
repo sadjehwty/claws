@@ -1,5 +1,5 @@
 /* passphrase.c - GTK+ based passphrase callback
- *      Copyright (C) 2001-2013 Werner Koch (dd9jn) and the Claws Mail team
+ * Copyright (C) 2001-2016 Werner Koch (dd9jn) and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,7 +13,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -154,11 +153,11 @@ try_again:
                              gdkwin, NULL, GDK_CURRENT_TIME))) {
 	    if (err == GDK_GRAB_NOT_VIEWABLE && cnt < 10) {
 	        cnt++;
-		g_warning("trying to grab mouse again\n");
+		g_warning("trying to grab mouse again");
 		gtk_main_iteration();
 		goto try_again;
             } else {
-                g_warning("OOPS: Could not grab mouse\n");
+                g_warning("OOPS: Could not grab mouse");
                 gtk_widget_destroy(window);
                 return NULL;
 	    }
@@ -166,7 +165,7 @@ try_again:
         if (gdk_keyboard_grab(gdkwin, FALSE, GDK_CURRENT_TIME)) {
             gdk_display_pointer_ungrab(gdk_display_get_default(),
 			 	       GDK_CURRENT_TIME);
-            g_warning("OOPS: Could not grab keyboard\n");
+            g_warning("OOPS: Could not grab keyboard");
             gtk_widget_destroy(window);
             return NULL;
         }
@@ -257,18 +256,21 @@ create_description(const gchar *uid_hint, gint prev_bad, gint new_key)
     	*(strchr(my_uid, '>')) = ')';
 
     if (new_key == 1) {
-	    buf = g_strdup_printf (_("<span weight=\"bold\" size=\"larger\">%sPlease enter the passphrase for the new key:</span>\n\n"
-                           "%.*s\n"),
+	    buf = g_strdup_printf (g_strconcat("<span weight=\"bold\" size=\"larger\">%s",
+					_("Please enter the passphrase for the new key:"),
+					"</span>\n\n%.*s\n", NULL),
                            prev_bad ?
                            _("Passphrases did not match.\n") : "",
                            linelen (my_uid), my_uid);
     } else if (new_key == 2) {
-	    buf = g_strdup_printf (_("<span weight=\"bold\" size=\"larger\">Please re-enter the passphrase for the new key:</span>\n\n"
-                           "%.*s\n"),
+	    buf = g_strdup_printf (g_strconcat("<span weight=\"bold\" size=\"larger\">",
+				_("Please re-enter the passphrase for the new key:"),
+				"</span>\n\n%.*s\n", NULL),
                            linelen (my_uid), my_uid);
     } else {
-	    buf = g_strdup_printf (_("<span weight=\"bold\" size=\"larger\">%sPlease enter the passphrase for:</span>\n\n"
-                           "%.*s\n"),
+	    buf = g_strdup_printf (g_strconcat("<span weight=\"bold\" size=\"larger\">%s",
+				_("Please enter the passphrase for:"),
+				"</span>\n\n%.*s\n", NULL),
                            prev_bad ?
                            _("Bad passphrase.\n") : "",
                            linelen (my_uid), my_uid);
@@ -307,13 +309,13 @@ gpgmegtk_passphrase_cb(void *opaque, const char *uid_hint,
         pass = g_strdup(last_pass);
     else {
 	gpgmegtk_set_passphrase_grab (prefs_gpg_get_config()->passphrase_grab);
-	debug_print ("%% requesting passphrase for '%s'\n ", uid_hint);
+	debug_print ("%% requesting passphrase for '%s'\n", uid_hint);
 	pass = passphrase_mbox (uid_hint, passphrase_hint, prev_bad, FALSE);
 	gpgmegtk_free_passphrase();
 	if (!pass) {
             debug_print ("%% cancel passphrase entry\n");
             if (write(fd, "\n", 1) != 1)
-		debug_print("short write");
+				debug_print("short write\n");
 
             return GPG_ERR_CANCELED;
 	}
@@ -343,10 +345,10 @@ gpgmegtk_passphrase_cb(void *opaque, const char *uid_hint,
     }
 #else
     if (write(fd, pass, strlen(pass)) != strlen(pass))
-	debug_print("Short write");
+		debug_print("short write\n");
 
     if (write(fd, "\n", 1) != 1)
-	debug_print("Short write");
+		debug_print("short write\n");
 #endif
     g_free(pass);
 

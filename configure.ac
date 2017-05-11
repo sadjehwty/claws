@@ -65,10 +65,6 @@ if test x$PKG_CONFIG = xno ; then
   AC_MSG_ERROR([*** pkg-config not found. See http://www.freedesktop.org/software/pkgconfig/])
 fi
 
-dnl GNOME 2.x installed?
-PKG_CHECK_MODULES(GNOME2, libgnome-2.0 >= 2.0, ac_enable_gnome2=yes, ac_enable_gnome2=no)
-AM_CONDITIONAL(CLAWS_GNOME2, test x"$ac_enable_gnome2" = x"yes")
-
 dnl libtool versioning
 LT_RELEASE=$MAJOR_VERSION.$MINOR_VERSION
 LT_CURRENT=`expr $MICRO_VERSION - $INTERFACE_AGE`
@@ -102,6 +98,7 @@ LT_INIT
 LT_AC_PROG_RC
 AC_LIBTOOL_RC
 AC_PROG_LIBTOOL
+AC_PROG_AWK
 
 AC_SYS_LARGEFILE
 
@@ -113,18 +110,25 @@ dnl ******************************
 dnl AC_CANONICAL_HOST
 
 dnl Copied from the official gtk+-2 configure.in
-AC_MSG_CHECKING([for some Win32 platform])
+AC_MSG_CHECKING([for host platform])
 case "$host" in
   *-*-mingw*|*-*-cygwin*)
     platform_win32=yes
-    LDFLAGS="$LDFLAGS -mwindows"
+    LDFLAGS="$LDFLAGS -mwindows -Wl,--export-all-symbols"
     ;;
+	*-apple-*)
+		platform_osx=yes
+		LDFLAGS="$LDFLAGS -Wl,-export_dynamic"
+		;;
   *)
     platform_win32=no
+		platform_osx=no
+		LDFLAGS="$LDFLAGS -Wl,--export-dynamic"
     ;;
 esac
-AC_MSG_RESULT([$platform_win32])
 AM_CONDITIONAL(PLATFORM_WIN32, test x"$platform_win32" = x"yes")
+AM_CONDITIONAL(PLATFORM_OSX, test x"$platform_osx" = x"yes")
+AC_MSG_RESULT([$host])
 
 AC_MSG_CHECKING([for native Win32])
 case "$host" in
@@ -169,7 +173,7 @@ fi
 CFLAGS="$CFLAGS -Wall"
 
 if test $USE_MAINTAINER_MODE = yes; then
-	CFLAGS="-g -Wall -Wno-pointer-sign -DUSE_MAINTAINER_MODE"
+	CFLAGS="$CFLAGS -g -Wno-pointer-sign -DUSE_MAINTAINER_MODE"
 fi
 
 pthread_name=
@@ -206,7 +210,7 @@ AC_CHECK_FUNCS(bind_textdomain_codeset)
 LIBS=$syl_save_LIBS
 
 dnl for gettext
-ALL_LINGUAS="bg ca cs de en_GB eo es fi fr he hu id_ID lt nb nl pl pt_BR sk sv"
+ALL_LINGUAS="ca cs da de en_GB es fi fr he hu id_ID it nb nl pt_BR ru sk sv tr zh_TW"
 GETTEXT_PACKAGE=claws-mail
 AC_SUBST(GETTEXT_PACKAGE)
 AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE", [Define text domain.])
@@ -278,17 +282,17 @@ AC_ARG_ENABLE(valgrind,
 		[  --disable-valgrind              Do not build valgrind support for debugging],
 		[enable_valgrind=$enableval], [enable_valgrind=yes])
 
-AC_ARG_ENABLE(new-addrbook,
-		[  --enable-new-addrbook           Build new external address book support],
-		[enable_new_addrbook=$enableval], [enable_new_addrbook=no])
+AC_ARG_ENABLE(alternate-addressbook,
+		[  --enable-alternate-addressbook  Build alternate external address book support],
+		[enable_alternate_addressbook=$enableval], [enable_alternate_addressbook=no])
 
 AC_ARG_ENABLE(gtk3,
 		[  --enable-gtk3                   Build GTK3 support],
 		[enable_gtk3=$enableval], [enable_gtk3=no])
 
-AC_ARG_ENABLE(deprecated,
-		[  --disable-deprecated            Disable deprecated GTK functions],
-		[GTK_CFLAGS="$GTK_CFLAGS -DG_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED"], [])
+AC_ARG_ENABLE(svg,
+        [  --disable-svg                   Do not build SVG support],
+        [enable_svg=$enableval], [enable_svg=yes])
 
 manualdir='${docdir}/manual'
 AC_ARG_WITH(manualdir,
@@ -381,18 +385,6 @@ AC_CHECK_HEADERS(fcntl.h sys/file.h unistd.h paths.h \
 AC_CHECK_HEADER([execinfo.h], [AC_DEFINE(HAVE_BACKTRACE,1,[Has backtrace*() needed for retrieving stack traces])])
 AC_SEARCH_LIBS(backtrace_symbols, [execinfo])
 
-dnl alf - Check for apache installation f*ck up. apache may also install an
-dnl fnmatch, which includes their own regex stuff if USE_HSREGEX is defined
-AC_TRY_COMPILE([#include <stdlib.h>
-		#include <fnmatch.h>],
-	[int x = USE_HSREGEX;],
-	ac_cv_have_apache_fnmatch=yes, ac_cv_have_apache_fnmatch=no)
-if test $ac_cv_have_apache_fnmatch = yes; then
-	AC_DEFINE(HAVE_APACHE_FNMATCH, 1, Define if you need to work around apache regex/fnmatch !KLUDGE!)
-fi
-AC_MSG_CHECKING([whether to use Apache regex header kludge])
-AC_MSG_RESULT($ac_cv_have_apache_fnmatch)
-
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_TYPE_OFF_T
@@ -448,13 +440,23 @@ AC_MSG_CHECKING([whether to use IPv6])
 if test x"$enable_ipv6" = xyes; then
 	AC_MSG_RESULT(yes)
 	AC_MSG_CHECKING([for IPv6 support])
-	AC_CACHE_VAL(ac_cv_ipv6,[
-		AC_TRY_COMPILE([#define INET6
-				#include <sys/types.h>
-				#include <netinet/in.h>],
-			[int x = IPPROTO_IPV6; struct in6_addr a;],
-			ac_cv_ipv6=yes, ac_cv_ipv6=no)
-	])
+	if test x"$platform_win32" = xyes; then
+		AC_CACHE_VAL(ac_cv_ipv6,[
+			AC_TRY_COMPILE([
+					#include <ws2tcpip.h>
+				], [struct in6_addr a;],
+				ac_cv_ipv6=yes, ac_cv_ipv6=no)
+		])
+	else
+		AC_CACHE_VAL(ac_cv_ipv6,[
+			AC_TRY_COMPILE([
+					#define INET6
+					#include <sys/types.h>
+					#include <netinet/in.h>
+				], [int x = IPPROTO_IPV6; struct in6_addr a;],
+				ac_cv_ipv6=yes, ac_cv_ipv6=no)
+		])
+	fi
 	AC_MSG_RESULT($ac_cv_ipv6)
 	if test $ac_cv_ipv6 = yes; then
 		AC_DEFINE(INET6, 1, Define if you want IPv6 support.)
@@ -498,6 +500,8 @@ case $host_os in
 	*dragonfly*)
 		AC_SEARCH_LIBS(encrypt, cipher, [], AC_MSG_ERROR(['encrypt'-function not found.]))
 	;;
+	*freebsd*)
+	;; # not used
 	*)
 		AC_SEARCH_LIBS(encrypt, crypt, [], AC_MSG_ERROR(['encrypt'-function not found.]))
 	;;
@@ -512,11 +516,50 @@ AC_SUBST(PASSCRYPT_KEY, $with_passcrypt_key)
 
 dnl RC dir (will be default at a certain point in time)
 AC_ARG_WITH(config-dir,    [  --with-config-dir=RCDIR      Local configuration dir (default: .claws-mail)],
-	      ac_cv_with_config_dir="$withval", ac_cv_with_config_dir=".claws-mail")
+	      ac_cv_with_config_dir="$withval", ac_cv_with_config_dir="")
+
+dnl Set correct default value based on platform
 if test x"$ac_cv_with_config_dir" = x""; then
-	ac_cv_with_config_dir=".claws-mail"
+	if test x"$platform_win32" = xyes; then
+		ac_cv_with_config_dir="Claws-mail"
+	else
+		ac_cv_with_config_dir=".claws-mail"
+	fi
 fi
 AC_DEFINE_UNQUOTED(CFG_RC_DIR, "$ac_cv_with_config_dir", Configuration directory)
+
+AC_ARG_WITH(password-encryption, [  --with-password-encryption=PROVIDER    Which cryptographic library to use for encrypting stored passwords (gnutls, old, default)],
+						pwd_crypto="$withval", pwd_crypto="default")
+
+if test x"$pwd_crypto" = xdefault; then
+	if test x"$enable_gnutls" = xyes; then
+		if `$PKG_CONFIG --atleast-version=3.0 gnutls`; then
+			pwd_crypto="gnutls"
+		fi
+	fi
+fi
+if test x"$pwd_crypto" = xdefault; then
+	pwd_crypto="old"
+fi
+
+case $pwd_crypto in
+	gnutls)
+		if test x"$enable_gnutls" = xno; then
+			AC_MSG_ERROR([GnuTLS password encryption requested but GnuTLS is not available.])
+		fi
+		if ! `$PKG_CONFIG --atleast-version=3.0 gnutls`; then
+			AC_MSG_ERROR([GnuTLS version at least 3.0 is required for password encryption.])
+		fi
+		AC_DEFINE(PASSWORD_CRYPTO_GNUTLS, 1, Use GnuTLS for stored password encryption)
+		;;
+	old)
+		AC_DEFINE(PASSWORD_CRYPTO_OLD, 1, Use old insecure method for stored password encryption)
+		;;
+	*)
+		AC_MSG_ERROR([Unknown password encryption provider requested.])
+		;;
+esac
+
 
 dnl ************************
 dnl ** GTK user interface **
@@ -532,6 +575,9 @@ if test x"$enable_gtk3" = x"yes"; then
 else
 	PKG_CHECK_MODULES(GTK, gtk+-2.0 >= 2.16)
 fi
+AC_ARG_ENABLE(deprecated,
+		[  --disable-deprecated            Disable deprecated GTK functions],
+		[GTK_CFLAGS="$GTK_CFLAGS -DG_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED"], [])
 AC_SUBST(GTK_CFLAGS)
 AC_SUBST(GTK_LIBS)
 
@@ -686,37 +732,37 @@ dnl # Configure address book support
 dnl #######################################################################
 
 dnl #######################################################################
-dnl # Check for new address book support
+dnl # Check for alternate address book support
 dnl #######################################################################
-AC_MSG_CHECKING([whether DBUS support for new address book is present])
+AC_MSG_CHECKING([whether DBUS support for alternate address book is present])
 if test x"$enable_dbus_glib" = xyes; then
 	AC_MSG_RESULT([yes])
-	AC_MSG_CHECKING([whether to enable new address book])
-	if test x"$enable_new_addrbook" = xyes; then
+	AC_MSG_CHECKING([whether to enable alternate address book])
+	if test x"$enable_alternate_addressbook" = xyes; then
 		AC_MSG_RESULT([yes])
 		PKG_CHECK_MODULES(CONTACTS, [claws-contacts],
 		[
-			AC_DEFINE(USE_NEW_ADDRBOOK, 1, [Define if new address book is to be activated.])
-			enable_new_addrbook=yes
+			AC_DEFINE(USE_ALT_ADDRBOOK, 1, [Define if alternate address book is to be activated.])
+			enable_alternate_addressbook=yes
 			AC_SUBST(CONTACTS_CFLAGS)
 			AC_SUBST(CONTACTS_LIBS)
 		],
 		[
-			enable_new_addrbook=no
+			enable_alternate_addressbook=no
 		])
 	else
 		AC_MSG_RESULT([no])
-		enable_new_addrbook=no
+		enable_alternate_addressbook=no
 	fi
 else
 	AC_MSG_RESULT([no])
-	enable_new_addrbook=no
+	enable_alternate_addressbook=no
 fi
 
 dnl #######################################################################
 dnl # Check for old address book support
 dnl #######################################################################
-if test x"$enable_new_addrbook" = xno; then
+if test x"$enable_alternate_addressbook" = xno; then
 	dnl for LDAP support in addressbook
 	dnl no check for libraries; dynamically loaded
 	AC_MSG_CHECKING([whether to use LDAP])
@@ -822,7 +868,7 @@ if test x"$enable_new_addrbook" = xno; then
 	fi
 fi
 
-AM_CONDITIONAL(BUILD_NEWADDRBOOK, test x"$enable_new_addrbook" = x"yes")
+AM_CONDITIONAL(BUILD_ALTADDRBOOK, test x"$enable_alternate_addressbook" = x"yes")
 
 dnl #######################################################################
 dnl # Check for NetworkManager support
@@ -865,12 +911,8 @@ if test x"$enable_libetpan" = xyes; then
 	if test "x$libetpan_result" = "xyes"; then
 	   LIBETPAN_CPPFLAGS="`$libetpanconfig --cflags`"
 	   LIBETPAN_LIBS="`$libetpanconfig --libs`"
-           LIBETPAN_STABLE=`$libetpanconfig --version | grep -v ^0`
-	   LIBETPAN_VERSION=`$libetpanconfig --version | sed "s/\.//g" | sed "s/-.*$//"`
-           if test x"$LIBETPAN_STABLE" != "x"; then
-                LIBETPAN_VERSION="100"
-           fi
-	   if test "$LIBETPAN_VERSION" -lt "057"; then
+	   LIBETPAN_VERSION=`$libetpanconfig --version | $AWK -F. '{printf "%d", ($1 * 100) + $2}'`
+	   if test "$LIBETPAN_VERSION" -lt "57"; then
 		AC_MSG_RESULT([*** Claws Mail requires libetpan 0.57 or newer. See http://www.etpan.org/])
 		AC_MSG_RESULT([*** You can use --disable-libetpan if you don't need IMAP4 and/or NNTP support.])
                 AC_MSG_ERROR([libetpan 0.57 not found])
@@ -887,6 +929,25 @@ else
 	AC_MSG_RESULT(no)
 fi
 AM_CONDITIONAL(CLAWS_LIBETPAN, test "x$libetpan_result" = "xyes")
+
+dnl librsvg
+AC_MSG_CHECKING([whether to use librsvg])
+if test x"$enable_svg" = xyes; then
+	AC_MSG_RESULT(yes)
+    PKG_CHECK_MODULES([SVG], [librsvg-2.0 >= 2.40.5 cairo >= 1.0.0],
+    [
+        AC_SUBST(SVG_CFLAGS)
+        AC_SUBST(SVG_LIBS)
+		AC_DEFINE(HAVE_SVG, 1, [Define if librsvg2 is available for SVG support])
+		enable_svg=yes
+	],
+	[
+		AC_MSG_NOTICE([SVG support deactivated as librsvg2 >= 2.40.5 was not found])
+		enable_svg=no
+	])
+else
+	AC_MSG_RESULT(no)
+fi
 
 AC_MSG_CHECKING([whether to use valgrind])
 if test x$enable_valgrind = xyes; then
@@ -949,6 +1010,10 @@ AC_ARG_ENABLE(clamd-plugin,
 		[  --disable-clamd-plugin          Do not build clamd plugin],
 		[enable_clamd_plugin=$enableval], [enable_clamd_plugin=auto])
 
+AC_ARG_ENABLE(dillo-plugin,
+		[  --disable-dillo-plugin          Do not build dillo plugin],
+		[enable_dillo_plugin=$enableval], [enable_dillo_plugin=auto])
+
 AC_ARG_ENABLE(fancy-plugin,
 		[  --disable-fancy-plugin          Do not build fancy plugin],
 		[enable_fancy_plugin=$enableval], [enable_fancy_plugin=auto])
@@ -961,10 +1026,6 @@ AC_ARG_ENABLE(gdata-plugin,
 		[  --disable-gdata-plugin          Do not build gdata plugin],
 		[enable_gdata_plugin=$enableval], [enable_gdata_plugin=auto])
 
-AC_ARG_ENABLE(geolocation-plugin,
-		[  --disable-geolocation-plugin    Do not build geolocation plugin],
-		[enable_geolocation_plugin=$enableval], [enable_geolocation_plugin=auto])
-
 AC_ARG_ENABLE(libravatar-plugin,
 		[  --disable-libravatar-plugin     Do not build libravatar  plugin],
 		[enable_libravatar_plugin=$enableval], [enable_libravatar_plugin=auto])
@@ -974,7 +1035,7 @@ AC_ARG_ENABLE(mailmbox-plugin,
 		[enable_mailmbox_plugin=$enableval], [enable_mailmbox_plugin=auto])
 
 AC_ARG_ENABLE(managesieve-plugin,
-		[  --disable-managesieve-plugin       Do not build managesieve plugin],
+		[  --disable-managesieve-plugin    Do not build managesieve plugin],
 		[enable_managesieve_plugin=$enableval], [enable_managesieve_plugin=auto])
 
 AC_ARG_ENABLE(newmail-plugin,
@@ -1040,7 +1101,7 @@ AC_ARG_ENABLE(demo-plugin,
 
 
 dnl Then we check (unconditionnaly) for plugins dependencies
-dnl Some dependencies are optional, some mandatories. This is taken care of
+dnl Some dependencies are optional, some mandatory. This is taken care of
 dnl later.
 dnl
 dnl During this dependancy check we do the checks themselves, define HAVE_X to
@@ -1049,9 +1110,9 @@ dnl either yes or no, and do the AC_SUBST calls.
 dnl Archive:		libarchive
 dnl Fancy:		Webkit, curl, optionally libsoup-gnome
 dnl Gdata:		libgdata
-dnl Geolocation:	libchamplain, libsoup
 dnl Libravatar:		libcurl
-dnl Notification:	optionally libnotify libindicate libcanberra_gtk hotkey
+dnl Notification:	optionally libnotify  unity/messaging-menu
+dnl 				   libcanberra_gtk hotkey
 dnl Pdf-Viewer:		libpoppler
 dnl Perl:		sed perl
 dnl PGP/Core:		libgpgme
@@ -1061,7 +1122,8 @@ dnl S/Mime:		pgpcore libgpgme
 dnl Python:		Python
 dnl RSSyl:		expat libcurl
 dnl SpamReport:		libcurl
-dnl vCalendar:		libcurl
+dnl vCalendar:		libcurl, libical
+dnl tnef_parse: 	libytnef
 
 dnl libcurl ********************************************************************
 PKG_CHECK_MODULES(CURL, libcurl, HAVE_CURL=yes, HAVE_CURL=no)
@@ -1106,17 +1168,25 @@ AC_SUBST(LIBSOUP_GNOME_CFLAGS)
 AC_SUBST(LIBSOUP_GNOME_LIBS)
 
 dnl libarchive *****************************************************************
+PKG_CHECK_MODULES(LIBARCHIVE, libarchive, HAVE_ARCHIVE=yes, HAVE_ARCHIVE=no)
+AC_SUBST(ARCHIVE_LIBS)
+AC_SUBST(ARCHIVE_CFLAGS)
 AC_CHECK_LIB([archive], [archive_read_new],
 		       ARCHIVE_LIBS=-larchive
 		       HAVE_ARCHIVE=yes
-		       AC_SUBST(ARCHIVE_LIBS),
+		       AC_SUBST(ARCHIVE_LIBS,ARCHIVE_CFLAGS),
 		       HAVE_ARCHIVE=no
 		       )
 
 dnl libgdata *******************************************************************
-PKG_CHECK_MODULES(GDATA, libgdata >= 0.17.1, HAVE_GDATA=yes, HAVE_GDATA=no)
+PKG_CHECK_MODULES(GDATA, libgdata >= 0.17.2, HAVE_GDATA=yes, HAVE_GDATA=no)
 AC_SUBST(GDATA_CFLAGS)
 AC_SUBST(GDATA_LIBS)
+
+dnl libical ********************************************************************
+PKG_CHECK_MODULES(LIBICAL, libical >= 2.0, HAVE_LIBICAL=yes, HAVE_LIBICAL=no)
+AC_SUBST(LIBICAL_CFLAGS)
+AC_SUBST(LIBICAL_LIBS)
 
 dnl Poppler ********************************************************************
 PKG_CHECK_MODULES(POPPLER, poppler-glib >= 0.12.0, HAVE_POPPLER=yes, HAVE_POPPLER=no)
@@ -1208,7 +1278,7 @@ AM_PATH_PYTHON([2.5], [
 		if test x"$platform_win32" = xno; then
 			# libpython.so
 			PYTHON_SHARED_LIB="libpython${PYTHON_VERSION}.so"
-			LIBS="-ldl"
+			AC_CHECK_LIB(dl, dlopen, [LIBS="-ldl"])
 			AC_MSG_CHECKING([whether to dlopen $PYTHON_SHARED_LIB works])
 			AC_RUN_IFELSE(
 				[AC_LANG_PROGRAM(
@@ -1256,20 +1326,13 @@ fi
 AC_SUBST(libcanberra_gtk_CFLAGS)
 AC_SUBST(libcanberra_gtk_LIBS)
 
-dnl libindicate ****************************************************************
-dnl We support either 0.3+ or 0.5+ or 0.6+ or 0.7+
-LIBINDICATE_MODULE=indicate
-LIBINDICATE_REQUIRED=0.3.0
-
-PKG_CHECK_EXISTS(indicate-0.5 >= 0.5.0, LIBINDICATE_MODULE=indicate-0.5)
-PKG_CHECK_EXISTS(indicate-0.6 >= 0.6.0, LIBINDICATE_MODULE=indicate-0.6)
-PKG_CHECK_EXISTS(indicate-0.7 >= 0.7.0, LIBINDICATE_MODULE=indicate-0.7)
-PKG_CHECK_MODULES(libindicate, $LIBINDICATE_MODULE >= $LIBINDICATE_REQUIRED, HAVE_LIBINDICATE=yes, HAVE_LIBINDICATE=no)
-if test x"$HAVE_LIBINDICATE" = xyes; then
-	AC_DEFINE(NOTIFICATION_INDICATOR, 1, [Activate support for indicators])
+dnl unity/messaging-menu *******************************************************
+PKG_CHECK_MODULES(unity, unity messaging-menu, HAVE_UNITY=yes, HAVE_UNITY=no)
+if test x"$HAVE_UNITY" = xyes; then
+	AC_DEFINE(NOTIFICATION_INDICATOR, 1, [Activate support for unity and messaging-menu])
 fi
-AC_SUBST(libindicate_CFLAGS)
-AC_SUBST(libindicate_LIBS)
+AC_SUBST(unity_CFLAGS)
+AC_SUBST(unity_LIBS)
 
 dnl hotkeys ********************************************************************
 PKG_CHECK_MODULES(CM_NP_HOTKEY, [gio-2.0 >= 2.15.6 gio-unix-2.0 >= 2.15.6], HAVE_HOTKEYS=yes, HAVE_HOTKEYS=no)
@@ -1279,16 +1342,50 @@ fi
 AC_SUBST(CM_NP_HOTKEY_CFLAGS)
 AC_SUBST(CM_NP_HOTKEY_LIBS)
 
-dnl libchamplain ***************************************************************
-CHAMPLAIN_MODULE=champlain-gtk-0.4
-CHAMPLAIN_VERSION=0.4.0
-PKG_CHECK_EXISTS(champlain-gtk-0.6 > 0.6.0,[CHAMPLAIN_MODULE=champlain-gtk-0.6
-	CHAMPLAIN_VERSION=0.6.0], [])
-PKG_CHECK_EXISTS(champlain-gtk-0.8 > 0.8.0,[CHAMPLAIN_MODULE=champlain-gtk-0.8
-	CHAMPLAIN_VERSION=0.8.0], [])
-PKG_CHECK_MODULES(CHAMPLAIN, [$CHAMPLAIN_MODULE >= $CHAMPLAIN_VERSION clutter-gtk-0.10], HAVE_CHAMPLAIN=yes, HAVE_CHAMPLAIN=no)
-AC_SUBST(CHAMPLAIN_CFLAGS)
-AC_SUBST(CHAMPLAIN_LIBS)
+dnl libytnef *******************************************************************
+YTNEF_CFLAGS=""
+YTNEF_LIBS=""
+have_ytnef=0
+# Check both ytnef.h and libytnef/ytnef.h, and adjust YTNEF_CFLAGS
+# accordingly
+AC_CHECK_HEADER(ytnef.h, [have_ytnef=1], [have_ytnef=0])
+if test $have_ytnef -eq 0; then
+	AC_CHECK_HEADER(libytnef/ytnef.h,
+									[have_ytnef=1;
+									 YTNEF_CFLAGS="${YTNEF_CFLAGS} -DYTNEF_H_SUBDIR"],
+									[have_ytnef=0])
+fi
+if test $have_ytnef -eq 1; then
+	AC_MSG_CHECKING([how libytnef's SwapDDWord() should be called])
+	# Now we have to figure out which libytnef version we're using,
+	# based on whether SwapDDWord takes one argument or two.
+	if test "x${YTNEF_CFLAGS}" = "x"; then
+		ytnef_include="#include <ytnef.h>"
+	else
+		ytnef_include="#include <libytnef/ytnef.h>"
+	fi
+	AC_TRY_COMPILE([#include <stdio.h>
+									${ytnef_include}],
+									[SwapDDWord(0, 0);],
+									[have_ytnef=1],
+									[have_ytnef=0])
+	if test $have_ytnef -eq 0; then
+		AC_TRY_COMPILE([#include <stdio.h>
+										${ytnef_include}],
+										[SwapDDWord(0);],
+										[have_ytnef=1;
+										 YTNEF_CFLAGS="${YTNEF_CFLAGS} -DYTNEF_OLD_SWAPDDWORD"],
+										[have_ytnef=0])
+	fi
+	if test $have_ytnef -eq 1; then
+		YTNEF_LIBS="-lytnef"
+		AC_MSG_RESULT(ok)
+	else
+		AC_MSG_RESULT(no idea, unsupported libytnef version?)
+	fi
+fi
+AC_SUBST(YTNEF_CFLAGS)
+AC_SUBST(YTNEF_LIBS)
 
 dnl Third, we now cross the requested plugins and the available dependencies
 dnl If some dependencies are missing and the plugin was explicitely enabled,
@@ -1391,6 +1488,15 @@ else
 	AC_MSG_RESULT(no)
 fi
 
+AC_MSG_CHECKING([whether to build Dillo plugin])
+if test x"$enable_dillo_plugin" != xno; then
+	PLUGINS="$PLUGINS dillo"
+	AC_MSG_RESULT(yes)
+else
+	DISABLED_PLUGINS="$DISABLED_PLUGINS dillo"
+	AC_MSG_RESULT(no)
+fi
+
 AC_MSG_CHECKING([whether to build fancy plugin])
 if test x"$enable_fancy_plugin" != xno; then
 	dependencies_missing=""
@@ -1450,31 +1556,6 @@ if test x"$enable_gdata_plugin" != xno; then
 	fi
 else
 	DISABLED_PLUGINS="$DISABLED_PLUGINS gdata"
-	AC_MSG_RESULT(no)
-fi
-
-AC_MSG_CHECKING([whether to build geolocation plugin])
-if test x"$enable_geolocation_plugin" != xno; then
-	dependencies_missing=""
-
-	if test x"$HAVE_CHAMPLAIN" = xno; then
-		dependencies_missing="libchamplain $dependencies_missing"
-	fi
-
-	if test x"$dependencies_missing" = x; then
-		PLUGINS="$PLUGINS geolocation"
-		AC_MSG_RESULT(yes)
-	elif test x"$enable_geolocation_plugin" = xauto; then
-		AC_MSG_RESULT(no)
-		AC_MSG_WARN("Plugin geolocation will not be built; missing $dependencies_missing")
-		enable_geolocation_plugin=no
-		MISSING_DEPS_PLUGINS="$MISSING_DEPS_PLUGINS geolocation"
-	else
-		AC_MSG_RESULT(no)
-		AC_MSG_ERROR("Plugin geolocation cannot be built; missing $dependencies_missing")
-	fi
-else
-	DISABLED_PLUGINS="$DISABLED_PLUGINS geolocation"
 	AC_MSG_RESULT(no)
 fi
 
@@ -1551,10 +1632,10 @@ if test x"$enable_notification_plugin" != xno; then
 		notification_missing_dependencies="$notification_missing_dependencies hotkeys"
 	fi
 	notification_features="$notification_features lcdproc"
-	if test x"$HAVE_LIBINDICATE" = xyes; then
-		notification_features="$notification_features libindicate"
+	if test x"$HAVE_UNITY" = xyes; then
+		notification_features="$notification_features unity/messaging-menu"
 	else
-		notification_missing_dependencies="$notification_missing_dependencies libindicate"
+		notification_missing_dependencies="$notification_missing_dependencies unity/messaging-menu"
 	fi
 	if test x"$HAVE_LIBNOTIFY" = xyes; then
 		notification_features="$notification_features libnotify"
@@ -1821,12 +1902,29 @@ fi
 
 AC_MSG_CHECKING([whether to build tnef_parse plugin])
 if test x"$enable_tnef_parse_plugin" != xno; then
-	PLUGINS="$PLUGINS tnef_parse"
-	AC_MSG_RESULT(yes)
+	dependencies_missing=""
+
+	if test $have_ytnef -eq 0; then
+		dependencies_missing="libytnef"
+	fi
+
+	if test x"$dependencies_missing" = x; then
+		PLUGINS="$PLUGINS tnef_parse"
+		AC_MSG_RESULT(yes)
+	elif test x"$enable_tnef_parse_plugin" = xauto; then
+		AC_MSG_RESULT(no)
+		AC_MSG_WARN(Plugin tnef_parse will not be built; missing $dependencies_missing")
+		enable_tnef_parse_plugin=no
+		MISSING_DEPS_PLUGINS="$MISSING_DEPS_PLUGINS tnef_parse"
+	else
+		AC_MSG_RESULT(no)
+		AC_MSG_ERROR(Plugin tnef_parse will not be built; missing $dependencies_missing")
+	fi
 else
 	DISABLED_PLUGINS="$DISABLED_PLUGINS tnef_parse"
 	AC_MSG_RESULT(no)
 fi
+
 
 AC_MSG_CHECKING([whether to build vcalendar plugin])
 if test x"$enable_vcalendar_plugin" != xno; then
@@ -1835,6 +1933,10 @@ if test x"$enable_vcalendar_plugin" != xno; then
 	if test x"$HAVE_CURL" = xno; then
 		dependencies_missing="libcurl $dependencies_missing"
 	fi
+
+  if test x"$HAVE_LIBICAL" = xno; then
+    dependencies_missing="libical $dependencies_missing"
+  fi
 
 	if test x"$HAVE_PERL" = xno; then
 		dependencies_missing="perl $dependencies_missing"
@@ -1868,10 +1970,10 @@ AM_CONDITIONAL(BUILD_BOGOFILTER_PLUGIN,		test x"$enable_bogofilter_plugin" != xn
 AM_CONDITIONAL(BUILD_BSFILTER_PLUGIN,		test x"$enable_bsfilter_plugin" != xno)
 AM_CONDITIONAL(BUILD_CLAMD_PLUGIN,		test x"$enable_clamd_plugin" != xno)
 AM_CONDITIONAL(BUILD_DEMO_PLUGIN,		test x"$enable_demo_plugin" != xno)
+AM_CONDITIONAL(BUILD_DILLO_PLUGIN,		test x"$enable_dillo_plugin" != xno)
 AM_CONDITIONAL(BUILD_FANCY_PLUGIN,		test x"$enable_fancy_plugin" != xno)
 AM_CONDITIONAL(BUILD_FETCHINFO_PLUGIN,		test x"$enable_fetchinfo_plugin" != xno)
 AM_CONDITIONAL(BUILD_GDATA_PLUGIN,		test x"$enable_gdata_plugin" != xno)
-AM_CONDITIONAL(BUILD_GEOLOCATION_PLUGIN,	test x"$enable_geolocation_plugin" != xno)
 AM_CONDITIONAL(BUILD_LIBRAVATAR_PLUGIN,		test x"$enable_libravatar_plugin" != xno)
 AM_CONDITIONAL(BUILD_MAILMBOX_PLUGIN,		test x"$enable_mailmbox_plugin" != xno)
 AM_CONDITIONAL(BUILD_MANAGESIEVE_PLUGIN,		test x"$enable_managesieve_plugin" != xno)
@@ -1917,10 +2019,10 @@ src/plugins/bsfilter/Makefile
 src/plugins/clamd/Makefile
 src/plugins/clamd/libclamd/Makefile
 src/plugins/demo/Makefile
+src/plugins/dillo/Makefile
 src/plugins/fancy/Makefile
 src/plugins/fetchinfo/Makefile
 src/plugins/gdata/Makefile
-src/plugins/geolocation/Makefile
 src/plugins/libravatar/Makefile
 src/plugins/mailmbox/Makefile
 src/plugins/managesieve/Makefile
@@ -1942,11 +2044,6 @@ src/plugins/spamassassin/Makefile
 src/plugins/spam_report/Makefile
 src/plugins/tnef_parse/Makefile
 src/plugins/vcalendar/Makefile
-src/plugins/vcalendar/libical/Makefile
-src/plugins/vcalendar/libical/libical/icalversion.h
-src/plugins/vcalendar/libical/libical/Makefile
-src/plugins/vcalendar/libical/design-data/Makefile
-src/plugins/vcalendar/libical/scripts/Makefile
 doc/Makefile
 doc/man/Makefile
 tools/Makefile
@@ -1964,24 +2061,12 @@ manual/fr/dist/pdf/Makefile
 manual/fr/dist/ps/Makefile
 manual/fr/dist/html/Makefile
 manual/fr/dist/txt/Makefile
-manual/pl/Makefile
-manual/pl/dist/Makefile
-manual/pl/dist/pdf/Makefile
-manual/pl/dist/ps/Makefile
-manual/pl/dist/html/Makefile
-manual/pl/dist/txt/Makefile
 manual/es/Makefile
 manual/es/dist/Makefile
 manual/es/dist/pdf/Makefile
 manual/es/dist/ps/Makefile
 manual/es/dist/html/Makefile
 manual/es/dist/txt/Makefile
-manual/de/Makefile
-manual/de/dist/Makefile
-manual/de/dist/pdf/Makefile
-manual/de/dist/ps/Makefile
-manual/de/dist/html/Makefile
-manual/de/dist/txt/Makefile
 claws-mail.pc
 ])
 
@@ -1989,10 +2074,10 @@ dnl Output the configuration summary
 echo ""
 echo "$PACKAGE $VERSION"
 echo ""
-if test x"$enable_new_addrbook" = xyes; then
-	echo "Using Address Book : New experimental interface"
+if test x"$enable_alternate_addressbook" = xyes; then
+	echo "Using Address Book : Alternate experimental interface"
 else
-	echo "Using Address Book : Old stable interface"
+	echo "Using Address Book : Original stable interface"
 	echo "JPilot             : $enable_jpilot"
 	echo "LDAP               : $enable_ldap"
 fi
@@ -2009,7 +2094,9 @@ echo "DBUS               : $enable_dbus"
 echo "NetworkManager     : $enable_networkmanager"
 echo "Manual             : $enable_manual"
 echo "Generic UMPC code  : $enable_generic_umpc"
+echo "SVG support        : $enable_svg"
 echo "Config dir         : $ac_cv_with_config_dir"
+echo "Password crypto    : $pwd_crypto"
 
 echo "Plugins"
 echo "   Built:"

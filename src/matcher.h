@@ -36,9 +36,7 @@ struct _MatcherProp {
 	gchar *header;
 	gchar *expr;
 	int value;
-#ifndef G_OS_WIN32
 	regex_t *preg;
-#endif
 	int error;
 	gboolean result;
 	gboolean done;
@@ -91,6 +89,7 @@ enum {
 	MC_(AGE_GREATER), MC_(AGE_LOWER),
 	MC_(AGE_GREATER_HOURS), MC_(AGE_LOWER_HOURS),
 	MC_(NEWSGROUPS), MC_(NOT_NEWSGROUPS),
+	MC_(MESSAGEID), MC_(NOT_MESSAGEID),
 	MC_(INREPLYTO), MC_(NOT_INREPLYTO),
 	MC_(REFERENCES), MC_(NOT_REFERENCES),
 	MC_(SCORE_GREATER), MC_(SCORE_LOWER),

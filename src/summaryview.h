@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __SUMMARY_H__
@@ -195,6 +194,8 @@ SummarySelection summary_get_selection_type	(SummaryView	*summaryview);
 MsgInfo *summary_get_selected_msg		(SummaryView *summaryview);
 GSList *summary_get_selected_msg_list		(SummaryView	*summaryview);
 
+void summary_select_prev	  (SummaryView		*summaryview);
+void summary_select_next	  (SummaryView		*summaryview);
 void summary_select_prev_unread	  (SummaryView		*summaryview);
 void summary_select_next_unread	  (SummaryView		*summaryview);
 void summary_select_prev_new	  (SummaryView		*summaryview);
@@ -205,15 +206,13 @@ void summary_select_prev_labeled  (SummaryView		*summaryview);
 void summary_select_next_labeled  (SummaryView		*summaryview);
 void summary_select_parent        (SummaryView		*summaryview);
 void summary_select_by_msgnum	  (SummaryView		*summaryview,
-				   guint		 msgnum);
-void summary_display_by_msgnum	  (SummaryView		*summaryview,
-				   guint		 msgnum);
+				   guint		 msgnum,
+				   gboolean		 show);
 void summary_select_by_msg_list   (SummaryView		*summaryview, GSList *msginfos);
 guint summary_get_current_msgnum  (SummaryView		*summaryview);
 void summary_select_node	  (SummaryView		*summaryview,
-				   GtkCMCTreeNode		*node,
-				   gboolean		 display_msg,
-				   gboolean		 do_refresh);
+				   GtkCMCTreeNode	*node,
+				   gboolean	 	 display_msg);
 
 void summary_expand_threads	  (SummaryView		*summaryview);
 void summary_collapse_threads	  (SummaryView		*summaryview);
@@ -267,16 +266,18 @@ void summary_move_to		  (SummaryView		*summaryview);
 void summary_copy_selected_to	  (SummaryView		*summaryview,
 				   FolderItem		*to_folder);
 GSList *summary_get_selection	  (SummaryView 		*summaryview);
+guint summary_get_selection_count (SummaryView		*summaryview);
 void summary_copy_to		  (SummaryView		*summaryview);
 void summary_save_as		  (SummaryView		*summaryview);
 void summary_print		  (SummaryView		*summaryview);
 void summary_mark		  (SummaryView		*summaryview);
 void summary_unmark		  (SummaryView		*summaryview);
-void summary_mark_as_unread	  (SummaryView		*summaryview);
 void summary_mark_as_read	  (SummaryView		*summaryview);
+void summary_mark_as_unread	  (SummaryView		*summaryview);
 void summary_msgs_lock		  (SummaryView		*summaryview);
 void summary_msgs_unlock	  (SummaryView		*summaryview);
-void summary_mark_all_read	  (SummaryView		*summaryview);
+void summary_mark_all_read	  (SummaryView		*summaryview, gboolean ask_if_needed);
+void summary_mark_all_unread	  (SummaryView		*summaryview, gboolean ask_if_needed);
 void summary_mark_as_spam	  (SummaryView 		*summaryview, 
 				   guint 		 action, 
 				   GtkWidget 		*widget);
@@ -289,7 +290,8 @@ void summary_add_address	  (SummaryView		*summaryview);
 void summary_select_all		  (SummaryView		*summaryview);
 void summary_unselect_all	  (SummaryView		*summaryview);
 void summary_select_thread	  (SummaryView		*summaryview,
-				   gboolean		 delete_thread);
+				   gboolean		 delete_thread,
+				   gboolean		 trash_thread);
 
 void summary_set_colorlabel	  (SummaryView		*summaryview,
 				   guint		 labelcolor,

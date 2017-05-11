@@ -27,7 +27,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 
-#include <ical.h>
+#include <libical/ical.h>
 #include <gtk/gtk.h>
 
 #if USE_PTHREAD
@@ -150,15 +150,15 @@ static void create_meeting_from_message_cb_ui(GtkAction *action, gpointer data)
 		}
 		
 		if (fp) {
-			gchar uid[256];
+			gchar *uid;
 			time_t t = time(NULL);
 			time_t t2 = t+3600;
 			gchar *org = NULL;
 			gchar *orgname = NULL;
 			gchar *summary = g_strdup(msginfo->subject ? msginfo->subject:_("no subject"));
 			gchar *description = file_read_stream_to_str(fp);
-			gchar *dtstart = g_strdup(icaltime_as_ical_string(icaltime_from_timet(t, FALSE)));
-			gchar *dtend = g_strdup(icaltime_as_ical_string(icaltime_from_timet(t2, FALSE)));
+			gchar *dtstart = g_strdup(icaltime_as_ical_string(icaltime_from_timet_with_zone(t, FALSE, NULL)));
+			gchar *dtend = g_strdup(icaltime_as_ical_string(icaltime_from_timet_with_zone(t2, FALSE, NULL)));
 			gchar *recur = NULL;
 			gchar *tzid = g_strdup("UTC");
 			gchar *url = NULL;
@@ -179,22 +179,13 @@ static void create_meeting_from_message_cb_ui(GtkAction *action, gpointer data)
 
 			org = g_strdup(account->address);
 
-			if (account->set_domain && account->domain) {
-				g_snprintf(uid, sizeof(uid), "%s", account->domain); 
-			} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
-				g_snprintf(uid, sizeof(uid), "%s", 
-					strchr(account->address, '@') ?
-					strchr(account->address, '@')+1 :
-					account->address);
-			} else {
-				g_snprintf(uid, sizeof(uid), "%s", "");
-			}
-			generate_msgid(uid, 255, account->address);
+			uid = prefs_account_generate_msgid(account);
 			
 			event = vcal_manager_new_event(uid,
 					org, NULL, NULL/*location*/, summary, description, 
 					dtstart, dtend, recur, tzid, url, method, sequence, 
 					ICAL_VTODO_COMPONENT);
+			g_free(uid);
 			
 			/* hack to get default hours */
 			g_free(event->dtstart);
@@ -217,7 +208,7 @@ bail:
 			g_free(url);
 		}
 
-		procmsg_msginfo_free(msginfo);
+		procmsg_msginfo_free(&msginfo);
 	}
 
 	statusbar_progress_all(0,0,0);
@@ -326,7 +317,7 @@ static VCalEvent *vcalviewer_get_component(const gchar *file, const gchar *chars
 	g_free(tmplbl);						\
 }
 
-static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *event, enum icalproperty_method method);
+static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *event, icalproperty_method method);
 
 static void vcalviewer_reset(VCalViewer *vcalviewer) 
 {
@@ -362,7 +353,7 @@ static void vcalviewer_show_unavailable(VCalViewer *vcalviewer, gboolean visi)
 		gtk_widget_hide(vcalviewer->unavail_box);
 }
 
-static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *event, enum icalproperty_method method)
+static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *event, icalproperty_method method)
 {
 	int i = 0;
 	
@@ -376,7 +367,7 @@ static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *eve
 	
 	vcalviewer_show_unavailable(vcalviewer, FALSE);
 
-	if (method == ICAL_METHOD_REQUEST && event && !event->rec_occurence) {
+	if (method == ICAL_METHOD_REQUEST && event && !event->rec_occurrence) {
 		PrefsAccount *account = vcal_manager_get_account_from_event(event);
 		
 		if (!account)
@@ -417,7 +408,7 @@ static void vcalviewer_answer_set_choices(VCalViewer *vcalviewer, VCalEvent *eve
 		gchar *myfb = file_read_to_str(internal_ifb);
 		g_free(internal_ifb);
 		if (account) {
-			enum icalparameter_partstat answer = 
+			icalparameter_partstat answer = 
 				vcal_manager_get_reply_for_attendee(event, account->address);
 				
 			if (answer == ICAL_PARTSTAT_ACCEPTED)
@@ -450,7 +441,7 @@ static FolderItem *vcalendar_get_current_item(void)
 {
 	MainWindow *mainwin = mainwindow_get_mainwindow();
 	FolderItem *item = NULL;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	
 	if (mainwin) {
 		item = mainwin->summaryview->folder_item;
@@ -561,13 +552,16 @@ void vcalviewer_display_event (VCalViewer *vcalviewer, VCalEvent *event)
 /* start */
 	if (event->start && *(event->start)) {
 		if (event->recur && *(event->recur)) {
-			gchar *tmp = g_strdup_printf(_("%s <span weight=\"bold\">(this event recurs)</span>"),
+			gchar *tmp = g_strdup_printf(g_strconcat("%s <span weight=\"bold\">",
+							_("(this event recurs)"),"</span>", NULL),
 					event->start);
 			GTK_LABEL_SET_TEXT_TRIMMED(GTK_LABEL(vcalviewer->start), tmp);
 			gtk_label_set_use_markup(GTK_LABEL(vcalviewer->start), TRUE);
 			g_free(tmp);
-		} else if (event->rec_occurence) {
-			gchar *tmp = g_strdup_printf(_("%s <span weight=\"bold\">(this event is part of a recurring event)</span>"),
+		} else if (event->rec_occurrence) {
+			gchar *tmp = g_strdup_printf(g_strconcat("%s <span weight=\"bold\">",
+							_("(this event is part of a recurring event)"),
+							"</span>", NULL),
 					event->start);
 			GTK_LABEL_SET_TEXT_TRIMMED(GTK_LABEL(vcalviewer->start), tmp);
 			gtk_label_set_use_markup(GTK_LABEL(vcalviewer->start), TRUE);
@@ -594,7 +588,7 @@ void vcalviewer_display_event (VCalViewer *vcalviewer, VCalEvent *event)
 		gchar *name = vcal_manager_get_attendee_name(event, attendee);
 		gchar *ename = g_markup_printf_escaped("%s", name?name:"");
 		gchar *eatt = g_markup_printf_escaped("%s", attendee);
-		enum icalparameter_partstat acode = vcal_manager_get_reply_for_attendee(event, attendee);
+		icalparameter_partstat acode = vcal_manager_get_reply_for_attendee(event, attendee);
 		gchar *answer = vcal_manager_get_reply_text_for_attendee(event, attendee);
 		gchar *type = vcal_manager_get_cutype_text_for_attendee(event, attendee);
 		gchar *tmp = NULL;
@@ -735,7 +729,7 @@ static void vcalviewer_get_reply_values(VCalViewer *vcalviewer, MimeInfo *mimein
 		charset = CS_WINDOWS_1252;
 
 	if (!vcalviewer->event->answers || g_slist_length(vcalviewer->event->answers) > 1) {
-		g_warning("strange, no answers or more than one\n");
+		g_warning("strange, no answers or more than one");
 	} 
 	
 	if (vcalviewer->event->answers) {
@@ -903,7 +897,7 @@ void vcalviewer_reload(FolderItem *item)
 {
 	if (s_vcalviewer) {
 		MainWindow *mainwin = mainwindow_get_mainwindow();
-		Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+		Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 
 		folder_item_scan(item);
 		if (mainwin && mainwin->summaryview->folder_item) {
@@ -956,7 +950,7 @@ static gboolean vcalviewer_uribtn_cb(GtkButton *widget, gpointer data)
 
 void vcalendar_refresh_folder_contents(FolderItem *item)
 {
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (folder && item->folder == folder) {
 		MainWindow *mainwin = mainwindow_get_mainwindow();
 		folder_item_scan(item);
@@ -977,7 +971,7 @@ void vcalendar_cancel_meeting(FolderItem *item, const gchar *uid)
 	VCalMeeting *meet = NULL;
 	gchar *file = NULL;
 	gint val = 0;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	gboolean redisp = FALSE;
 	GtkWidget *send_notify_chkbtn = gtk_check_button_new_with_label(_("Send a notification to the attendees"));
 	gboolean send_notify = TRUE;
@@ -1055,7 +1049,7 @@ static gboolean vcalviewer_action_cb(GtkButton *widget, gpointer data)
 {
         VCalViewer *vcalviewer = (VCalViewer *)data;
 	gint index = gtk_combo_box_get_active(GTK_COMBO_BOX(vcalviewer->answer));
-	enum icalparameter_partstat reply[3] = {ICAL_PARTSTAT_ACCEPTED, ICAL_PARTSTAT_TENTATIVE, ICAL_PARTSTAT_DECLINED};
+	icalparameter_partstat reply[3] = {ICAL_PARTSTAT_ACCEPTED, ICAL_PARTSTAT_TENTATIVE, ICAL_PARTSTAT_DECLINED};
 	PrefsAccount *account = NULL;
 	VCalEvent *saved_event = NULL, *event = NULL;
 	debug_print("index chosen %d\n", index);
@@ -1067,7 +1061,7 @@ static gboolean vcalviewer_action_cb(GtkButton *widget, gpointer data)
 	s_vcalviewer = vcalviewer;
 	
 	if (!vcalviewer->event) {
-		g_warning("can't get event\n");
+		g_warning("can't get event");
 		return TRUE;
 	}
 
@@ -1087,8 +1081,8 @@ static gboolean vcalviewer_action_cb(GtkButton *widget, gpointer data)
 		AlertValue val = alertpanel_full(_("No account found"), 
 					_("You have no account matching any attendee.\n"
 					    "Do you want to reply anyway?"),
-				   	GTK_STOCK_CANCEL, _("+Reply anyway"), NULL, FALSE,
-				   	NULL, ALERT_QUESTION, G_ALERTDEFAULT);
+				   	GTK_STOCK_CANCEL, g_strconcat("+", _("Reply anyway"), NULL),
+					NULL, FALSE, NULL, ALERT_QUESTION, G_ALERTDEFAULT);
 		if (val == G_ALERTALTERNATE) {		
 			account = account_get_default();
 			vcal_manager_update_answer(event, account->address, 
@@ -1106,7 +1100,7 @@ static gboolean vcalviewer_action_cb(GtkButton *widget, gpointer data)
 	
 	if (event->organizer && *(event->organizer) && 
 	    !vcal_manager_reply(account, event)) {
-		g_warning("couldn't send reply\n");
+		g_warning("couldn't send reply");
 	} else {
 		debug_print("no organizer, not sending answer\n");
 	}
@@ -1300,7 +1294,7 @@ static gint scan_timeout_tag = 0;
 
 static gboolean vcal_webcal_check(gpointer data)
 {
-	Folder *root = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *root = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 
 	if (prefs_common_get_prefs()->work_offline)
 		return TRUE;
@@ -1333,10 +1327,10 @@ void vcalendar_init(void)
 	mimeview_register_viewer_factory(&vcal_viewer_factory);
 	folder_register_class(vcal_folder_get_class());
 
-	folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (!folder) {
 		START_TIMING("creating folder");
-		folder = folder_new(vcal_folder_get_class(), "vCalendar", NULL);
+		folder = folder_new(vcal_folder_get_class(), PLUGIN_NAME, NULL);
 		folder->klass->create_tree(folder);
 		folder_add(folder);
 		folder_scan_tree(folder, TRUE);

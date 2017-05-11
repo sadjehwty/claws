@@ -30,7 +30,7 @@
 #include "mainwindow.h"
 #include "procmsg.h"
 #include "folder.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
     #include "addrindex.h"
 #endif
 #include "common/utils.h"
@@ -92,8 +92,8 @@ static gboolean notification_popup_button(GtkWidget*, GdkEventButton*, gpointer)
 
 void notification_popup_msg(MsgInfo *msginfo)
 {
-  FolderType ftype;
 #if HAVE_LIBNOTIFY
+  FolderType ftype;
   gchar *uistr;
 #else
   NotificationPopup *ppopup;
@@ -136,11 +136,11 @@ void notification_popup_msg(MsgInfo *msginfo)
       return;
   }
 
-  ftype = msginfo->folder->folder->klass->type;
 
   G_LOCK(popup);
 #ifdef HAVE_LIBNOTIFY
   /* Check out which type to notify about */
+  ftype = msginfo->folder->folder->klass->type;
   switch(ftype) {
   case F_MH:
   case F_MBOX:
@@ -227,9 +227,6 @@ static void popup_timeout_fun(NotifyNotification *nn, gpointer data)
 static gboolean popup_timeout_fun(gpointer data)
 {
   NotificationPopup *ppopup;
-  NotificationFolderType nftype;
-
-  nftype = GPOINTER_TO_INT(data);
 
   G_LOCK(popup);
 
@@ -385,7 +382,7 @@ static gboolean notification_libnotify_create(MsgInfo *msginfo,
 
   /* Icon */
   pixbuf = NULL;
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
   if(msginfo && msginfo->from) {
     gchar *icon_path;
     icon_path = addrindex_get_picture_file(msginfo->from);
@@ -566,8 +563,10 @@ static gboolean notification_popup_add_msg(MsgInfo *msginfo)
     ppopup->msg_path = NULL;
   }
 
-  if(ppopup->label2)
+  if(ppopup->label2) {
     gtk_widget_destroy(ppopup->label2);
+		ppopup->label2 = NULL;
+	}
 
   message = g_strdup_printf(ngettext("%d new message",
 				     "%d new messages",

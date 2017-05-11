@@ -27,7 +27,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 
-#include <ical.h>
+#include <libical/ical.h>
 #include <gtk/gtk.h>
 
 #include "utils.h"
@@ -176,10 +176,11 @@ static void bus_acquired(GDBusConnection *connection,
 
 void connect_dbus(void)
 {
+	debug_print("connect_dbus() invoked\n");
 	introspection_data = g_dbus_node_info_new_for_xml(
 				introspection_xml, NULL);
 	if (introspection_data == NULL) {
-		debug_print("Couldn't figure out XML.");
+		debug_print("Couldn't figure out XML.\n");
 		return;
 	}
 	
@@ -198,6 +199,7 @@ void connect_dbus(void)
 
 void disconnect_dbus(void)
 {
+	debug_print("disconnect_dbus() invoked\n");
 	g_bus_unown_name(dbus_own_id);
 }
 

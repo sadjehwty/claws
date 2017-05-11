@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto & The Claws Mail Team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto & The Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <sys/param.h>
+#ifndef G_OS_WIN32
+#include <sys/socket.h>
+#endif
 
 #if (HAVE_WCTYPE_H && HAVE_WCHAR_H)
 #  include <wchar.h>
@@ -81,12 +84,28 @@
 #include "utils.h"
 #include "socket.h"
 #include "../codeconv.h"
+#include "tlds.h"
 
 #define BUFFSIZE	8192
 
 static gboolean debug_mode = FALSE;
-#ifdef G_OS_WIN32
-static GSList *tempfiles=NULL;
+
+#if !GLIB_CHECK_VERSION(2, 26, 0)
+guchar *g_base64_decode_wa(const gchar *text, gsize *out_len)
+{
+	guchar *ret;
+	gsize input_length;
+	gint state = 0;
+	guint save = 0;
+
+	input_length = strlen(text);
+
+	ret = g_malloc0((input_length / 4) * 3 + 1);
+
+	*out_len = g_base64_decode_step(text, input_length, ret, &state, &save);
+
+	return ret;
+}
 #endif
 
 /* Return true if we are running as root.  This function should beused
@@ -99,124 +118,6 @@ gboolean superuser_p (void)
   return !getuid();
 #endif  
 }
-
-
-
-#if !defined(G_OS_UNIX)
-gint g_chdir(const gchar *path)
-{
-#ifdef G_OS_WIN32
-	if (G_WIN32_HAVE_WIDECHAR_API()) {
-		wchar_t *wpath;
-		gint retval;
-		gint save_errno;
-
-		wpath = g_utf8_to_utf16(path, -1, NULL, NULL, NULL);
-		if (wpath == NULL) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		retval = _wchdir(wpath);
-		save_errno = errno;
-
-		g_free(wpath);
-
-		errno = save_errno;
-		return retval;
-	} else {
-		gchar *cp_path;
-		gint retval;
-		gint save_errno;
-
-		cp_path = g_locale_from_utf8(path, -1, NULL, NULL, NULL);
-		if (cp_path == NULL) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		retval = chdir(cp_path);
-		save_errno = errno;
-
-		g_free(cp_path);
-
-		errno = save_errno;
-		return retval;
-	}
-#else
-	return chdir(path);
-#endif
-}
-
-gint g_chmod(const gchar *path, gint mode)
-{
-#ifdef G_OS_WIN32
-	if (G_WIN32_HAVE_WIDECHAR_API()) {
-		wchar_t *wpath;
-		gint retval;
-		gint save_errno;
-
-		wpath = g_utf8_to_utf16(path, -1, NULL, NULL, NULL);
-		if (wpath == NULL) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		retval = _wchmod(wpath, mode);
-		save_errno = errno;
-
-		g_free(wpath);
-
-		errno = save_errno;
-		return retval;
-	} else {
-		gchar *cp_path;
-		gint retval;
-		gint save_errno;
-
-		cp_path = g_locale_from_utf8(path, -1, NULL, NULL, NULL);
-		if (cp_path == NULL) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		retval = chmod(cp_path, mode);
-		save_errno = errno;
-
-		g_free(cp_path);
-
-		errno = save_errno;
-		return retval;
-	}
-#else
-	return chmod(path, mode);
-#endif
-}
-
-FILE* g_fopen(const gchar *filename, const gchar *mode)
-{
-#ifdef G_OS_WIN32
-	char *name = g_win32_locale_filename_from_utf8(filename);
-	FILE* fp = fopen(name, mode);
-	g_free(name);
-	return fp;
-#else
-	return fopen(filename, mode);
-#endif
-}
-int g_open(const gchar *filename, int flags, int mode)
-{
-#ifdef G_OS_WIN32
-	char *name = g_win32_locale_filename_from_utf8(filename);
-	int fd = open(name, flags, mode);
-	g_free(name);
-	return fd;
-#else
-	return open(filename, flags, mode);
-#endif
-}
-#endif /* G_OS_UNIX */
-
 
 GSList *slist_copy_deep(GSList *list, GCopyFunc func)
 {
@@ -1092,19 +993,37 @@ void remove_space(gchar *str)
 
 void unfold_line(gchar *str)
 {
-	register gchar *p = str;
-	register gint spc;
+	register gchar *ch;
+	register gunichar c;
+	register gint len;
 
-	while (*p) {
-		if (*p == '\n' || *p == '\r') {
-			*p++ = ' ';
-			spc = 0;
-			while (g_ascii_isspace(*(p + spc)))
-				spc++;
-			if (spc)
-				memmove(p, p + spc, strlen(p + spc) + 1);
-		} else
-			p++;
+	ch = str; /* iterator for source string */
+
+	while (*ch != 0) {
+		c = g_utf8_get_char_validated(ch, -1);
+
+		if (c == (gunichar)-1 || c == (gunichar)-2) {
+			/* non-unicode byte, move past it */
+			ch++;
+			continue;
+		}
+
+		len = g_unichar_to_utf8(c, NULL);
+
+		if (!g_unichar_isdefined(c) || !g_unichar_isprint(c) ||
+				g_unichar_isspace(c)) {
+			/* replace anything bad or whitespacey with a single space */
+			*ch = ' ';
+			ch++;
+			if (len > 1) {
+				/* move rest of the string forwards, since we just replaced
+				 * a multi-byte sequence with one byte */
+				memmove(ch, ch + len-1, strlen(ch + len-1) + 1);
+			}
+		} else {
+			/* A valid unicode character, copy it. */
+			ch += len;
+		}
 	}
 }
 
@@ -1170,13 +1089,13 @@ static const gchar * line_has_quote_char_last(const gchar * str, const gchar *qu
 	gchar * tmp_pos = NULL;
 	int i;
 
-	if (quote_chars == NULL)
+	if (str == NULL || quote_chars == NULL)
 		return NULL;
 
 	for (i = 0; i < strlen(quote_chars); i++) {
-		tmp_pos = strrchr (str,	quote_chars[i]);
+		tmp_pos = strrchr (str, quote_chars[i]);
 		if(position == NULL
-		   || (tmp_pos != NULL && position <= tmp_pos) )
+				|| (tmp_pos != NULL && position <= tmp_pos) )
 			position = tmp_pos;
 	}
 	return position;
@@ -1259,13 +1178,13 @@ const gchar * line_has_quote_char(const gchar * str, const gchar *quote_chars)
 	gchar * tmp_pos = NULL;
 	int i;
 
-	if (quote_chars == NULL)
-		return FALSE;
+	if (str == NULL || quote_chars == NULL)
+		return NULL;
 
 	for (i = 0; i < strlen(quote_chars); i++) {
-		tmp_pos = strchr (str,	quote_chars[i]);
+		tmp_pos = strchr (str, quote_chars[i]);
 		if(position == NULL
-		   || (tmp_pos != NULL && position >= tmp_pos) )
+				|| (tmp_pos != NULL && position >= tmp_pos) )
 			position = tmp_pos;
 	}
 	return position;
@@ -1455,7 +1374,7 @@ GList *uri_list_extract_filenames(const gchar *uri_list)
 					*file = '\0';
 					strncpy(escaped_utf8uri, p, q - p + 1);
 					escaped_utf8uri[q - p + 1] = '\0';
-					decode_uri(file, escaped_utf8uri);
+					decode_uri_with_plus(file, escaped_utf8uri, FALSE);
 		    /*
 		     * g_filename_from_uri() rejects escaped/locale encoded uri
 		     * string which come from Nautilus.
@@ -1470,7 +1389,7 @@ GList *uri_list_extract_filenames(const gchar *uri_list)
 					if (!locale_file)
 						locale_file = g_strdup(file + 5);
 #else
-					locale_file = g_filename_from_uri(file, NULL, NULL);
+					locale_file = g_filename_from_uri(escaped_utf8uri, NULL, NULL);
 #endif
 					result = g_list_append(result, locale_file);
 				}
@@ -1685,7 +1604,6 @@ gint scan_mailto_url(const gchar *mailto, gchar **from, gchar **to, gchar **cc, 
 				g_warning("couldn't set insert file '%s' in body", value);
 			}
 			g_free(tmp);
-			tmp = NULL;
 		} else if (attach && !g_ascii_strcasecmp(field, "attach")) {
 			int i = 0;
 			gchar *tmp = decode_uri_gdup(value);
@@ -1694,7 +1612,6 @@ gint scan_mailto_url(const gchar *mailto, gchar **from, gchar **to, gchar **cc, 
 					g_print("Refusing to attach '%s', potential private data leak\n",
 							tmp);
 					g_free(tmp);
-					tmp = NULL;
 					break;
 				}
 			}
@@ -1870,8 +1787,8 @@ const gchar *get_home_dir(void)
 		if (w32_shgetfolderpath
 			    (NULL, CSIDL_APPDATA|CSIDL_FLAG_CREATE,
 			     NULL, 0, home_dir_utf16) < 0)
-				strcpy (home_dir_utf16, "C:\\Sylpheed");
-		home_dir_utf8 = g_utf16_to_utf8 ((const gunichar *)home_dir_utf16, -1, NULL, NULL, NULL);
+				strcpy (home_dir_utf16, "C:\\Claws Mail");
+		home_dir_utf8 = g_utf16_to_utf8 ((const gunichar2 *)home_dir_utf16, -1, NULL, NULL, NULL);
 	}
 	return home_dir_utf8;
 #else
@@ -1988,7 +1905,7 @@ const gchar *get_template_dir(void)
 }
 
 #ifdef G_OS_WIN32
-const gchar *get_cert_file(void)
+const gchar *w32_get_cert_file(void)
 {
 	const gchar *cert_file = NULL;
 	if (!cert_file)
@@ -2038,7 +1955,7 @@ const gchar *get_plugin_dir(void)
 
 #ifdef G_OS_WIN32
 /* Return the default directory for Themes. */
-const gchar *get_themes_dir(void)
+const gchar *w32_get_themes_dir(void)
 {
 	static gchar *themes_dir = NULL;
 
@@ -2076,21 +1993,28 @@ const gchar *get_domain_name(void)
 {
 #ifdef G_OS_UNIX
 	static gchar *domain_name = NULL;
+	struct addrinfo hints, *res;
+	char hostname[256];
+	int s;
 
 	if (!domain_name) {
-		struct hostent *hp;
-		char hostname[256];
-
 		if (gethostname(hostname, sizeof(hostname)) != 0) {
 			perror("gethostname");
 			domain_name = "localhost";
 		} else {
-			hostname[sizeof(hostname) - 1] = '\0';
-			if ((hp = my_gethostbyname(hostname)) == NULL) {
-				perror("gethostbyname");
+			memset(&hints, 0, sizeof(struct addrinfo));
+			hints.ai_family = AF_UNSPEC;
+			hints.ai_socktype = 0;
+			hints.ai_flags = AI_CANONNAME;
+			hints.ai_protocol = 0;
+
+			s = getaddrinfo(hostname, NULL, &hints, &res);
+			if (s != 0) {
+				fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
 				domain_name = g_strdup(hostname);
 			} else {
-				domain_name = g_strdup(hp->h_name);
+				domain_name = g_strdup(res->ai_canonname);
+				freeaddrinfo(res);
 			}
 		}
 		debug_print("domain name = %s\n", domain_name);
@@ -2124,32 +2048,6 @@ time_t get_file_mtime(const gchar *file)
 	}
 
 	return s.st_mtime;
-}
-
-off_t get_file_size_as_crlf(const gchar *file)
-{
-	FILE *fp;
-	off_t size = 0;
-	gchar buf[BUFFSIZE];
-
-	if ((fp = g_fopen(file, "rb")) == NULL) {
-		FILE_OP_ERROR(file, "g_fopen");
-		return -1;
-	}
-
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		strretchomp(buf);
-		size += strlen(buf) + 2;
-	}
-
-	if (ferror(fp)) {
-		FILE_OP_ERROR(file, "fgets");
-		size = -1;
-	}
-
-	fclose(fp);
-
-	return size;
 }
 
 gboolean file_exist(const gchar *file, gboolean allow_fifo)
@@ -2287,37 +2185,22 @@ gint make_dir_hier(const gchar *dir)
 gint remove_all_files(const gchar *dir)
 {
 	GDir *dp;
-	const gchar *dir_name;
-	gchar *prev_dir;
+	const gchar *file_name;
+	gchar *tmp;
 
-	prev_dir = g_get_current_dir();
-
-	if (g_chdir(dir) < 0) {
-		FILE_OP_ERROR(dir, "chdir");
-		g_free(prev_dir);
-		return -1;
-	}
-
-	if ((dp = g_dir_open(".", 0, NULL)) == NULL) {
+	if ((dp = g_dir_open(dir, 0, NULL)) == NULL) {
 		g_warning("failed to open directory: %s", dir);
-		g_free(prev_dir);
 		return -1;
 	}
 
-	while ((dir_name = g_dir_read_name(dp)) != NULL) {
-		if (claws_unlink(dir_name) < 0)
-			FILE_OP_ERROR(dir_name, "unlink");
+	while ((file_name = g_dir_read_name(dp)) != NULL) {
+		tmp = g_strconcat(dir, G_DIR_SEPARATOR_S, file_name, NULL);
+		if (claws_unlink(tmp) < 0)
+			FILE_OP_ERROR(tmp, "unlink");
+		g_free(tmp);
 	}
 
 	g_dir_close(dp);
-
-	if (g_chdir(prev_dir) < 0) {
-		FILE_OP_ERROR(prev_dir, "chdir");
-		g_free(prev_dir);
-		return -1;
-	}
-
-	g_free(prev_dir);
 
 	return 0;
 }
@@ -3332,11 +3215,11 @@ char *fgets_crlf(char *buf, int size, FILE *stream)
 	return buf;	
 }
 
-static gint execute_async(gchar *const argv[])
+static gint execute_async(gchar *const argv[], const gchar *working_directory)
 {
 	cm_return_val_if_fail(argv != NULL && argv[0] != NULL, -1);
 
-	if (g_spawn_async(NULL, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH,
+	if (g_spawn_async(working_directory, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH,
 			  NULL, NULL, NULL, FALSE) == FALSE) {
 		g_warning("couldn't execute command: %s", argv[0]);
 		return -1;
@@ -3345,14 +3228,14 @@ static gint execute_async(gchar *const argv[])
 	return 0;
 }
 
-static gint execute_sync(gchar *const argv[])
+static gint execute_sync(gchar *const argv[], const gchar *working_directory)
 {
 	gint status;
 
 	cm_return_val_if_fail(argv != NULL && argv[0] != NULL, -1);
 
 #ifdef G_OS_UNIX
-	if (g_spawn_sync(NULL, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH,
+	if (g_spawn_sync(working_directory, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH,
 			 NULL, NULL, NULL, NULL, &status, NULL) == FALSE) {
 		g_warning("couldn't execute command: %s", argv[0]);
 		return -1;
@@ -3363,8 +3246,10 @@ static gint execute_sync(gchar *const argv[])
 	else
 		return -1;
 #else
-	if (g_spawn_sync(NULL, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH| 
-			 G_SPAWN_CHILD_INHERITS_STDIN|G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
+	if (g_spawn_sync(working_directory, (gchar **)argv, NULL,
+				G_SPAWN_SEARCH_PATH|
+				G_SPAWN_CHILD_INHERITS_STDIN|
+				G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
 			 NULL, NULL, NULL, NULL, &status, NULL) == FALSE) {
 		g_warning("couldn't execute command: %s", argv[0]);
 		return -1;
@@ -3374,7 +3259,8 @@ static gint execute_sync(gchar *const argv[])
 #endif
 }
 
-gint execute_command_line(const gchar *cmdline, gboolean async)
+gint execute_command_line(const gchar *cmdline, gboolean async,
+		const gchar *working_directory)
 {
 	gchar **argv;
 	gint ret;
@@ -3384,9 +3270,9 @@ gint execute_command_line(const gchar *cmdline, gboolean async)
 	argv = strsplit_with_quote(cmdline, " ", 0);
 
 	if (async)
-		ret = execute_async(argv);
+		ret = execute_async(argv, working_directory);
 	else
-		ret = execute_sync(argv);
+		ret = execute_sync(argv, working_directory);
 
 	g_strfreev(argv);
 
@@ -3471,7 +3357,7 @@ gint open_uri(const gchar *uri, const gchar *cmdline)
 		g_snprintf(buf, sizeof(buf), DEFAULT_BROWSER_CMD, encoded_uri);
 	}
 
-	execute_command_line(buf, TRUE);
+	execute_command_line(buf, TRUE, NULL);
 #else
 	ShellExecute(NULL, "open", uri, NULL, NULL, SW_SHOW);
 #endif
@@ -3497,7 +3383,7 @@ gint open_txt_editor(const gchar *filepath, const gchar *cmdline)
 		g_snprintf(buf, sizeof(buf), DEFAULT_EDITOR_CMD, filepath);
 	}
 
-	execute_command_line(buf, TRUE);
+	execute_command_line(buf, TRUE, NULL);
 
 	return 0;
 }
@@ -3522,7 +3408,7 @@ time_t remote_tzoffset_sec(const gchar *zone)
 		if (c == '-')
 			remoteoffset = -remoteoffset;
 	} else if (!strncmp(zone, "UT" , 2) ||
-		   !strncmp(zone, "GMT", 2)) {
+		   !strncmp(zone, "GMT", 3)) {
 		remoteoffset = 0;
 	} else if (strlen(zone3) == 3) {
 		for (p = ustzstr; *p != '\0'; p += 3) {
@@ -3640,14 +3526,14 @@ gchar *tzoffset(time_t *now)
 	return offset_string;
 }
 
-void get_rfc822_date(gchar *buf, gint len)
+static void _get_rfc822_date(gchar *buf, gint len, gboolean hidetz)
 {
 	struct tm *lt;
 	time_t t;
 	gchar day[4], mon[4];
 	gint dd, hh, mm, ss, yyyy;
 	struct tm buf1;
-	gchar buf2[BUFFSIZE];
+	gchar buf2[RFC822_DATE_BUFFSIZE];
 
 	t = time(NULL);
 	lt = localtime_r(&t, &buf1);
@@ -3656,7 +3542,17 @@ void get_rfc822_date(gchar *buf, gint len)
 	       day, mon, &dd, &hh, &mm, &ss, &yyyy);
 
 	g_snprintf(buf, len, "%s, %d %s %d %02d:%02d:%02d %s",
-		   day, dd, mon, yyyy, hh, mm, ss, tzoffset(&t));
+		   day, dd, mon, yyyy, hh, mm, ss, (hidetz? "-0000": tzoffset(&t)));
+}
+
+void get_rfc822_date(gchar *buf, gint len)
+{
+	_get_rfc822_date(buf, len, FALSE);
+}
+
+void get_rfc822_date_hide_tz(gchar *buf, gint len)
+{
+	_get_rfc822_date(buf, len, TRUE);
 }
 
 void debug_set_mode(gboolean mode)
@@ -3719,19 +3615,15 @@ void subject_table_remove(GHashTable *subject_table, gchar * subject)
 	g_hash_table_remove(subject_table, subject);
 }
 
-#ifndef G_OS_WIN32
 static regex_t u_regex;
 static gboolean u_init_;
-#endif
 
 void utils_free_regex(void)
 {
-#ifndef G_OS_WIN32
 	if (u_init_) {
 		regfree(&u_regex);
 		u_init_ = FALSE;
 	}
-#endif
 }
 
 /*!
@@ -3747,7 +3639,6 @@ void utils_free_regex(void)
  */
 int subject_get_prefix_length(const gchar *subject)
 {
-#ifndef G_OS_WIN32
 	/*!< Array with allowable reply prefixes regexps. */
 	static const gchar * const prefixes[] = {
 		"Re\\:",			/* "Re:" */
@@ -3808,44 +3699,8 @@ int subject_get_prefix_length(const gchar *subject)
 		return pos.rm_eo;
 	else
 		return 0;
-#else
-	/*!< Array with allowable reply prefixes regexps. */
-	static const gchar * const prefixes[] = {
-		"re:",			/* "Re:" */
-		"antw:",			/* "Antw:" (Dutch / German Outlook) */
-		"aw:",			/* "Aw:"   (German) */
-		"antwort:",			/* "Antwort:" (German Lotus Notes) */
-		"res:",			/* "Res:" (Spanish/Brazilian Outlook) */
-		"fw:",			/* "Fw:" Forward */
-		"fwd:",			/* "Fwd:" Forward */
-		"enc:",			/* "Enc:" Forward (Brazilian Outlook) */
-		"odp:",			/* "Odp:" Re (Polish Outlook) */
-		"rif:",			/* "Rif:" (Italian Outlook) */
-		"sv:",			/* "Sv" (Norwegian) */
-		"vs:",			/* "Vs" (Norwegian) */
-		"ad:",			/* "Ad" (Norwegian) */
-		"R\303\251f. :",	/* "R�f. :" (French Lotus Notes) */
-		"Re :",			/* "Re :" (French Yahoo Mail) */
-		/* add more */
-	};
-	const int PREFIXES = sizeof prefixes / sizeof prefixes[0];
-	int n;
-
-	if (!subject) return 0;
-	if (!*subject) return 0;
-
-	for (n = 0; n < PREFIXES; n++) {
-		int len = strlen(prefixes[n]);
-		if (!strncasecmp(subject, prefixes[n], len)) {
-			if (subject[len] == ' ')
-				return len+1;
-			else
-				return len;
-		}
-	}
-	return 0;
-#endif
 }
+
 static guint g_stricase_hash(gconstpointer gptr)
 {
 	guint hash_result = 0;
@@ -3869,39 +3724,6 @@ static gint g_stricase_equal(gconstpointer gptr1, gconstpointer gptr2)
 gint g_int_compare(gconstpointer a, gconstpointer b)
 {
 	return GPOINTER_TO_INT(a) - GPOINTER_TO_INT(b);
-}
-
-gchar *generate_msgid(gchar *buf, gint len, gchar *user_addr)
-{
-	struct tm *lt;
-	time_t t;
-	gchar *addr;
-	struct tm buft;
-
-	t = time(NULL);
-	lt = localtime_r(&t, &buft);
-
-	if (user_addr != NULL)
-	      addr = g_strdup_printf(".%s", user_addr);
-	else if (strlen(buf) != 0)
-	      addr = g_strdup_printf("@%s", buf);
-	else
-	      addr = g_strdup_printf("@%s", get_domain_name());
-
-	/* Replace all @ but the last one in addr, with underscores.
-	 * RFC 2822 States that msg-id syntax only allows one @.
-	 */
-	while (strchr(addr, '@') != NULL && strchr(addr, '@') != strrchr(addr, '@'))
-		*(strchr(addr, '@')) = '_';
-
-	g_snprintf(buf, len, "%04d%02d%02d%02d%02d%02d.%08x%s",
-		   lt->tm_year + 1900, lt->tm_mon + 1,
-		   lt->tm_mday, lt->tm_hour,
-		   lt->tm_min, lt->tm_sec,
-		   (guint) rand(), addr);
-
-	g_free(addr);
-	return buf;
 }
 
 /*
@@ -4263,7 +4085,7 @@ void replace_returns(gchar *str)
 }
 
 /* get_uri_part() - retrieves a URI starting from scanpos.
-		    Returns TRUE if succesful */
+		    Returns TRUE if successful */
 gboolean get_uri_part(const gchar *start, const gchar *scanpos,
 			     const gchar **bp, const gchar **ep, gboolean hdr)
 {
@@ -4334,35 +4156,6 @@ gchar *make_uri_string(const gchar *bp, const gchar *ep)
 
 static GHashTable *create_domain_tab(void)
 {
-	static const gchar *toplvl_domains [] = {
-	    "museum", "aero",
-	    "arpa", "coop", "info", "name", "biz", "com", "edu", "gov",
-	    "int", "mil", "net", "org", "ac", "ad", "ae", "af", "ag",
-	    "ai", "al", "am", "an", "ao", "aq", "ar", "as", "at", "au",
-	    "aw", "az", "ba", "bb", "bd", "be", "bf", "bg", "bh", "bi",
-	    "bj", "bm", "bn", "bo", "br", "bs", "bt", "bv", "bw", "by",
-	    "bz", "ca", "cc", "cd", "cf", "cg", "ch", "ci", "ck", "cl",
-	    "cm", "cn", "co", "cr", "cu", "cv", "cx", "cy", "cz", "de",
-	    "dj", "dk", "dm", "do", "dz", "ec", "ee", "eg", "eh", "er",
-	    "es", "et", "eu", "fi", "fj", "fk", "fm", "fo", "fr", "ga", "gd",
-	    "ge", "gf", "gg", "gh", "gi", "gl", "gm", "gn", "gp", "gq",
-	    "gr", "gs", "gt", "gu", "gw", "gy", "hk", "hm", "hn", "hr",
-	    "ht", "hu", "id", "ie", "il", "im", "in", "io", "iq", "ir",
-	    "is", "it", "je", "jm", "jo", "jp", "ke", "kg", "kh", "ki",
-	    "km", "kn", "kp", "kr", "kw", "ky", "kz", "la", "lb", "lc",
-	    "li", "lk", "lr", "ls", "lt", "lu", "lv", "ly", "ma", "mc",
-	    "md", "mg", "mh", "mk", "ml", "mm", "mn", "mo", "mp", "mq",
-	    "mr", "ms", "mt", "mu", "mv", "mw", "mx", "my", "mz", "na",
-	    "nc", "ne", "nf", "ng", "ni", "nl", "no", "np", "nr", "nu",
-	    "nz", "om", "pa", "pe", "pf", "pg", "ph", "pk", "pl", "pm",
-	    "pn", "pr", "ps", "pt", "pw", "py", "qa", "re", "ro", "ru",
-	    "rw", "sa", "sb", "sc", "sd", "se", "sg", "sh", "si", "sj",
-	    "sk", "sl", "sm", "sn", "so", "sr", "st", "sv", "sy", "sz",
-	    "tc", "td", "tf", "tg", "th", "tj", "tk", "tm", "tn", "to",
-	    "tp", "tr", "tt", "tv", "tw", "tz", "ua", "ug", "uk", "um",
-	    "us", "uy", "uz", "va", "vc", "ve", "vg", "vi", "vn", "vu",
-	    "wf", "ws", "ye", "yt", "yu", "za", "zm", "zw"
-	};
 	gint n;
 	GHashTable *htab = g_hash_table_new(g_stricase_hash, g_stricase_equal);
 
@@ -4389,7 +4182,7 @@ static gboolean is_toplvl_domain(GHashTable *tab, const gchar *first, const gcha
 	return g_hash_table_lookup(tab, buf) != NULL;
 }
 
-/* get_email_part() - retrieves an email address. Returns TRUE if succesful */
+/* get_email_part() - retrieves an email address. Returns TRUE if successful */
 gboolean get_email_part(const gchar *start, const gchar *scanpos,
 			       const gchar **bp, const gchar **ep, gboolean hdr)
 {
@@ -4632,10 +4425,21 @@ gchar *make_email_string(const gchar *bp, const gchar *ep)
 	 * uri type later on in the button_pressed signal handler */
 	gchar *tmp;
 	gchar *result;
+	gchar *colon, *at;
 
 	tmp = g_strndup(bp, ep - bp);
-	result = g_strconcat("mailto:", tmp, NULL);
-	g_free(tmp);
+
+	/* If there is a colon in the username part of the address,
+	 * we're dealing with an URI for some other protocol - do
+	 * not prefix with mailto: in such case. */
+	colon = strchr(tmp, ':');
+	at = strchr(tmp, '@');
+	if (colon != NULL && at != NULL && colon < at) {
+		result = tmp;
+	} else {
+		result = g_strconcat("mailto:", tmp, NULL);
+		g_free(tmp);
+	}
 
 	return result;
 }
@@ -4722,22 +4526,6 @@ static gchar *mailcap_get_command_in_file(const gchar *path, const gchar *type, 
 			result = g_strdup(trimmed);
 			g_strfreev(parts);
 			fclose(fp);
-			/* if there are no single quotes around %s, add them.
-			 * '.*%s.*' is ok, as in display 'png:%s'
-			 */
-			if (strstr(result, "%s") 
-			&& !(strstr(result, "'") < strstr(result,"%s") &&
-			     strstr(strstr(result,"%s"), "'"))) {
-				gchar *start = g_strdup(result);
-				gchar *end = g_strdup(strstr(result, "%s")+2);
-				gchar *tmp;
-				*strstr(start, "%s") = '\0';
-				tmp = g_strconcat(start,"'%s'",end, NULL);
-				g_free(start);
-				g_free(end);
-				g_free(result);
-				result = tmp;
-			}
 			if (needsterminal) {
 				gchar *tmp = g_strdup_printf("xterm -e %s", result);
 				g_free(result);
@@ -4902,7 +4690,7 @@ gboolean file_is_email (const gchar *filename)
 	if ((fp = g_fopen(filename, "rb")) == NULL)
 		return FALSE;
 	while (i < 60 && score < 3
-	       && fgets(buffer, sizeof (buffer), fp) > 0) {
+	       && fgets(buffer, sizeof (buffer), fp) != NULL) {
 		if (!strncmp(buffer, "From:", strlen("From:")))
 			score++;
 		else if (!strncmp(buffer, "Date:", strlen("Date:")))
@@ -5199,7 +4987,7 @@ size_t fast_strftime(gchar *buf, gint buflen, const gchar *format, struct tm *lt
 				*curpos++ = '0'+(lt->tm_min % 10);
 				break;
 			case 's':
-				snprintf(subbuf, 64, "%ld", mktime(lt));
+				snprintf(subbuf, 64, "%lld", (long long)mktime(lt));
 				len = strlen(subbuf); CHECK_SIZE();
 				strncpy2(curpos, subbuf, buflen - total_done);
 				break;
@@ -5392,7 +5180,9 @@ static GSList *cm_split_path(const gchar *filename, int depth)
 	GSList *canonical_parts = NULL;
 	GStatBuf st;
 	int i;
+#ifndef G_OS_WIN32
 	gboolean follow_symlinks = TRUE;
+#endif
 
 	if (depth > 32) {
 #ifndef G_OS_WIN32
@@ -5435,7 +5225,9 @@ static GSList *cm_split_path(const gchar *filename, int depth)
 			if(g_stat(tmp_path, &st) < 0) {
 				if (errno == ENOENT) {
 					errno = 0;
+#ifndef G_OS_WIN32
 					follow_symlinks = FALSE;
+#endif
 				}
 				if (errno != 0) {
 					g_free(tmp_path);
@@ -5569,3 +5361,57 @@ g_utf8_substring (const gchar *str,
   return out;
 }
 #endif
+
+/* Attempts to read count bytes from a PRNG into memory area starting at buf.
+ * It is up to the caller to make sure there is at least count bytes
+ * available at buf. */
+gboolean
+get_random_bytes(void *buf, size_t count)
+{
+	/* Open our prng source. */
+#if defined G_OS_WIN32
+	HCRYPTPROV rnd;
+
+	if (!CryptAcquireContext(&rnd, NULL, NULL, PROV_RSA_FULL, 0) &&
+			!CryptAcquireContext(&rnd, NULL, NULL, PROV_RSA_FULL, CRYPT_NEWKEYSET)) {
+		debug_print("Could not acquire a CSP handle.\n");
+		return FALSE;
+	}
+#else
+	int rnd;
+	ssize_t ret;
+
+	rnd = open("/dev/urandom", O_RDONLY);
+	if (rnd == -1) {
+		FILE_OP_ERROR("/dev/urandom", "open");
+		debug_print("Could not open /dev/urandom.\n");
+		return FALSE;
+	}
+#endif
+
+	/* Read data from the source into buf. */
+#if defined G_OS_WIN32
+	if (!CryptGenRandom(rnd, count, buf)) {
+		debug_print("Could not read %zd random bytes.\n", count);
+		CryptReleaseContext(rnd, 0);
+		return FALSE;
+	}
+#else
+	ret = read(rnd, buf, count);
+	if (ret != count) {
+		FILE_OP_ERROR("/dev/urandom", "read");
+		debug_print("Could not read enough data from /dev/urandom, read only %ld of %lu bytes.\n", ret, count);
+		close(rnd);
+		return FALSE;
+	}
+#endif
+
+	/* Close the prng source. */
+#if defined G_OS_WIN32
+	CryptReleaseContext(rnd, 0);
+#else
+	close(rnd);
+#endif
+
+	return TRUE;
+}

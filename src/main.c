@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -66,6 +65,9 @@
 #ifdef HAVE_VALGRIND
 #include <valgrind.h>
 #endif
+#ifdef HAVE_SVG
+#include <librsvg/rsvg.h>
+#endif
 
 #include "claws.h"
 #include "main.h"
@@ -80,6 +82,7 @@
 #include "prefs_fonts.h"
 #include "prefs_image_viewer.h"
 #include "prefs_message.h"
+#include "prefs_migration.h"
 #include "prefs_receive.h"
 #include "prefs_msg_colors.h"
 #include "prefs_quote.h"
@@ -102,7 +105,7 @@
 #include "manage_window.h"
 #include "alertpanel.h"
 #include "statusbar.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addressbook.h"
 #else
 	#include "addressbook-dbus.h"
@@ -127,6 +130,7 @@
 #include "quicksearch.h"
 #include "advsearch.h"
 #include "avatars.h"
+#include "passwordstore.h"
 
 #ifdef HAVE_LIBETPAN
 #include "imap-thread.h"
@@ -157,7 +161,9 @@ static DBusGProxy *awn_proxy = NULL;
 #endif
 
 gchar *prog_version;
+#ifdef HAVE_LIBSM
 gchar *argv0;
+#endif
 
 #ifdef HAVE_STARTUP_NOTIFICATION
 static SnLauncheeContext *sn_context = NULL;
@@ -202,6 +208,7 @@ static struct RemoteCmd {
 	const gchar *subscribe_uri;
 	const gchar *target;
 	gboolean debug;
+	const gchar *geometry;
 } cmd;
 
 SessionStats session_stats;
@@ -422,7 +429,8 @@ backup_mode:
 		
 		/* if g_rename failed, we'll try to copy */
 		if (r != 0) {
-			FILE_OP_ERROR(new_cfg_dir, "g_rename failed, trying copy\n");
+			FILE_OP_ERROR(new_cfg_dir, "g_rename");
+			debug_print("rename failed, trying copy\n");
 			goto backup_mode;
 		}
 	}
@@ -461,8 +469,8 @@ static int migrate_common_rc(const gchar *old_rc, const gchar *new_rc)
 		if (strncmp(buf, old_plugin_path, strlen(old_plugin_path))) {
 			err |= (fputs(buf, newfp) == EOF);
 		} else {
-			debug_print("->replacing %s", buf);
-			debug_print("  with %s%s", new_plugin_path, buf+strlen(old_plugin_path));
+			debug_print("->replacing %s\n", buf);
+			debug_print("  with %s%s\n", new_plugin_path, buf+strlen(old_plugin_path));
 			err |= (fputs(new_plugin_path, newfp) == EOF);
 			err |= (fputs(buf+strlen(old_plugin_path), newfp) == EOF);
 		}
@@ -629,7 +637,7 @@ static void sc_session_manager_connect(MainWindow *mainwin)
 				256, error_string_ret);
 
 		if (error_string_ret[0] || mainwin->smc_conn == NULL)
-			g_warning ("While connecting to session manager:\n%s.",
+			g_warning ("While connecting to session manager: %s.",
 				error_string_ret);
 		else {
 			SmPropValue *vals;
@@ -846,6 +854,12 @@ static void main_dump_features_list(gboolean show_debug_only)
 	else
 		g_print(" NetworkManager\n");
 #endif
+#if HAVE_SVG
+	if (show_debug_only)
+		debug_print(" librSVG " LIBRSVG_VERSION "\n");
+	else
+		g_print(" librSVG " LIBRSVG_VERSION "\n");
+#endif
 }
 
 #ifdef HAVE_DBUS_GLIB
@@ -934,14 +948,14 @@ static void install_dbus_status_handler(void)
 			"com.google.code.Awn");
 	dbus_item_hook_id = hooks_register_hook (FOLDER_ITEM_UPDATE_HOOKLIST, dbus_status_update_item_hook, NULL);
 	if (dbus_item_hook_id == -1) {
-		g_warning(_("Failed to register folder item update hook"));
+		g_warning("Failed to register folder item update hook");
 		uninstall_dbus_status_handler();
 		return;
 	}
 
 	dbus_folder_hook_id = hooks_register_hook (FOLDER_UPDATE_HOOKLIST, dbus_status_update_folder_hook, NULL);
 	if (dbus_folder_hook_id == -1) {
-		g_warning(_("Failed to register folder update hook"));
+		g_warning("Failed to register folder update hook");
 		uninstall_dbus_status_handler();
 		return;
 	}
@@ -994,7 +1008,9 @@ int main(int argc, char *argv[])
 	}
 
 	prog_version = PROG_VERSION;
+#ifdef HAVE_LIBSM
 	argv0 = g_strdup(argv[0]);
+#endif
 
 	parse_cmd_opt(argc, argv);
 
@@ -1064,6 +1080,10 @@ int main(int argc, char *argv[])
 			"gtk-auto-mnemonics",
 			TRUE,
 			"XProperty");
+	gtk_settings_set_long_property(gtk_settings_get_default(),
+			"gtk-button-images",
+			TRUE,
+			"XProperty");
 #endif
 
 #ifdef HAVE_NETWORKMANAGER_SUPPORT
@@ -1124,7 +1144,7 @@ int main(int argc, char *argv[])
 #endif
 	
 	/* no config dir exists. See if we can migrate an old config. */
-	if (!is_dir_exist(RC_DIR)) {
+	if (!is_dir_exist(get_rc_dir())) {
 		prefs_destroy_cache();
 		gboolean r = FALSE;
 		
@@ -1133,27 +1153,30 @@ int main(int argc, char *argv[])
 		 * and migration succeeded, and FALSE otherwise.
 		 */
 		if (is_dir_exist(OLD_GTK2_RC_DIR)) {
-			r = migrate_old_config(OLD_GTK2_RC_DIR, RC_DIR, _("Sylpheed-Claws 2.6.0 (or older)"));
+			r = migrate_old_config(OLD_GTK2_RC_DIR, get_rc_dir(),
+					       g_strconcat("Sylpheed-Claws 2.6.0 ", _("(or older)"), NULL));
 			asked_for_migration = TRUE;
 		} else if (is_dir_exist(OLDER_GTK2_RC_DIR)) {
-			r = migrate_old_config(OLDER_GTK2_RC_DIR, RC_DIR, _("Sylpheed-Claws 1.9.15 (or older)"));
+			r = migrate_old_config(OLDER_GTK2_RC_DIR, get_rc_dir(),
+					       g_strconcat("Sylpheed-Claws 1.9.15 ",_("(or older)"), NULL));
 			asked_for_migration = TRUE;
 		} else if (is_dir_exist(OLD_GTK1_RC_DIR)) {
-			r = migrate_old_config(OLD_GTK1_RC_DIR, RC_DIR, _("Sylpheed-Claws 1.0.5 (or older)"));
+			r = migrate_old_config(OLD_GTK1_RC_DIR, get_rc_dir(),
+					       g_strconcat("Sylpheed-Claws 1.0.5 ",_("(or older)"), NULL));
 			asked_for_migration = TRUE;
 		} else if (is_dir_exist(SYLPHEED_RC_DIR)) {
-			r = migrate_old_config(SYLPHEED_RC_DIR, RC_DIR, "Sylpheed");
+			r = migrate_old_config(SYLPHEED_RC_DIR, get_rc_dir(), "Sylpheed");
 			asked_for_migration = TRUE;
 		}
 		
 		/* If migration failed or the user didn't want to do it,
 		 * we create a new one (and we'll hit wizard later). 
 		 */
-		if (r == FALSE && !is_dir_exist(RC_DIR)) {
+		if (r == FALSE && !is_dir_exist(get_rc_dir())) {
 #ifdef G_OS_UNIX
-			if (copy_dir(SYSCONFDIR "/skel/.claws-mail", RC_DIR) < 0) {
+			if (copy_dir(SYSCONFDIR "/skel/.claws-mail", get_rc_dir()) < 0) {
 #endif
-				if (!is_dir_exist(RC_DIR) && make_dir(RC_DIR) < 0) {
+				if (!is_dir_exist(get_rc_dir()) && make_dir(get_rc_dir()) < 0) {
 #ifdef G_OS_WIN32
 					win32_close_log();
 #endif
@@ -1261,7 +1284,7 @@ int main(int argc, char *argv[])
 	prefs_actions_read_config();
 	prefs_display_header_read_config();
 	/* prefs_filtering_read_config(); */
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_read_file();
 #else
 	g_clear_error(&error);
@@ -1274,7 +1297,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 	gtkut_widget_init();
-	stock_pixbuf_gdk(NULL, STOCK_PIXMAP_CLAWS_MAIL_ICON, &icon);
+	stock_pixbuf_gdk(STOCK_PIXMAP_CLAWS_MAIL_ICON, &icon);
 	gtk_window_set_default_icon(icon);
 
 	folderview_initialize();
@@ -1295,9 +1318,10 @@ int main(int argc, char *argv[])
 	manage_window_focus_in(mainwin->window, NULL, NULL);
 	folderview = mainwin->folderview;
 
-	gtk_cmclist_freeze(GTK_CMCLIST(mainwin->folderview->ctree));
+	folderview_freeze(mainwin->folderview);
 	folder_item_update_freeze();
 
+	passwd_store_read_config();
 	prefs_account_init();
 	account_read_config_all();
 
@@ -1453,14 +1477,37 @@ int main(int argc, char *argv[])
 	}
 
 	if (never_ran) {
+		prefs_common_get_prefs()->config_version = CLAWS_CONFIG_VERSION;
 		prefs_common_write_config();
 	 	plugin_load_standard_plugins ();
+	} else {
+		if (prefs_update_config_version() < 0) {
+			exit_claws(mainwin);
+#ifdef G_OS_WIN32
+			win32_close_log();
+#endif
+			exit(0);
+		}
 	}
+
 	/* if not crashed, show window now */
 	if (!mainwin_shown) {
 		/* apart if something told not to show */
 		if (show_at_startup)
 			main_window_popup(mainwin);
+	}
+
+	if (cmd.geometry != NULL) {
+		if (!gtk_window_parse_geometry(GTK_WINDOW(mainwin->window), cmd.geometry))
+			g_warning("failed to parse geometry '%s'", cmd.geometry);
+		else {
+			int width, height;
+
+			if (sscanf(cmd.geometry, "%ux%u+", &width, &height) == 2)
+				gtk_window_resize(GTK_WINDOW(mainwin->window), width, height);
+			else
+				g_warning("failed to parse geometry's width/height");
+		}
 	}
 
 	if (!folder_have_mailbox()) {
@@ -1496,7 +1543,7 @@ int main(int argc, char *argv[])
 #endif
 
 	folder_item_update_thaw();
-	gtk_cmclist_thaw(GTK_CMCLIST(mainwin->folderview->ctree));
+	folderview_thaw(mainwin->folderview);
 	main_window_cursor_normal(mainwin);
 
 	if (!cmd.target && prefs_common.goto_last_folder_on_startup &&
@@ -1514,8 +1561,8 @@ int main(int argc, char *argv[])
 	} else if (cmd.receive && !cmd.target) {
 		start_done = FALSE;
 		g_timeout_add(1000, defer_check, NULL);
-	} 
-	gtk_widget_grab_focus(folderview->ctree);
+	}
+	folderview_grab_focus(folderview);
 
 	if (cmd.compose) {
 		open_compose_new(cmd.compose_mailto, cmd.attach_files);
@@ -1593,6 +1640,7 @@ static void exit_claws(MainWindow *mainwin)
 {
 	gchar *filename;
 	gboolean have_connectivity;
+	FolderItem *item;
 
 	sc_exiting = TRUE;
 
@@ -1605,18 +1653,11 @@ static void exit_claws(MainWindow *mainwin)
 #endif
 
 	/* save prefs for opened folder */
-	if(mainwin->folderview->opened) {
-		FolderItem *item;
-
-		item = gtk_cmctree_node_get_row_data(
-			GTK_CMCTREE(mainwin->folderview->ctree),
-			mainwin->folderview->opened);
-		if (item) {
-			summary_save_prefs_to_folderitem(
-				mainwin->folderview->summaryview, item);
-			prefs_common.last_opened_folder = 
-				folder_item_get_identifier(item);
-		}
+	if((item = folderview_get_opened_item(mainwin->folderview)) != NULL) {
+		summary_save_prefs_to_folderitem(
+			mainwin->summaryview, item);
+		prefs_common.last_opened_folder =
+			folder_item_get_identifier(item);
 	}
 
 	/* save all state before exiting */
@@ -1628,7 +1669,8 @@ static void exit_claws(MainWindow *mainwin)
 
 	prefs_common_write_config();
 	account_write_config_all();
-#ifndef USE_NEW_ADDRBOOK
+	passwd_store_write_config();
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_export_to_file();
 #endif
 	filename = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, MENU_RC, NULL);
@@ -1671,7 +1713,7 @@ static void exit_claws(MainWindow *mainwin)
 	prefs_toolbar_done();
 	avatars_done();
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_destroy();
 #endif
 	prefs_themes_done();
@@ -1846,7 +1888,7 @@ static void parse_cmd_opt(int argc, char *argv[])
 			cmd.send = TRUE;
 		} else if (!strncmp(argv[i], "--version-full", 14) ||
 			   !strncmp(argv[i], "-V", 2)) {
-			g_print("Claws Mail version " VERSION "\n");
+			g_print("Claws Mail version " VERSION_GIT_FULL "\n");
 			main_dump_features_list(FALSE);
 			exit(0);
 		} else if (!strncmp(argv[i], "--version", 9) ||
@@ -1944,6 +1986,8 @@ static void parse_cmd_opt(int argc, char *argv[])
 			g_print("%s\n", _("  --config-dir           output configuration directory"));
 			g_print("%s\n", _("  --alternate-config-dir [dir]\n"
 			                  "                         use specified configuration directory"));
+			g_print("%s\n", _("  --geometry -geometry WxH+X+Y\n"
+					  "                         set geometry for main window"));
 
 			g_free(base);
 			exit(1);
@@ -1956,6 +2000,9 @@ static void parse_cmd_opt(int argc, char *argv[])
 			exit(0);
 		} else if (!strncmp(argv[i], "--alternate-config-dir", sizeof "--alternate-config-dir" - 1) && i+1 < argc) {
 			set_rc_dir(argv[i+1]);
+		} else if (!strncmp(argv[i], "--geometry", sizeof "--geometry" - 1)
+			  || !strncmp(argv[i], "-geometry", sizeof "-geometry" - 1)) {
+			cmd.geometry = (i+1 < argc)? argv[i+1]: NULL;
 		} else if (!strncmp(argv[i], "--exit", 6) ||
 			   !strncmp(argv[i], "--quit", 6) ||
 			   !strncmp(argv[i], "-q", 2)) {
@@ -2444,7 +2491,7 @@ static GPtrArray *get_folder_item_list(gint sock)
 		if (item) {
 			g_ptr_array_add(folders, item);
 		} else {
-			g_warning("no such folder: %s\n", buf);
+			g_warning("no such folder: %s", buf);
 		}
 	}
 

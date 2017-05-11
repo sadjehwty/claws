@@ -213,6 +213,7 @@ struct _Compose
 	pid_t       exteditor_pid;
 	GIOChannel *exteditor_ch;
 	gint        exteditor_tag;
+	GtkWidget  *exteditor_socket;
 
  	/* Priority */
  	gint priority;
@@ -272,7 +273,7 @@ typedef enum
 } ComposeDraftAction;
 
 /*#warning FIXME_GTK2 */
-/* attache_files will be locale encode */
+/* attach_files will be locale encode */
 Compose *compose_new			(PrefsAccount	*account,
 				 	 const gchar	*mailto,
 				 	 GList		*attach_files);

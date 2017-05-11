@@ -162,33 +162,6 @@ static pthread_mutex_t wait_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t wait_cond = PTHREAD_COND_INITIALIZER; 
 #endif
 
-static gboolean found_in_addressbook(const gchar *address)
-{
-	gchar *addr = NULL;
-	gboolean found = FALSE;
-	gint num_addr = 0;
-	
-	if (!address)
-		return FALSE;
-	
-	addr = g_strdup(address);
-	extract_address(addr);
-	num_addr = complete_address(addr);
-	if (num_addr > 1) {
-		/* skip first item (this is the search string itself) */
-		int i = 1;
-		for (; i < num_addr && !found; i++) {
-			gchar *caddr = get_complete_address(i);
-			extract_address(caddr);
-			if (strcasecmp(caddr, addr) == 0)
-				found = TRUE;
-			g_free(caddr);
-		}
-	}
-	g_free(addr);
-	return found;
-}
-
 static void bogofilter_do_filter(BogoFilterData *data)
 {
 	GPid bogo_pid;
@@ -210,7 +183,7 @@ static void bogofilter_do_filter(BogoFilterData *data)
 			&bogo_stdout, NULL, &error);
 		
 	if (bogo_forked == FALSE) {
-		g_warning("%s\n", error ? error->message:"ERROR???");
+		g_warning("%s", error ? error->message:"ERROR???");
 		g_error_free(error);
 		error = NULL;
 		status = -1;
@@ -256,7 +229,7 @@ static void bogofilter_do_filter(BogoFilterData *data)
 				memset(buf, 0, sizeof(buf));
 				/* get the result */
 				if (read(bogo_stdout, buf, sizeof(buf)-1) < 0) {
-					g_warning("bogofilter short read\n");
+					g_warning("bogofilter short read");
 					debug_print("message %d is ham\n", msginfo->msgnum);
 					data->mail_filtering_data->unfiltered = g_slist_prepend(
 						data->mail_filtering_data->unfiltered, msginfo);
@@ -775,7 +748,7 @@ int bogofilter_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 				cmd = g_strdup_printf("%s -n -I '%s'", bogo_exec, file);
 				
 			debug_print("%s\n", cmd);
-			if ((status = execute_command_line(cmd, FALSE)) != 0)
+			if ((status = execute_command_line(cmd, FALSE, NULL)) != 0)
 				log_error(LOG_PROTOCOL, _("Learning failed; `%s` returned with status %d."),
 						cmd, status);
 			g_free(cmd);
@@ -822,7 +795,7 @@ int bogofilter_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 					cmd = g_strdup_printf("%s -n -I '%s'", bogo_exec, file);
 				
 				debug_print("%s\n", cmd);
-				if ((status = execute_command_line(cmd, FALSE)) != 0)
+				if ((status = execute_command_line(cmd, FALSE, NULL)) != 0)
 					log_error(LOG_PROTOCOL, _("Learning failed; `%s` returned with status %d."),
 							cmd, status);
 
@@ -908,7 +881,7 @@ void bogofilter_save_config(void)
 		return;
 
 	if (prefs_write_param(param, pfile->fp) < 0) {
-		g_warning("Failed to write Bogofilter configuration to file\n");
+		g_warning("Failed to write Bogofilter configuration to file");
 		prefs_file_close_revert(pfile);
 		return;
 	}

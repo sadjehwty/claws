@@ -20,11 +20,13 @@
 
 #ifndef __VCALENDAR_H__
 #define __VCALENDAR_H__
-#include <ical.h>
+#include <libical/ical.h>
 #include "vcal_manager.h"
 #include "prefs_account.h"
 #include "procmime.h"
 #include "folder.h"
+
+#define PLUGIN_NAME "vCalendar"
 
 typedef struct _VCalViewer VCalViewer;
 
@@ -34,4 +36,10 @@ void vcalviewer_display_event (VCalViewer *vcalviewer, VCalEvent *event);
 gchar *vcalviewer_get_uid_from_mimeinfo(MimeInfo *mimeinfo);
 void vcalviewer_reload(FolderItem *item);
 void vcalendar_cancel_meeting(FolderItem *item, const gchar *uid);
+
+#define vcal_passwd_set(id, pwd) \
+	passwd_store_set(PWS_PLUGIN, PLUGIN_NAME, id, pwd, FALSE)
+#define vcal_passwd_get(id) \
+	passwd_store_get(PWS_PLUGIN, PLUGIN_NAME, id)
+
 #endif

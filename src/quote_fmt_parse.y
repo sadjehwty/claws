@@ -96,7 +96,7 @@ static void remove_visibility(void)
 {
 	stacksize--;
 	if (stacksize < 0) {
-		g_warning("Error: visibility stack underflow\n");
+		g_warning("Error: visibility stack underflow");
 		stacksize = 0;
 	}
 }
@@ -133,7 +133,7 @@ static void clear_buffer(void)
 gchar *quote_fmt_get_buffer(void)
 {
 	if (current != &main_expr)
-		g_warning("Error: parser still in sub-expr mode\n");
+		g_warning("Error: parser still in sub-expr mode");
 
 	if (error != 0)
 		return NULL;
@@ -233,7 +233,7 @@ void quote_fmt_init(MsgInfo *info, const gchar *my_quote_str,
 
 void quote_fmterror(char *str)
 {
-	g_warning("Error: %s at line %d\n", str, line);
+	g_warning("Error: %s at line %d", str, line);
 	error = 1;
 }
 
@@ -245,6 +245,40 @@ int quote_fmtwrap(void)
 static int isseparator(int ch)
 {
 	return g_ascii_isspace(ch) || ch == '.' || ch == '-';
+}
+
+/*
+ * Search for glibc extended strftime timezone specs within haystack.
+ * If not found NULL is returned and the integer pointed by tzspeclen is
+ * not changed.
+ * If found a pointer to the start of the specification within haystack
+ * is returned and the integer pointed by tzspeclen is set to the lenght
+ * of specification.
+ */
+static const char* strtzspec(const char *haystack, int *tzspeclen)
+{
+	const char *p = NULL;
+	const char *q = NULL;
+	const char *r = NULL;
+
+	p = strstr(haystack, "%");
+	while (p != NULL) {
+		q = p + 1;
+		if (!*q) return NULL;
+		r = strchr("_-0^#", *q); /* skip flags */
+		if (r != NULL) {
+			++q;
+			if (!*q) return NULL;
+		}
+		while (*q >= '0' && *q <= '9') ++q; /* skip width */
+		if (!*q) return NULL;
+		if (*q == 'z' || *q == 'Z') { /* numeric or name */
+			*tzspeclen = 1 + (q - p);
+			return p;
+		}
+		p = strstr(q, "%");
+	}
+	return NULL;
 }
 
 static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
@@ -266,7 +300,6 @@ static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
 	 */
 
 #define RLEFT (sizeof result) - (rptr - result)	
-#define STR_SIZE(x) (sizeof (x) - 1)
 
 	zone[0] = 0;
 
@@ -276,11 +309,11 @@ static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
 		 * feed it to strftime(). don't forget that '%%z' mean literal '%z'.
 		 */
 		for (rptr = result, fptr = format; fptr && *fptr && rptr < &result[sizeof result - 1];) {
-			int	    perc;
+			int	    perc, zlen;
 			const char *p;
 			char	   *tmp;
 			
-			if (NULL != (zptr = strstr(fptr, "%z"))) {
+			if (NULL != (zptr = strtzspec(fptr, &zlen))) {
 				/*
 				 * count nr. of prepended percent chars
 				 */
@@ -289,7 +322,7 @@ static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
 				/*
 				 * feed to strftime()
 				 */
-				tmp = g_strndup(fptr, zptr - fptr + (perc % 2 ? 0 : STR_SIZE("%z")));
+				tmp = g_strndup(fptr, zptr - fptr + (perc % 2 ? 0 : zlen));
 				if (tmp) {
 					rptr += strftime(rptr, RLEFT, tmp, &lt);
 					g_free(tmp);
@@ -299,7 +332,7 @@ static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
 				 */
 				if (zone[0] && perc % 2) 
 					rptr += g_snprintf(rptr, RLEFT, "%s", zone);
-				fptr = zptr + STR_SIZE("%z");
+				fptr = zptr + zlen;
 			} else {
 				rptr += strftime(rptr, RLEFT, fptr, &lt);
 				fptr  = NULL;
@@ -325,7 +358,6 @@ static void quote_fmt_show_date(const MsgInfo *msginfo, const gchar *format)
 			g_free(utf);
 		}
 	}
-#undef STR_SIZE			
 #undef RLEFT			
 }		
 
@@ -453,7 +485,7 @@ static void quote_fmt_show_msg(MsgInfo *msginfo, const gchar *body,
 	}
 
 	if (fp == NULL)
-		g_warning("Can't get text part\n");
+		g_warning("Can't get text part");
 	else {
 		while (fgets(buf, sizeof(buf), fp) != NULL) {
 			strcrchomp(buf);
@@ -526,6 +558,22 @@ static void quote_fmt_insert_user_input(const gchar *varname)
 static void quote_fmt_attach_file(const gchar *filename)
 {
 	attachments = g_list_append(attachments, g_strdup(filename));
+}
+
+static void quote_fmt_attach_file_program_output(const gchar *progname)
+{
+	FILE *file;
+	char buffer[PATH_MAX];
+
+	if ((file = popen(progname, "r")) != NULL) {
+		/* get first line only */
+		if (fgets(buffer, sizeof(buffer), file)) {
+			/* trim trailing CR/LF */
+			strretchomp(buffer);
+			attachments = g_list_append(attachments, g_strdup(buffer));
+		}
+		pclose(file);
+	}
 }
 
 static gchar *quote_fmt_complete_address(const gchar *addr)
@@ -609,7 +657,7 @@ static gchar *quote_fmt_complete_address(const gchar *addr)
 %token QUERY_NOT_TO_FOUND_IN_ADDRESSBOOK
 /* other tokens */
 %token INSERT_FILE INSERT_PROGRAMOUTPUT INSERT_USERINPUT
-%token ATTACH_FILE
+%token ATTACH_FILE ATTACH_PROGRAMOUTPUT
 %token OPARENT CPARENT
 %token CHARACTER
 %token SHOW_DATE_EXPR
@@ -1280,4 +1328,17 @@ attach:
 		if (!dry_run) {
 			quote_fmt_attach_file(sub_expr.buffer);
 		}
+	}
+	| ATTACH_PROGRAMOUTPUT
+	{
+		current = &sub_expr;
+		clear_buffer();
+	}
+	OPARENT sub_expr CPARENT
+	{
+		current = &main_expr;
+		if (!dry_run) {
+			quote_fmt_attach_file_program_output(sub_expr.buffer);
+		}
 	};
+;

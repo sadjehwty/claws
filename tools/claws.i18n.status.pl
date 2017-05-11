@@ -2,28 +2,30 @@
 #
 # claws.i18n.stats.pl - Generate statistics for Claws Mail po directory.
 # 
-# Copyright (C) 2003-2008 by Ricardo Mones <ricardo@mones.org>, 
+# Copyright (C) 2003-2016 by Ricardo Mones <ricardo@mones.org>,
 #                            Paul Mangan <paul@claws-mail.org>
 # This program is released under the GNU General Public License.
 #
 # constants -----------------------------------------------------------------
 
 %langname = (
-	'bg.po' => 'Bulgarian',
-#	'ca.po'	=> 'Catalan',
+# 	'bg.po' => 'Bulgarian',
+	'ca.po'	=> 'Catalan',
 	'cs.po'	=> 'Czech',
+	'da.po' => 'Danish',
 	'de.po' => 'German',
 	'en_GB.po' => 'British English',
-	'eo.po' => 'Esperanto',
+# 	'eo.po' => 'Esperanto',
 	'es.po' => 'Spanish',
 	'fi.po'	=> 'Finnish',
 	'fr.po' => 'French',
 	'he.po' => 'Hebrew',
 	'hu.po' => 'Hungarian',
 	'id_ID.po' => 'Indonesian',
-#	'it.po' => 'Italian',
+	'it.po' => 'Italian',
 #	'ja.po' => 'Japanese',
-	'lt.po' => 'Lithuanian',
+#	'lt.po' => 'Lithuanian',
+	'nb.po' => 'Norwegian Bokm&aring;l',
 	'nl.po' => 'Dutch',
 #	'pl.po' => 'Polish',
 	'pt_BR.po' => 'Brazilian Portuguese',
@@ -31,37 +33,41 @@
 	'ru.po' => 'Russian',
 	'sk.po' => 'Slovak',
 	'sv.po' => 'Swedish',
+	'tr.po' => 'Turkish',
 #	'uk.po' => 'Ukrainian',
-	'zh_CN.po' => 'Simplified Chinese',
+#	'zh_CN.po' => 'Simplified Chinese',
 	'zh_TW.po' => 'Traditional Chinese',
 );
 
 %lasttranslator = (
-	'bg.po' => 'Yasen Pramatarov <yasen@lindeas.com>',
-#	'ca.po'	=> 'Miquel Oliete <ktalanet@yahoo.es>',
+# 	'bg.po' => 'Yasen Pramatarov <yasen@lindeas.com>',
+	'ca.po'	=> 'David Medina <opensusecatala@gmail.com>',
 	'cs.po'	=> 'David Vachulka <david@konstrukce-cad.com>',
-	'de.po' => 'Thomas Bellmann <ThomasBellmann@gmx.net>',
+	'da.po' => 'Erik P. Olsen <epodata@gmail.com>',
+	'de.po' => 'Simon Legner <simon.legner@gmail.com>',
 	'en_GB.po' => 'Paul Mangan <paul@claws-mail.org>',
-	'eo.po' => 'Sian Mountbatten <poenikatu@fastmail.co.uk>',
+# 	'eo.po' => 'Sian Mountbatten <poenikatu@fastmail.co.uk>',
 	'es.po' => 'Ricardo Mones Lastra <ricardo@mones.org>',
 	'fi.po'	=> 'Flammie Pirinen <flammie@iki.fi>',
 	'fr.po' => 'Tristan Chabredier <wwp@claws-mail.org>',
-	'he.po' => 'Genghis Khan <genghiskhan@gmx.ca>',
+	'he.po' => 'Isratine Citizen <genghiskhan@gmx.ca>',
 	'hu.po' => 'P&aacute;der Rezs&#337; <rezso@rezso.net>',
 	'id_ID.po' => 'MSulchan Darmawan <bleketux@gmail.com>',
-#	'it.po' => 'Andrea Spadaccini <a.spadaccini@catania.linux.it>',
+	'it.po' => 'Luigi Votta <luigi.vtt@gmail.com>',
 #	'ja.po' => 'kazken3 <kazken3@gmail.com>',
-	'lt.po' => 'Mindaugas Baranauskas <embar@super.lt>',
+#	'lt.po' => 'Mindaugas Baranauskas <embar@super.lt>',
+	'nb.po' => 'Petter Adsen <petter@synth.no>',
 	'nl.po' => 'Marcel Pol <mpol@gmx.net>',
 #	'pl.po' => 'Emilian Nowak <emil5@go2.pl>',
 	'pt_BR.po' => 'Frederico Goncalves Guimaraes <fggdebian@yahoo.com.br>',
 #	'pt_PT.po' => 'Tiago Faria <gouki@goukihq.org>',
-	'ru.po' => 'Aleksei Miheev <aleksei@miheev.info>',
+	'ru.po' => 'Mikhail Kurinnoi <viewizard@viewizard.com>',
 	'sk.po' => 'Slavko <slavino@slavino.sk>',
-	'sv.po' => 'Andreas Rönnquist <gusnan@gusnan.se>',
+	'sv.po' => 'Andreas Rönnquist <gusnan@openmailbox.org>',
+	'tr.po' => 'Numan Demirdöğen <if.gnu.linux@gmail.com>',
 #	'uk.po' => 'YUP <yupadmin@gmail.com>',
-	'zh_CN.po' => 'Rob <rbnwmk@gmail.com>',
-	'zh_TW.po' => 'Rob <rbnwmk@gmail.com>',
+#	'zh_CN.po' => 'Rob <rbnwmk@gmail.com>',
+	'zh_TW.po' => 'Mark Chang <mark.cyj@gmail.com>',
 );
 
 %barcolornorm = (
@@ -236,19 +242,19 @@ print "</table>\n";
 
 # end
 # print "<br>Number of languages supported: $alang <br>";
-print qq ~<p>
-	  Languages marked with <font size="+1" color="red"> *</font>
-	  really need your help to be completed.
-          <p>
-	  The ones with grey bars are <i>probably unmaintained</i> because
-          translation is more than $transoldmonths months old, anyway, trying
-	  to contact current translator first is usually a good idea before
-	  submitting an updated one.<p><b>NOTE</b>: if you are the translator
-	  of one of them and don't want to see your language bar in grey you
-	  should manually update the <tt>PO-Revision-Date</tt> field in the .po
-	  file header (or, alternatively, use a tool which does it for you).
-	  <br>
-	  </div>
+# print qq ~<p>
+# 	  Languages marked with <font size="+1" color="red"> *</font>
+# 	  really need your help to be completed.
+#           <p>
+# 	  The ones with grey bars are <i>probably unmaintained</i> because
+#           translation is more than $transoldmonths months old, anyway, trying
+# 	  to contact current translator first is usually a good idea before
+# 	  submitting an updated one.<p><b>NOTE</b>: if you are the translator
+# 	  of one of them and don't want to see your language bar in grey you
+# 	  should manually update the <tt>PO-Revision-Date</tt> field in the .po
+# 	  file header (or, alternatively, use a tool which does it for you).
+# 	  <br>
+print qq ~</div>
 	  </div>~;
 
 # print `cat $pagetail`;

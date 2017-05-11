@@ -196,33 +196,6 @@ static MsgStatus msg_is_spam(FILE *fp)
 	return is_spam ? MSG_IS_SPAM:MSG_IS_HAM;
 }
 
-static gboolean sa_found_in_addressbook(const gchar *address)
-{
-	gchar *addr = NULL;
-	gboolean found = FALSE;
-	gint num_addr = 0;
-	
-	if (!address)
-		return FALSE;
-	
-	addr = g_strdup(address);
-	extract_address(addr);
-	num_addr = complete_address(addr);
-	if (num_addr > 1) {
-		/* skip first item (this is the search string itself) */
-		int i = 1;
-		for (; i < num_addr && !found; i++) {
-			gchar *caddr = get_complete_address(i);
-			extract_address(caddr);
-			if (strcasecmp(caddr, addr) == 0)
-				found = TRUE;
-			g_free(caddr);
-		}
-	}
-	g_free(addr);
-	return found;
-}
-
 static gboolean mail_filtering_hook(gpointer source, gpointer data)
 {
 	MailFilteringData *mail_filtering_data = (MailFilteringData *) source;
@@ -262,7 +235,7 @@ static gboolean mail_filtering_hook(gpointer source, gpointer data)
 
 		start_address_completion(ab_folderpath);
 		if (msginfo->from && 
-		    sa_found_in_addressbook(msginfo->from))
+		    found_in_addressbook(msginfo->from))
 				whitelisted = TRUE;
 		end_address_completion();
 		
@@ -427,7 +400,7 @@ int spamassassin_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 	&&  prefs_common_get_prefs()->work_offline
 	&&  !inc_offline_should_override(TRUE,
 		_("Claws Mail needs network access in order "
-		  "to feed this mail(s) to the remote learner."))) {
+		  "to feed the mail to the remote learner."))) {
 		return -1;
 	}
 
@@ -469,7 +442,7 @@ int spamassassin_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 					tmpcmd = g_strconcat(shell?shell:"sh", " ", spamc_wrapper, " ",
 										tmpfile, NULL);
 					debug_print("%s\n", tmpcmd);
-					execute_command_line(tmpcmd, FALSE);
+					execute_command_line(tmpcmd, FALSE, NULL);
 					g_free(tmpcmd);
 				}
 				g_free(tmpfile);
@@ -503,7 +476,7 @@ int spamassassin_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 	}
 	debug_print("%s\n", cmd);
 	/* only run sync calls to sa-learn/spamc to prevent system lockdown */
-	execute_command_line(cmd, FALSE);
+	execute_command_line(cmd, FALSE, NULL);
 	g_free(cmd);
 	g_free(spamc_wrapper);
 
@@ -524,7 +497,7 @@ void spamassassin_save_config(void)
 		return;
 
 	if (prefs_write_param(param, pfile->fp) < 0) {
-		g_warning("Failed to write SpamAssassin configuration to file\n");
+		g_warning("Failed to write SpamAssassin configuration to file");
 		prefs_file_close_revert(pfile);
 		return;
 	}

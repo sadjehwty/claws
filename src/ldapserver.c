@@ -41,6 +41,7 @@
 #include "ldaputil.h"
 #include "utils.h"
 #include "adbookbase.h"
+#include "passwordstore.h"
 
 /**
  * Create new LDAP server interface object with no control object.
@@ -717,12 +718,11 @@ gint ldapsvr_read_data( LdapServer *server )
 
 void ldapsrv_set_options (gint secs, LDAP *ld)
 {
+#ifdef G_OS_UNIX
 	static struct timeval timeout;
-	int rc;
-	int i;
 	timeout.tv_sec = secs;
 	timeout.tv_usec = 0;
-#ifdef G_OS_UNIX
+	int i, rc;
 	i = LDAP_OPT_X_TLS_ALLOW;
 	rc = ldap_set_option(NULL, LDAP_OPT_X_TLS_REQUIRE_CERT, &i);
 	if (ld)
@@ -781,15 +781,15 @@ LDAP *ldapsvr_connect(LdapControl *ctl) {
 			debug_print("Failed: %s\n", ldaputil_get_error(ld));
 
 		if (ldap_get_option(ld,LDAP_OPT_SSL,(void*)&rc) != LDAP_SUCCESS)
-			debug_print("Can't get SSL state\n");
+			debug_print("Can't get SSL/TLS state\n");
 
 		if ((void *)rc != LDAP_OPT_ON) {
-			debug_print("Enabling SSL\n");
+			debug_print("Enabling SSL/TLS\n");
 			if (ldap_set_option(ld,LDAP_OPT_SSL,LDAP_OPT_ON) != LDAP_SUCCESS)
 				debug_print("Failed: %s\n", ldaputil_get_error(ld));
 			else {
 				ldap_get_option(ld,LDAP_OPT_SSL,(void*)&rc);
-				debug_print("SSL now %d\n", rc);
+				debug_print("SSL/TLS now %d\n", rc);
 			}
 
 		}
@@ -829,12 +829,12 @@ LDAP *ldapsvr_connect(LdapControl *ctl) {
 					return NULL;
 				}
 			}
-			debug_print("Setting TLS\n");
+			debug_print("Setting STARTTLS\n");
 			rc = Win32_ldap_start_tls_s(ld, &serv_rc, NULL, NULL, NULL);
 			debug_print("ldap_start_tls_s: %d server %d %s\n",
 					rc, serv_rc, ldaputil_get_error(ld));
 #else
-			debug_print("Setting TLS\n");
+			debug_print("Setting STARTTLS\n");
 			rc = ldap_start_tls_s(ld, NULL, NULL);
 #endif
 			if (rc != LDAP_SUCCESS) {
@@ -851,16 +851,17 @@ LDAP *ldapsvr_connect(LdapControl *ctl) {
 	/* Bind to the server, if required */
 	if (ctl->bindDN) {
 		if (* ctl->bindDN != '\0') {
-			pwd = ldapctl_get_bind_password(ctl);
+			pwd = passwd_store_get(PWS_CORE, "LDAP", ctl->hostName);
 			rc = claws_ldap_simple_bind_s(ld, ctl->bindDN, pwd);
+			if (pwd != NULL && strlen(pwd) > 0)
+				memset(pwd, 0, strlen(pwd));
+			g_free(pwd);
 			if (rc != LDAP_SUCCESS) {
 				g_printerr("bindDN: %s, bindPass xxx\n", ctl->bindDN);
 				g_printerr("LDAP Error(bind): ldap_simple_bind_s: %s\n",
 					ldaputil_get_error(ld));
-				g_free(pwd);
 				return NULL;
 			}
-			g_free(pwd);
 		}
 	}
 	return ld;

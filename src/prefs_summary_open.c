@@ -295,7 +295,6 @@ static void prefs_summary_open_create(void)
 	gtk_box_pack_start (GTK_BOX (btn_vbox), down_btn, FALSE, FALSE, 0);
 	g_signal_connect (G_OBJECT (down_btn), "clicked",
 			  G_CALLBACK (prefs_summary_open_down), NULL);
-	
 
 	gtk_widget_show_all(window);
 

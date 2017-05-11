@@ -155,10 +155,14 @@ void codeconv_set_strict(gboolean mode)
 static gint conv_jistoeuc(gchar *outbuf, gint outlen, const gchar *inbuf)
 {
 	const guchar *in = inbuf;
-	guchar *out = outbuf;
+	gchar *out = outbuf;
 	JISState state = JIS_ASCII;
 
-	while (*in != '\0') {
+	/*
+	 * Loop outputs up to 3 bytes in each pass (aux kanji) and we
+	 * need 1 byte to terminate the output
+	 */
+	while (*in != '\0' && (out - outbuf) < outlen - 4) {
 		if (*in == ESC) {
 			in++;
 			if (*in == '$') {
@@ -291,10 +295,15 @@ static gint conv_jis_hantozen(guchar *outbuf, guchar jis_code, guchar sound_sym)
 static gint conv_euctojis(gchar *outbuf, gint outlen, const gchar *inbuf)
 {
 	const guchar *in = inbuf;
-	guchar *out = outbuf;
+	gchar *out = outbuf;
 	JISState state = JIS_ASCII;
 
-	while (*in != '\0') {
+	/*
+	 * Loop outputs up to 6 bytes in each pass (aux shift + aux
+	 * kanji) and we need up to 4 bytes to terminate the output
+	 * (ASCII shift + null)
+	 */
+	while (*in != '\0' && (out - outbuf) < outlen - 10) {
 		if (IS_ASCII(*in)) {
 			K_OUT();
 			*out++ = *in++;
@@ -380,9 +389,13 @@ static gint conv_euctojis(gchar *outbuf, gint outlen, const gchar *inbuf)
 static gint conv_sjistoeuc(gchar *outbuf, gint outlen, const gchar *inbuf)
 {
 	const guchar *in = inbuf;
-	guchar *out = outbuf;
+	gchar *out = outbuf;
 
-	while (*in != '\0') {
+	/*
+	 * Loop outputs up to 2 bytes in each pass and we need 1 byte
+	 * to terminate the output
+	 */
+	while (*in != '\0' && (out - outbuf) < outlen - 3) {
 		if (IS_ASCII(*in)) {
 			*out++ = *in++;
 		} else if (issjiskanji1(*in)) {
@@ -467,7 +480,7 @@ static gint conv_euctoutf8(gchar *outbuf, gint outlen, const gchar *inbuf)
 		if (cd == (iconv_t)-1) {
 			cd = iconv_open(CS_UTF_8, CS_EUC_JP);
 			if (cd == (iconv_t)-1) {
-				g_warning("conv_euctoutf8(): %s\n",
+				g_warning("conv_euctoutf8(): %s",
 					  g_strerror(errno));
 				iconv_ok = FALSE;
 				strncpy2(outbuf, inbuf, outlen);
@@ -524,7 +537,7 @@ static gint conv_utf8toeuc(gchar *outbuf, gint outlen, const gchar *inbuf)
 		if (cd == (iconv_t)-1) {
 			cd = iconv_open(CS_EUC_JP, CS_UTF_8);
 			if (cd == (iconv_t)-1) {
-				g_warning("conv_utf8toeuc(): %s\n",
+				g_warning("conv_utf8toeuc(): %s",
 					  g_strerror(errno));
 				iconv_ok = FALSE;
 				strncpy2(outbuf, inbuf, outlen);
@@ -771,7 +784,6 @@ gchar *conv_codeset_strdup(const gchar *inbuf,
 	if (conv_func != conv_noconv) {
 		len = (strlen(inbuf) + 1) * 3;
 		buf = g_malloc(len);
-		if (!buf) return NULL;
 
 		if (conv_func(buf, len, inbuf) == 0 || !strict_mode)
 			return g_realloc(buf, strlen(buf) + 1);
@@ -956,7 +968,7 @@ gchar *conv_iconv_strdup_with_cd(const gchar *inbuf, iconv_t cd)
 		} else if (E2BIG == errno) {
 			EXPAND_BUF();
 		} else {
-			g_warning("conv_iconv_strdup(): %s\n",
+			g_warning("conv_iconv_strdup(): %s",
 				  g_strerror(errno));
 			break;
 		}
@@ -967,7 +979,7 @@ gchar *conv_iconv_strdup_with_cd(const gchar *inbuf, iconv_t cd)
 		if (E2BIG == errno) {
 			EXPAND_BUF();
 		} else {
-			g_warning("conv_iconv_strdup(): %s\n",
+			g_warning("conv_iconv_strdup(): %s",
 				  g_strerror(errno));
 			break;
 		}
@@ -1571,9 +1583,7 @@ gchar *conv_unmime_header(const gchar *str, const gchar *default_encoding,
 				left = MAX_LINELEN - 1;			\
 			}						\
 		} else if (destp == (guchar *)dest && left < 7) {	\
-			if (isspace(*(destp - 1)))			\
-				destp--;				\
-			else if (is_plain_text && isspace(*srcp))	\
+			if (is_plain_text && isspace(*srcp))		\
 				srcp++;					\
 			if (*srcp) {					\
 				*destp++ = '\n';			\
@@ -1687,7 +1697,7 @@ void conv_encode_header_full(gchar *dest, gint len, const gchar *src,
 						*dest = '\0';
 						return;
 					} else {
-						g_warning("conv_encode_header(): code conversion failed\n");
+						g_warning("conv_encode_header_full(): code conversion failed");
 						conv_unreadable_8bit(part_str);
 						out_str = g_strdup(part_str);
 					}
@@ -1720,7 +1730,7 @@ void conv_encode_header_full(gchar *dest, gint len, const gchar *src,
 				out_str = conv_codeset_strdup
 					(part_str, cur_encoding, out_encoding);
 				if (!out_str) {
-					g_warning("conv_encode_header(): code conversion failed\n");
+					g_warning("conv_encode_header_full(): code conversion failed");
 					conv_unreadable_8bit(part_str);
 					out_str = g_strdup(part_str);
 				}
@@ -1799,7 +1809,7 @@ gchar *conv_filename_to_utf8(const gchar *fs_file)
 
 	utf8_file = g_filename_to_utf8(fs_file, -1, NULL, NULL, &error);
 	if (error) {
-		g_warning("failed to convert encoding of file name: %s\n",
+		g_warning("failed to convert encoding of file name: %s",
 			  error->message);
 		g_error_free(error);
 	}

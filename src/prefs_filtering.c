@@ -421,7 +421,7 @@ static void prefs_filtering_create(void)
                     	  (GtkAttachOptions) (GTK_FILL|GTK_EXPAND),
                     	  (GtkAttachOptions) (0), 0, 0);
 
-	cond_btn =  gtk_button_new_with_mnemonic (_(" D_efine... "));
+	cond_btn =  gtk_button_new_with_mnemonic (_(" Def_ine... "));
 	gtk_widget_show (cond_btn);
   	gtk_table_attach (GTK_TABLE (table), cond_btn, 2, 3, 2, 3,
                     	  (GtkAttachOptions) (GTK_FILL),
@@ -483,7 +483,7 @@ static void prefs_filtering_create(void)
 	CLAWS_SET_TIP(subst_btn,
 			_("Replace the selected rule in list with the rule above"));
 
-	del_btn = gtk_button_new_with_mnemonic (_("Re_move"));
+	del_btn = gtk_button_new_with_mnemonic (_("D_elete"));
 	gtk_button_set_image(GTK_BUTTON(del_btn),
 			gtk_image_new_from_stock(GTK_STOCK_REMOVE,GTK_ICON_SIZE_BUTTON));
 	gtk_box_pack_start (GTK_BOX (btn_hbox), del_btn, FALSE, TRUE, 0);
@@ -508,6 +508,8 @@ static void prefs_filtering_create(void)
 
 	cond_scrolledwin = gtk_scrolled_window_new (NULL, NULL);
 	gtk_widget_show (cond_scrolledwin);
+	gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(cond_scrolledwin),
+					    GTK_SHADOW_ETCHED_IN);
 	gtk_widget_set_size_request (cond_scrolledwin, -1, 150);
 	gtk_box_pack_start (GTK_BOX (cond_hbox), cond_scrolledwin,
 			    TRUE, TRUE, 0);
@@ -1474,7 +1476,7 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 	if (check_changed_list) {
 		if (modified && alertpanel(_("Filtering rules not saved"),
 					 _("The list of filtering rules have been modified. Close anyway?"),
-					 GTK_STOCK_CLOSE, _("+_Continue editing"), 
+					 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 					 NULL) != G_ALERTDEFAULT) {
 			return TRUE;
 		}
@@ -1496,7 +1498,7 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 		if (!filtering_str) {
 			val = alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"), NULL);
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"),NULL), NULL);
 			if (G_ALERTDEFAULT != val) {
 				g_free(filtering_str);
 				g_free(str); /* fixed two leaks: huzzah! */
@@ -1518,7 +1520,7 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 		    strlen(action)) {
 			val = alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"), NULL);
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL), NULL);
 			if (G_ALERTDEFAULT != val) {
 				g_free(name);
 				g_free(condition);

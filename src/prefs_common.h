@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,13 +14,13 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __PREFS_COMMON_H__
 #define __PREFS_COMMON_H__
 
 #ifdef HAVE_CONFIG_H
+#include "config.h"
 #include "claws-features.h"
 #endif
 
@@ -34,6 +34,8 @@
 #include "procmime.h"
 #include "prefs_msg_colors.h"
 #include "prefs_summary_open.h"
+
+#define CLAWS_CONFIG_VERSION 2
 
 typedef struct _PrefsCommon	PrefsCommon;
 
@@ -90,13 +92,6 @@ typedef enum
 
 typedef enum
 {
-	OPENMSG_REQUEST_ONLY = 0,
-	OPENMSG_ALWAYS = 1,
-	OPENMSG_WHEN_VIEW_VISIBLE
-} ShowMsgPolicy;
-
-typedef enum
-{
 	SHOW_NAME,
 	SHOW_ADDR,
 	SHOW_BOTH
@@ -112,6 +107,8 @@ typedef enum
 
 struct _PrefsCommon
 {
+	gint config_version;
+
 	/* Receive */
 	gboolean use_extinc;
 	gchar *extinc_cmd;
@@ -138,8 +135,10 @@ struct _PrefsCommon
 	gchar *outgoing_charset;
 	TransferEncodingMethod encoding_method;
 	gboolean outgoing_fallback_to_ascii;
+	gboolean rewrite_first_from;
 	gboolean warn_empty_subj;
-
+	gint warn_sending_many_recipients_num;
+	gboolean hide_timezone;
 	gboolean allow_jisx0201_kana;
 
 	/* Compose */
@@ -167,6 +166,7 @@ struct _PrefsCommon
 	gchar *compose_subject_format;
 	gchar *compose_body_format;
 	gboolean show_compose_margin;
+	gboolean type_any_header;
 
 	/* Quote */
 	gboolean reply_with_quote;
@@ -186,16 +186,9 @@ struct _PrefsCommon
 	gboolean recheck_when_changing_dict;
 	gboolean use_alternate;
 	gboolean use_both_dicts;
-        
-	/* Display */
-	/* obsolete fonts */
-	gchar *widgetfont_gtk1;
-	gchar *textfont_gtk1;
-	gchar *normalfont_gtk1;
-	gchar *boldfont_gtk1;
-	gchar *smallfont_gtk1;
 
-	/* new fonts */
+	/* Display */
+	/* fonts */
 	gchar *widgetfont;
 	gchar *textfont;
 	gchar *printfont;
@@ -230,10 +223,13 @@ struct _PrefsCommon
 	gint stripes_color_offset;
 	gboolean enable_hscrollbar;
 	gboolean bold_unread;
+	gboolean next_on_delete;
 	gboolean enable_thread;
 	gboolean thread_by_subject;
 	gint thread_by_subject_max_age; /*!< Max. age of a thread which was threaded
 					 *   by subject (days) */
+	FolderSortKey default_sort_key;
+	FolderSortType default_sort_type;
 
 	gchar *last_opened_folder;
 	gboolean goto_last_folder_on_startup;
@@ -319,6 +315,14 @@ struct _PrefsCommon
 	gulong signature_col;
 	gulong emphasis_col;
 	gboolean recycle_quote_colors;
+	gulong default_header_bgcolor;
+	gulong default_header_color;
+	gulong tags_bgcolor;
+	gulong tags_color;
+	gulong qs_active_bgcolor;
+	gulong qs_active_color;
+	gulong qs_error_bgcolor;
+	gulong qs_error_color;
 	gboolean display_header_pane;
 	gboolean display_header;
 	gboolean display_xface;
@@ -359,7 +363,14 @@ struct _PrefsCommon
 
 	gint statusbar_update_step;
 	gboolean emulate_emacs;
-	ShowMsgPolicy always_show_msg;
+
+	gboolean open_selected_on_folder_open;
+	gboolean open_selected_on_search_results;
+	gboolean open_selected_on_prevnext;
+	gboolean open_selected_on_deletemove;
+	gboolean open_selected_on_directional;
+	gboolean always_show_msg;
+
 	gboolean mark_as_read_on_new_window;
 	gboolean mark_as_read_delay;
 	gboolean immediate_exec;
@@ -372,6 +383,12 @@ struct _PrefsCommon
 	SummaryFromShow summary_from_show;
 	gboolean add_address_by_click;
 	gchar *pixmap_theme_path;
+#ifdef HAVE_SVG
+	gboolean enable_alpha_svg;
+	gboolean enable_pixmap_scaling;
+	gboolean pixmap_scaling_auto;
+	gint pixmap_scaling_ppi;
+#endif
 	int hover_timeout; /* msecs mouse hover timeout */
 	gboolean ask_mark_all_read;
 	gboolean ask_apply_per_account_filtering_rules;
@@ -533,6 +550,13 @@ struct _PrefsCommon
 	gboolean address_search_wildcard;
 
 	guint enable_avatars;
+
+#ifndef PASSWORD_CRYPTO_OLD
+	gboolean use_master_passphrase;
+	gchar *master_passphrase;
+	gchar *master_passphrase_salt;
+	guint master_passphrase_pbkdf2_rounds;
+#endif
 };
 
 extern PrefsCommon prefs_common;
@@ -553,4 +577,13 @@ gchar *pref_get_pref_from_entry(GtkEntry *entry);
 const gchar *prefs_common_translated_header_name(const gchar *header_name);
 const gchar *prefs_common_get_uri_cmd(void);
 const gchar *prefs_common_get_ext_editor_cmd(void);
+
+#define OPEN_SELECTED(when) (prefs_common.always_show_msg || prefs_common.when)
+
+#define OPEN_SELECTED_ON_FOLDER_OPEN OPEN_SELECTED(open_selected_on_folder_open)
+#define OPEN_SELECTED_ON_SEARCH_RESULTS OPEN_SELECTED(open_selected_on_search_results)
+#define OPEN_SELECTED_ON_PREVNEXT OPEN_SELECTED(open_selected_on_prevnext)
+#define OPEN_SELECTED_ON_DELETEMOVE OPEN_SELECTED(open_selected_on_deletemove)
+#define OPEN_SELECTED_ON_DIRECTIONAL OPEN_SELECTED(open_selected_on_directional)
+
 #endif /* __PREFS_COMMON_H__ */

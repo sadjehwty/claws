@@ -114,6 +114,8 @@ static const MatchParser matchparser_tab[] = {
 	{MATCHCRITERIA_AGE_LOWER_HOURS, "age_lower_hours"},
 	{MATCHCRITERIA_NEWSGROUPS, "newsgroups"},
 	{MATCHCRITERIA_NOT_NEWSGROUPS, "~newsgroups"},
+	{MATCHCRITERIA_MESSAGEID, "messageid"},
+	{MATCHCRITERIA_NOT_MESSAGEID, "~messageid"},
 	{MATCHCRITERIA_INREPLYTO, "inreplyto"},
 	{MATCHCRITERIA_NOT_INREPLYTO, "~inreplyto"},
 	{MATCHCRITERIA_REFERENCES, "references"},
@@ -192,6 +194,7 @@ enum {
 	CONTEXT_TO,
 	CONTEXT_CC,
 	CONTEXT_NEWSGROUPS,
+	CONTEXT_MESSAGEID,
 	CONTEXT_IN_REPLY_TO,
 	CONTEXT_REFERENCES,
 	CONTEXT_HEADER,
@@ -213,6 +216,7 @@ void matcher_init(void)
 	context_str[CONTEXT_TO] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("To:"));
 	context_str[CONTEXT_CC] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("Cc:"));
 	context_str[CONTEXT_NEWSGROUPS] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("Newsgroups:"));
+	context_str[CONTEXT_MESSAGEID] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("Message-ID:"));
 	context_str[CONTEXT_IN_REPLY_TO] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("In-Reply-To:"));
 	context_str[CONTEXT_REFERENCES] = g_strdup_printf(_("%s header"), prefs_common_translated_header_name("References:"));
 	context_str[CONTEXT_HEADER] = g_strdup(_("header"));
@@ -489,7 +493,6 @@ static gboolean matcherprop_string_match(MatcherProp *prop, const gchar *str,
 	switch (prop->matchtype) {
 	case MATCHTYPE_REGEXPCASE:
 	case MATCHTYPE_REGEXP:
-#ifndef G_OS_WIN32
 		if (!prop->preg && (prop->error == 0)) {
 			prop->preg = g_new0(regex_t, 1);
 			/* if regexp then don't use the escaped string */
@@ -532,7 +535,6 @@ static gboolean matcherprop_string_match(MatcherProp *prop, const gchar *str,
 			g_free(stripped);
 		}
 		break;
-#endif			
 	case MATCHTYPE_MATCHCASE:
 	case MATCHTYPE_MATCH:
 		ret = (strstr(str1, down_expr) != NULL);
@@ -679,7 +681,7 @@ static void *matcher_test_thread(void *data)
  *\param	prop Pointer to matcher structure
  *\param	info Pointer to message info structure
  *
- *\return	gboolean TRUE if command was executed succesfully
+ *\return	gboolean TRUE if command was executed successfully
  */
 static gboolean matcherprop_match_test(const MatcherProp *prop, 
 					  MsgInfo *info)
@@ -1117,6 +1119,10 @@ static gboolean matcherprop_match(MatcherProp *prop,
 		return matcherprop_string_match(prop, info->newsgroups, context_str[CONTEXT_NEWSGROUPS]);
 	case MATCHCRITERIA_NOT_NEWSGROUPS:
 		return !matcherprop_string_match(prop, info->newsgroups, context_str[CONTEXT_NEWSGROUPS]);
+	case MATCHCRITERIA_MESSAGEID:
+		return matcherprop_string_match(prop, info->msgid, context_str[CONTEXT_MESSAGEID]);
+	case MATCHCRITERIA_NOT_MESSAGEID:
+		return !matcherprop_string_match(prop, info->msgid, context_str[CONTEXT_MESSAGEID]);
 	case MATCHCRITERIA_INREPLYTO:
 		return matcherprop_string_match(prop, info->inreplyto, context_str[CONTEXT_IN_REPLY_TO]);
 	case MATCHCRITERIA_NOT_INREPLYTO:
@@ -1281,10 +1287,10 @@ void matcherlist_free(MatcherList *cond)
  */
 static void matcherlist_skip_headers(FILE *fp)
 {
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
 
-	while (procheader_get_one_field(buf, sizeof(buf), fp, NULL) != -1)
-		;
+	while (procheader_get_one_field(&buf, fp, NULL) != -1)
+		g_free(buf);
 }
 
 /*!
@@ -1361,11 +1367,16 @@ static gboolean matcherprop_match_one_header(MatcherProp *matcher,
 				/* matching one address header exactly, is that the right one? */
 				header = procheader_parse_header(buf);
 				if (!header ||
-						!procheader_headername_equal(header->name, matcher->header))
+						!procheader_headername_equal(header->name, matcher->header)) {
+					procheader_header_free(header);
 					return FALSE;
+				}
 				address_list = address_list_append(address_list, header->body);
-				if (address_list == NULL)
+				if (address_list == NULL) {
+					procheader_header_free(header);
 					return FALSE;
+				}
+				procheader_header_free(header);
 
 			} else {
 				header = procheader_parse_header(buf);
@@ -1379,6 +1390,7 @@ static gboolean matcherprop_match_one_header(MatcherProp *matcher,
 					 procheader_headername_equal(header->name, "Reply-To") ||
 					 procheader_headername_equal(header->name, "Sender"))
 					address_list = address_list_append(address_list, header->body);
+				procheader_header_free(header);
 				if (address_list == NULL)
 					return FALSE;
 			}
@@ -1458,9 +1470,10 @@ static gboolean matcherprop_criteria_message(MatcherProp *matcher)
 static gboolean matcherlist_match_headers(MatcherList *matchers, FILE *fp)
 {
 	GSList *l;
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
+	gint ret;
 
-	while (procheader_get_one_field(buf, sizeof(buf), fp, NULL) != -1) {
+	while ((ret = procheader_get_one_field(&buf, fp, NULL)) != -1) {
 		for (l = matchers->matchers ; l != NULL ; l = g_slist_next(l)) {
 			MatcherProp *matcher = (MatcherProp *) l->data;
 			gint match = MATCH_ANY;
@@ -1497,8 +1510,10 @@ static gboolean matcherlist_match_headers(MatcherList *matchers, FILE *fp)
 				} else {
 					/* further call to matcherprop_match_one_header() can't match
 					   and it irrelevant, so: don't alter the match result */
+					procheader_header_free(header);
 					continue;
 				}
+				procheader_header_free(header);
 			}
 
 			/* ZERO line must NOT match for the rule to match.
@@ -1523,10 +1538,14 @@ static gboolean matcherlist_match_headers(MatcherList *matchers, FILE *fp)
 			/* if the rule matched and the matchers are OR, no need to
 			 * check the others */
 			if (matcher->result && matcher->done) {
-				if (!matchers->bool_and)
+				if (!matchers->bool_and) {
+					g_free(buf);
 					return TRUE;
+				}
 			}
 		}
+		g_free(buf);
+		buf = NULL;
 	}
 
 	return FALSE;
@@ -1678,7 +1697,7 @@ static gboolean matcherlist_match_text_content(MatcherList *matchers, MimeInfo *
  *\param	matchers List of conditions
  *\param	fp Message file
  *
- *\return	gboolean TRUE if succesful match
+ *\return	gboolean TRUE if successful match
  */
 static gboolean matcherlist_match_body(MatcherList *matchers, gboolean body_only, MsgInfo *info)
 {
@@ -1701,18 +1720,18 @@ static gboolean matcherlist_match_body(MatcherList *matchers, gboolean body_only
 		if (partinfo->type == MIMETYPE_TEXT) {
 			first_text_found = TRUE;
 			if (matcherlist_match_text_content(matchers, partinfo)) {
-				procmime_mimeinfo_free_all(mimeinfo);
+				procmime_mimeinfo_free_all(&mimeinfo);
 				return TRUE;
 			}
 		} else if (matcherlist_match_binary_content(matchers, partinfo)) {
-			procmime_mimeinfo_free_all(mimeinfo);
+			procmime_mimeinfo_free_all(&mimeinfo);
 			return TRUE;
 		}
 
 		if (body_only && first_text_found)
 			break;
 	}
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	return FALSE;
 }
@@ -1892,6 +1911,8 @@ gboolean matcherlist_match(MatcherList *matchers, MsgInfo *info)
 		case MATCHCRITERIA_AGE_LOWER_HOURS:
 		case MATCHCRITERIA_NEWSGROUPS:
 		case MATCHCRITERIA_NOT_NEWSGROUPS:
+		case MATCHCRITERIA_MESSAGEID:
+		case MATCHCRITERIA_NOT_MESSAGEID:
 		case MATCHCRITERIA_INREPLYTO:
 		case MATCHCRITERIA_NOT_INREPLYTO:
 		case MATCHCRITERIA_REFERENCES:
@@ -2536,7 +2557,7 @@ void prefs_matcher_write_config(void)
 			     MATCHER_RC, NULL);
 
 	if ((pfile = prefs_write_open(rcpath)) == NULL) {
-		g_warning("failed to write configuration to file\n");
+		g_warning("failed to write configuration to file");
 		g_free(rcpath);
 		return;
 	}
@@ -2544,58 +2565,11 @@ void prefs_matcher_write_config(void)
 	g_free(rcpath);
 
 	if (prefs_matcher_save(pfile->fp) < 0) {
-		g_warning("failed to write configuration to file\n");
+		g_warning("failed to write configuration to file");
 		prefs_file_close_revert(pfile);
 	} else if (prefs_file_close(pfile) < 0) {
-		g_warning("failed to save configuration to file\n");
+		g_warning("failed to save configuration to file");
 	}
-}
-
-/* ******************************************************************* */
-
-static void matcher_add_rulenames(const gchar *rcpath)
-{
-	gchar *newpath = g_strconcat(rcpath, ".new", NULL);
-	FILE *src = g_fopen(rcpath, "rb");
-	FILE *dst = g_fopen(newpath, "wb");
-	gchar buf[BUFFSIZE];
-	int r;
-
-	if (src == NULL) {
-		perror("fopen");
-		if (dst)
-			fclose(dst);
-		g_free(newpath);
-		return;
-	}
-	if (dst == NULL) {
-		perror("fopen");
-		if (src)
-			fclose(src);
-		g_free(newpath);
-		return;
-	}
-
-	while (fgets (buf, sizeof(buf), src) != NULL) {
-		if (strlen(buf) > 2 && buf[0] != '['
-		&& strncmp(buf, "rulename \"", 10)
-		&& strncmp(buf, "enabled rulename \"", 18)
-		&& strncmp(buf, "disabled rulename \"", 18)) {
-			r = fwrite("enabled rulename \"\" ",
-				strlen("enabled rulename \"\" "), 1, dst);
-			if (r != 1) {
-				g_message("cannot fwrite rulename\n");
-			}
-		}
-		r = fwrite(buf, strlen(buf), 1, dst);
-		if (r != 1) {
-			g_message("cannot fwrite rule\n");
-		}
-	}
-	fclose(dst);
-	fclose(src);
-	move_file(newpath, rcpath, TRUE);
-	g_free(newpath);
 }
 
 /*!
@@ -2604,25 +2578,12 @@ static void matcher_add_rulenames(const gchar *rcpath)
 void prefs_matcher_read_config(void)
 {
 	gchar *rcpath;
-	gchar *rc_old_format;
 	FILE *f;
 
 	create_matchparser_hashtab();
 	prefs_filtering_clear();
 
 	rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, MATCHER_RC, NULL);
-	rc_old_format = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, MATCHER_RC, 
-				".pre_names", NULL);
-	
-	if (!is_file_exist(rc_old_format) && is_file_exist(rcpath)) {
-		/* backup file with no rules names, in case 
-		 * anything goes wrong */
-		copy_file(rcpath, rc_old_format, FALSE);
-		/* now hack the file in order to have it to the new format */
-		matcher_add_rulenames(rcpath);
-	}
-	
-	g_free(rc_old_format);
 
 	f = g_fopen(rcpath, "rb");
 	g_free(rcpath);
@@ -2630,30 +2591,5 @@ void prefs_matcher_read_config(void)
 	if (f != NULL) {
 		matcher_parser_start_parsing(f);
 		fclose(matcher_parserin);
-	}
-	else {
-		/* previous version compatibility */
-
-		/* g_print("reading filtering\n"); */
-		rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S,
-				     FILTERING_RC, NULL);
-		f = g_fopen(rcpath, "rb");
-		g_free(rcpath);
-		
-		if (f != NULL) {
-			matcher_parser_start_parsing(f);
-			fclose(matcher_parserin);
-		}
-		
-		/* g_print("reading scoring\n"); */
-		rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S,
-				     SCORING_RC, NULL);
-		f = g_fopen(rcpath, "rb");
-		g_free(rcpath);
-		
-		if (f != NULL) {
-			matcher_parser_start_parsing(f);
-			fclose(matcher_parserin);
-		}
 	}
 }

@@ -2984,6 +2984,7 @@ static int mailimf_group_parse(const char * message, size_t length,
   struct mailimf_group * group;
   int r;
   int res;
+  clist * list;
 
   cur_token = * index;
 
@@ -3007,11 +3008,25 @@ static int mailimf_group_parse(const char * message, size_t length,
     break;
   case MAILIMF_ERROR_PARSE:
     r = mailimf_cfws_parse(message, length, &cur_token);
-    if ((r != MAILIMF_NO_ERROR) && (r != MAILIMF_ERROR_PARSE))
-      return r;
+    if ((r != MAILIMF_NO_ERROR) && (r != MAILIMF_ERROR_PARSE)) {
+      res = r;
+      goto free_display_name;
+    }
+    list = clist_new();
+    if (list == NULL) {
+      res = MAILIMF_ERROR_MEMORY;
+      goto free_display_name;
+    }
+    mailbox_list = mailimf_mailbox_list_new(list);
+    if (mailbox_list == NULL) {
+      res = MAILIMF_ERROR_MEMORY;
+      clist_free(list);
+      goto free_display_name;
+    }
     break;
   default:
-    return r;
+    res = r;
+    goto free_display_name;
   }
 
   r = mailimf_semi_colon_parse(message, length, &cur_token);
@@ -3703,7 +3718,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				  &resent_date);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_FROM:
@@ -3711,7 +3726,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				  &resent_from);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_SENDER:
@@ -3719,7 +3734,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				    &resent_sender);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_TO:
@@ -3727,7 +3742,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				&resent_to);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_CC:
@@ -3735,7 +3750,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 			       &resent_cc);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_BCC:
@@ -3743,7 +3758,7 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				 &resent_bcc);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   case MAILIMF_RESENT_FIELD_MSG_ID:
@@ -3751,12 +3766,12 @@ mailimf_resent_field_parse(const char * message, size_t length,
 				    &resent_msg_id);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
-      goto err;
+      goto free_resent;
     }
     break;
   default:
     res = MAILIMF_ERROR_PARSE;
-    goto err;
+    goto free_resent;
   }
 
   resent_field = mailimf_resent_field_new(type, resent_date,
@@ -4170,7 +4185,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_FROM:
@@ -4183,7 +4198,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_SENDER:
@@ -4196,7 +4211,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_REPLY_TO:
@@ -4209,7 +4224,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_TO:
@@ -4222,7 +4237,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_CC:
@@ -4235,7 +4250,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_BCC:
@@ -4248,7 +4263,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_MESSAGE_ID:
@@ -4261,7 +4276,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_IN_REPLY_TO:
@@ -4274,7 +4289,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_REFERENCES:
@@ -4287,7 +4302,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_SUBJECT:
@@ -4300,7 +4315,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_COMMENTS:
@@ -4313,7 +4328,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_KEYWORDS:
@@ -4326,7 +4341,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RETURN_PATH:
@@ -4339,7 +4354,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_DATE:
@@ -4352,7 +4367,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_FROM:
@@ -4365,7 +4380,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_SENDER:
@@ -4378,7 +4393,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_TO:
@@ -4391,7 +4406,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_CC:
@@ -4404,7 +4419,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_BCC:
@@ -4417,7 +4432,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   case MAILIMF_FIELD_RESENT_MSG_ID:
@@ -4430,7 +4445,7 @@ static int mailimf_field_parse(const char * message, size_t length,
     }
     else {
       res = r;
-      goto err;
+      goto free_fields;
     }
     break;
   }
@@ -4453,7 +4468,7 @@ static int mailimf_field_parse(const char * message, size_t length,
       subject, comments, keywords, optional_field);
   if (field == NULL) {
     res = MAILIMF_ERROR_MEMORY;
-    goto free_field;
+    goto free_fields;
   }
 
   * result = field;
@@ -4461,7 +4476,7 @@ static int mailimf_field_parse(const char * message, size_t length,
 
   return MAILIMF_NO_ERROR;
 
- free_field:
+ free_fields:
   if (return_path != NULL)
     mailimf_return_free(return_path);
   if (resent_date != NULL)
@@ -5451,7 +5466,7 @@ static int mailimf_unstrict_msg_id_parse(const char * message, size_t length,
 					 size_t * index,
 					 char ** result)
 {
-  char * msgid;
+  char * msgid = NULL;
   size_t cur_token;
   int r;
 
@@ -5470,8 +5485,10 @@ static int mailimf_unstrict_msg_id_parse(const char * message, size_t length,
     return r;
 
   r = mailimf_parse_unwanted_msg_id(message, length, &cur_token);
-  if (r != MAILIMF_NO_ERROR)
+  if (r != MAILIMF_NO_ERROR) {
+    free(msgid);
     return r;
+  }
 
   * result = msgid;
   * index = cur_token;
@@ -6486,7 +6503,7 @@ static int mailimf_path_parse(const char * message, size_t length,
   r = mailimf_greater_parse(message, length, &cur_token);
   if (r != MAILIMF_NO_ERROR) {
     res = r;
-    goto err;
+    goto free_addr_spec;
   }
 
   path = mailimf_path_new(addr_spec);
@@ -6501,7 +6518,7 @@ static int mailimf_path_parse(const char * message, size_t length,
   return MAILIMF_NO_ERROR;
 
  free_addr_spec:
-  if (addr_spec == NULL)
+  if (addr_spec != NULL)
     mailimf_addr_spec_free(addr_spec);
  err:
   return res;
@@ -6963,6 +6980,10 @@ mailimf_optional_field_parse(const char * message, size_t length,
   int r;
   int res;
 
+  name = NULL;
+  value = NULL;
+  optional_field = NULL;
+  
   cur_token = * index;
 
   r = mailimf_field_name_parse(message, length, &cur_token, &name);
@@ -6974,25 +6995,25 @@ mailimf_optional_field_parse(const char * message, size_t length,
   r = mailimf_colon_parse(message, length, &cur_token);
   if (r != MAILIMF_NO_ERROR) {
     res = r;
-    goto free_name;
+    goto free_fields;
   }
 
   r = mailimf_unstructured_parse(message, length, &cur_token, &value);
   if (r != MAILIMF_NO_ERROR) {
     res = r;
-    goto free_name;
+    goto free_fields;
   }
 
   r = mailimf_unstrict_crlf_parse(message, length, &cur_token);
   if (r != MAILIMF_NO_ERROR) {
     res = r;
-    goto free_value;
+    goto free_fields;
   }
 
   optional_field = mailimf_optional_field_new(name, value);
   if (optional_field == NULL) {
     res = MAILIMF_ERROR_MEMORY;
-    goto free_value;
+    goto free_fields;
   }
 
   * result = optional_field;
@@ -7000,10 +7021,12 @@ mailimf_optional_field_parse(const char * message, size_t length,
 
   return MAILIMF_NO_ERROR;
 
- free_value:
-  mailimf_unstructured_free(value);
- free_name:
-  mailimf_field_name_free(name);
+ free_fields:
+  if (value)
+    mailimf_unstructured_free(value);
+  if (name)
+    mailimf_field_name_free(name);
+	  
  err:
   return res;
 }
@@ -7100,7 +7123,6 @@ static int mailimf_envelope_field_parse(const char * message, size_t length,
   struct mailimf_in_reply_to * in_reply_to;
   struct mailimf_references * references;
   struct mailimf_subject * subject;
-  struct mailimf_optional_field * optional_field;
   struct mailimf_field * field;
   int guessed_type;
   int r;
@@ -7119,7 +7141,6 @@ static int mailimf_envelope_field_parse(const char * message, size_t length,
   in_reply_to = NULL;
   references = NULL;
   subject = NULL;
-  optional_field = NULL;
 
   guessed_type = guess_header_type(message, length, cur_token);
   type = MAILIMF_FIELD_NONE;
@@ -7279,10 +7300,10 @@ static int mailimf_envelope_field_parse(const char * message, size_t length,
       NULL, NULL, NULL,
       orig_date, from, sender, reply_to, to,
       cc, bcc, message_id, in_reply_to, references,
-      subject, NULL, NULL, optional_field);
+      subject, NULL, NULL, NULL);
   if (field == NULL) {
     res = MAILIMF_ERROR_MEMORY;
-    goto free_field;
+    goto free_fields;
   }
   
   * result = field;
@@ -7290,7 +7311,7 @@ static int mailimf_envelope_field_parse(const char * message, size_t length,
 
   return MAILIMF_NO_ERROR;
 
- free_field:
+ free_fields:
   if (orig_date != NULL)
     mailimf_orig_date_free(orig_date);
   if (from != NULL)
@@ -7313,8 +7334,6 @@ static int mailimf_envelope_field_parse(const char * message, size_t length,
     mailimf_references_free(references);
   if (subject != NULL)
     mailimf_subject_free(subject);
-  if (optional_field != NULL)
-    mailimf_optional_field_free(optional_field);
  err:
   return res;
 }

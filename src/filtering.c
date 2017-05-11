@@ -34,7 +34,7 @@
 #include "compose.h"
 #include "prefs_common.h"
 #include "addritem.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addrbook.h"
 	#include "addressbook.h"
 #else
@@ -237,7 +237,7 @@ void filtering_move_and_copy_msgs(GSList *msgs)
 		} else {
 			debug_print("%d messages to %s in %s\n", found,
 				cur_op==IS_COPY ? "copy":(cur_op==IS_DELE ?"delete":"move"), 
-				last_item?(last_item->name ? last_item->name:"(noname)"):"nowhere");
+				last_item->name ? last_item->name:"(noname)");
 		}
 		for (cur = batch; cur; cur = cur->next) {
 			MsgInfo *info = (MsgInfo *)cur->data;
@@ -468,33 +468,33 @@ static gboolean filteringaction_apply(FilteringAction * action, MsgInfo * info)
 
 	case MATCHACTION_ADD_TO_ADDRESSBOOK:
 		{
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 			AddressDataSource *book = NULL;
 			AddressBookFile *abf = NULL;
 			ItemFolder *folder = NULL;
 #endif
-			gchar buf[BUFFSIZE];
+			gchar *buf;
 			Header *header;
 			gint errors = 0;
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 			if (!addressbook_peek_folder_exists(action->destination, &book, &folder)) {
-				g_warning("addressbook folder not found '%s'\n", action->destination?action->destination:"(null)");
+				g_warning("addressbook folder not found '%s'", action->destination?action->destination:"(null)");
 				return FALSE;
 			}
 			if (!book) {
-				g_warning("addressbook_peek_folder_exists returned NULL book\n");
+				g_warning("addressbook_peek_folder_exists returned NULL book");
 				return FALSE;
 			}
 
 			abf = book->rawDataSource;
 #endif
 			/* get the header */
-			if (procheader_get_header_from_msginfo(info, buf, 
-				sizeof(buf), action->header) < 0)
+			if (procheader_get_header_from_msginfo(info, &buf, action->header) < 0)
 				return FALSE;
 
 			header = procheader_parse_header(buf);
+			g_free(buf);
 
 			/* add all addresses that are not already in */
 			if (header && *header->body && (*header->body != '\0')) {
@@ -510,21 +510,21 @@ static gboolean filteringaction_apply(FilteringAction * action, MsgInfo * info)
 					path = action->destination;
 				start_address_completion(path);
 
-				address_list = address_list_append(address_list, header->body);
+				address_list = g_slist_append(address_list, header->body);
 				for (walk = address_list; walk != NULL; walk = walk->next) {
 					gchar *stripped_addr = g_strdup(walk->data);
 					extract_address(stripped_addr);
 
 					if (complete_matches_found(walk->data) == 0) {
 						gchar *name = procheader_get_fromname(walk->data);
-						debug_print("adding address '%s' to addressbook '%s'\n",
-								stripped_addr, action->destination);
-#ifndef USE_NEW_ADDRBOOK
+						debug_print("adding '%s <%s>' to addressbook '%s'\n",
+								name, stripped_addr, action->destination);
+#ifndef USE_ALT_ADDRBOOK
 						if (!addrbook_add_contact(abf, folder, name, stripped_addr, NULL)) {
 #else
 						if (!addressadd_selection(name, stripped_addr, NULL, NULL)) {
 #endif
-							g_warning("contact could not be added\n");
+							g_warning("contact could not be added");
 							errors++;
 						}
 						g_free(name);
@@ -538,7 +538,7 @@ static gboolean filteringaction_apply(FilteringAction * action, MsgInfo * info)
 				g_slist_free(address_list);
 				end_address_completion();
 			} else {
-				g_warning("header '%s' not set or empty\n", action->header?action->header:"(null)");
+				g_warning("header '%s' not set or empty", action->header?action->header:"(null)");
 			}
 			return (errors == 0);
 		}

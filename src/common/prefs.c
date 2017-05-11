@@ -61,7 +61,7 @@ PrefFile *prefs_read_open(const gchar *path)
 
 /*!
  *\brief	Open preferences file for writing
- *		Prefs are written to a temp file: Call prefs_write_close()
+ *		Prefs are written to a temp file: Call prefs_file_close()
  *		to rename this to the final filename
  *
  *\param	path Filename with path of preferences file to write
@@ -77,7 +77,7 @@ PrefFile *prefs_write_open(const gchar *path)
 	cm_return_val_if_fail(path != NULL, NULL);
 
 	if (prefs_is_readonly(path)) {
-		g_warning("no permission - %s\n", path);
+		g_warning("no write permission on '%s'", path);
 		return NULL;
 	}
 
@@ -112,13 +112,6 @@ gboolean prefs_common_get_flush_metadata (void);
  *
  *\return	0 on success, -1 on failure
  */
-#define PREFS_FILE_FREE() \
-{ \
-  g_free(path); \
-  g_free(tmppath); \
-  g_free(bakpath); \
-  g_free(pfile); \
-}
 gint prefs_file_close(PrefFile *pfile)
 {
 	FILE *fp, *orig_fp;
@@ -145,7 +138,7 @@ gint prefs_file_close(PrefFile *pfile)
 			/* next block */
 			if (buf[0] == '[') {
 				if (fputs(buf, fp)  == EOF) {
-					g_warning("failed to write configuration to file\n");
+					g_warning("failed to write configuration to file");
 					prefs_file_close_revert(pfile);
 				
 					return -1;
@@ -156,7 +149,7 @@ gint prefs_file_close(PrefFile *pfile)
 		
 		while (fgets(buf, sizeof(buf), orig_fp) != NULL)
 			if (fputs(buf, fp) == EOF) {
-				g_warning("failed to write configuration to file\n");
+				g_warning("failed to write configuration to file");
 				prefs_file_close_revert(pfile);			
 				
 				return -1;
@@ -217,7 +210,6 @@ gint prefs_file_close(PrefFile *pfile)
 	g_free(bakpath);
 	return 0;
 }
-#undef PREFS_FILE_FREE
 
 /*!
  *\brief	Close and free preferences file, delete temp file
@@ -312,7 +304,7 @@ gint prefs_set_block_label(PrefFile *pfile, const gchar *label)
 					break;
 				} else {
 					if (fputs(buf, pfile->fp) == EOF) {
-						g_warning("failed to write configuration to file\n");
+						g_warning("failed to write configuration to file");
 						prefs_file_close_revert(pfile);
 						g_free(block_label);
 						
@@ -328,7 +320,7 @@ gint prefs_set_block_label(PrefFile *pfile, const gchar *label)
 			
 			if (fputs(block_label, pfile->fp) == EOF ||
 			    fputc('\n', pfile->fp) == EOF) {
-				g_warning("failed to write configuration to file\n");
+				g_warning("failed to write configuration to file");
 				prefs_file_close_revert(pfile);
 				g_free(block_label);
 						

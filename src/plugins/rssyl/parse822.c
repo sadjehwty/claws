@@ -64,14 +64,14 @@ FeedItem *rssyl_parse_folder_item_file(gchar *path)
 	g_file_get_contents(path, &contents, NULL, &error);
 
 	if( error ) {
-		g_warning("GError: '%s'\n", error->message);
+		g_warning("GError: '%s'", error->message);
 		g_error_free(error);
 	}
 
 	if( contents != NULL ) {
 		lines = strsplit_no_copy(contents, '\n');
 	} else {
-		g_warning("Badly formatted file found, ignoring: '%s'\n", path);
+		g_warning("Badly formatted file found, ignoring: '%s'", path);
 		return NULL;
 	}
 
@@ -135,7 +135,7 @@ FeedItem *rssyl_parse_folder_item_file(gchar *path)
 				/* Last-Seen timestamp */
 				if( !strcmp(line[0], "X-RSSyl-Last-Seen") ) {
 					ctx->last_seen = atol(line[1]);
-					debug_print("RSSyl: got last_seen timestamp %ld\n", ctx->last_seen);
+					debug_print("RSSyl: got last_seen timestamp %lld\n", (long long)ctx->last_seen);
 				}
 
 				/* ID */
@@ -235,8 +235,9 @@ static void rssyl_flush_folder_func(gpointer data, gpointer user_data)
 	FeedItem *item = (FeedItem *)data;
 	RFeedCtx *ctx = (RFeedCtx *)item->data;
 
-	if( ctx != NULL && ctx->path != NULL)
+	if( ctx != NULL && ctx->path != NULL) {
 		g_free(ctx->path);
+	}
 	feed_item_free(item);
 }
 

@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __DEFS_H__
@@ -39,6 +38,7 @@
 #define QUEUE_DIR		"queue"
 #define DRAFT_DIR		"draft"
 #define TRASH_DIR		"trash"
+#define TAGS_DIR		"tagsdb"
 #define RC_DIR			CFG_RC_DIR
 #define OLD_GTK2_RC_DIR		".sylpheed-claws"
 #define OLDER_GTK2_RC_DIR	".sylpheed-gtk2"
@@ -60,6 +60,7 @@
 #define MENU_RC			"menurc"
 #define RENDERER_RC		"rendererrc"
 #define TAGS_RC			"tagsrc"
+#define PASSWORD_STORE_RC			"passwordstorerc"
 #define QUICKSEARCH_HISTORY	"quicksearch_history"
 #define SUMMARY_SEARCH_FROM_HISTORY	"summarysearch_from_history"
 #define SUMMARY_SEARCH_TO_HISTORY	"summarysearch_to_history"
@@ -89,6 +90,7 @@
 #define USERS_ML_URI		"http://lists.claws-mail.org/cgi-bin/mailman/listinfo/users"
 #define GPL_URI			"http://www.gnu.org/licenses/gpl.html"
 #define DONATE_URI		"http://www.claws-mail.org/sponsors.php"
+#define CONFIG_VERSIONS_URI	"http://www.claws-mail.org/cvc.php"
 #define RELEASE_NOTES_FILE	"RELEASE_NOTES"
 #define THEMEINFO_FILE		".claws_themeinfo"
 #define FOLDER_LIST		"folderlist.xml"
@@ -132,6 +134,8 @@
 
 #define BUFFSIZE			8192
 
+#define RFC822_DATE_BUFFSIZE	128
+
 #ifndef MAXPATHLEN
 #  define MAXPATHLEN			4095
 #endif
@@ -168,6 +172,10 @@
 
 #define DEFAULT_PIXMAP_THEME	"INTERNAL_DEFAULT"
 #define PIXMAP_THEME_DIR		"themes"
+#ifdef HAVE_SVG
+#define MIN_PPI 96
+#define MAX_PPI 300
+#endif
 
 #define AVATAR_NONE	0
 #define AVATAR_XFACE	1

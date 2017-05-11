@@ -48,6 +48,7 @@
 #include "rssyl_gtk.h"
 #include "rssyl_feed.h"
 #include "rssyl_prefs.h"
+#include "rssyl_subscribe.h"
 #include "rssyl_update_feed.h"
 #include "rssyl_update_format.h"
 #include "opml_import.h"
@@ -99,7 +100,7 @@ static void rssyl_make_rc_dir(void)
 
 	if( !is_dir_exist(rssyl_dir) ) {
 		if( make_dir(rssyl_dir) < 0 ) {
-			g_warning("couldn't create directory %s\n", rssyl_dir);
+			g_warning("couldn't create directory %s", rssyl_dir);
 		}
 
 		debug_print("RSSyl: created directory %s\n", rssyl_dir);
@@ -152,7 +153,7 @@ void rssyl_init(void)
 	else
 		rssyl_update_format();
 
-	prefs_toolbar_register_plugin_item(TOOLBAR_MAIN, "RSSyl", _("Refresh all feeds"), rssyl_toolbar_cb_refresh_all_feeds, NULL);
+	prefs_toolbar_register_plugin_item(TOOLBAR_MAIN, PLUGIN_NAME, _("Refresh all feeds"), rssyl_toolbar_cb_refresh_all_feeds, NULL);
 
 	if( rssyl_prefs_get()->refresh_on_startup &&
 			claws_is_starting() )
@@ -163,7 +164,7 @@ void rssyl_done(void)
 {
 	rssyl_opml_export();
 
-	prefs_toolbar_unregister_plugin_item(TOOLBAR_MAIN, "RSSyl", _("Refresh all feeds"));
+	prefs_toolbar_unregister_plugin_item(TOOLBAR_MAIN, PLUGIN_NAME, _("Refresh all feeds"));
 
 	rssyl_prefs_done();
 	rssyl_gtk_done();
@@ -286,12 +287,14 @@ static void rssyl_item_set_xml(Folder *folder, FolderItem *item, XMLTag *tag)
 			g_free(ritem->auth->username);
 			ritem->auth->username = g_strdup(attr->value);
 		}
-		/* (str) Auth pass */
+		/* (str) Auth pass - save directly to password store */
 		if (!strcmp(attr->name, "auth_pass")) {
 			gsize len = 0;
 			guchar *pwd = g_base64_decode(attr->value, &len);
-			g_free(ritem->auth->password);
-			ritem->auth->password = (gchar *)pwd;
+			memset(attr->value, 0, strlen(attr->value));
+			rssyl_passwd_set(ritem, (gchar *)pwd);
+			memset(pwd, 0, strlen(pwd));
+			g_free(pwd);
 		}
 		/* (str) Official title */
 		if( !strcmp(attr->name, "official_title")) {
@@ -346,12 +349,6 @@ static XMLTag *rssyl_item_get_xml(Folder *folder, FolderItem *item)
 	/* (str) Auth user */
 	if (ri->auth->username != NULL)
 		xml_tag_add_attr(tag, xml_attr_new("auth_user", ri->auth->username));
-	/* (str) Auth pass */
-	if (ri->auth->password != NULL) {
-		gchar *pwd = g_base64_encode(ri->auth->password, strlen(ri->auth->password));
-		xml_tag_add_attr(tag, xml_attr_new("auth_pass", pwd));
-		g_free(pwd);
-	}
 	/* (str) Official title */
 	if( ri->official_title != NULL )
 		xml_tag_add_attr(tag, xml_attr_new("official_title", ri->official_title));
@@ -437,7 +434,7 @@ static FolderItem *rssyl_item_new(Folder *folder)
 	ritem->official_title = NULL;
 	ritem->source_id = NULL;
 	ritem->items = NULL;
-	ritem->keep_old = FALSE;
+	ritem->keep_old = TRUE;
 	ritem->default_refresh_interval = TRUE;
 	ritem->refresh_interval = atoi(PREF_DEFAULT_REFRESH);
 	ritem->fetch_comments = FALSE;
@@ -528,11 +525,9 @@ static gchar *rssyl_item_get_path(Folder *folder, FolderItem *item)
 	g_return_val_if_fail(folder != NULL, NULL);
 	g_return_val_if_fail(item != NULL, NULL);
 
-	debug_print("RSSyl: item_get_path\n");
-
 	name = folder_item_get_name(rssyl_get_root_folderitem(item));
 	path = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, RSSYL_DIR,
-			G_DIR_SEPARATOR_S, name, G_DIR_SEPARATOR_S, item->path, NULL);
+			G_DIR_SEPARATOR_S, name, item->path, NULL);
 	g_free(name);
 
 	return path;
@@ -550,7 +545,7 @@ static gboolean rssyl_rename_folder_func(GNode *node, gpointer data)
 
 	oldpathlen = strlen(oldpath);
 	if (strncmp(oldpath, item->path, oldpathlen) != 0) {
-		g_warning("path doesn't match: %s, %s\n", oldpath, item->path);
+		g_warning("path doesn't match: %s, %s", oldpath, item->path);
 		return TRUE;
 	}
 
@@ -630,6 +625,7 @@ static gint rssyl_rename_folder(Folder *folder, FolderItem *item,
 static gint rssyl_remove_folder(Folder *folder, FolderItem *item)
 {
 	gchar *path = NULL;
+	RFolderItem *ritem = (RFolderItem *)item;
 
 	g_return_val_if_fail(folder != NULL, -1);
 	g_return_val_if_fail(item != NULL, -1);
@@ -640,12 +636,15 @@ static gint rssyl_remove_folder(Folder *folder, FolderItem *item)
 
 	path = folder_item_get_path(item);
 	if( remove_dir_recursive(path) < 0 ) {
-		g_warning("can't remove directory '%s'\n", path);
+		g_warning("can't remove directory '%s'", path);
 		g_free(path);
 		return -1;
 	}
-
 	g_free(path);
+
+	if (ritem->url != NULL)
+		rssyl_passwd_set(ritem, NULL);
+
 	folder_item_remove(item);
 
 	return 0;
@@ -697,13 +696,15 @@ static gboolean rssyl_is_msg_changed(Folder *folder, FolderItem *item,
 {
 	GStatBuf s;
 	gchar *path = NULL;
+	gchar *itempath = NULL;
 
 	g_return_val_if_fail(folder != NULL, FALSE);
 	g_return_val_if_fail(item != NULL, FALSE);
 	g_return_val_if_fail(msginfo != NULL, FALSE);
 
-	path = g_strconcat(folder_item_get_path(item), G_DIR_SEPARATOR_S,
-			itos(msginfo->msgnum), NULL);
+	itempath = folder_item_get_path(item);
+	path = g_strconcat(itempath, G_DIR_SEPARATOR_S, itos(msginfo->msgnum), NULL);
+	g_free(itempath);
 
 	if (g_stat(path, &s) < 0 ||
 		msginfo->size != s.st_size || (
@@ -790,7 +791,7 @@ static gint rssyl_add_msgs(Folder *folder, FolderItem *dest, GSList *file_list,
 		debug_print("RSSyl: add_msgs: new filename is '%s'\n", destfile);
 
 		if( copy_file(fileinfo->file, destfile, TRUE) < 0 ) {
-			g_warning("can't copy message %s to %s\n", fileinfo->file, destfile);
+			g_warning("can't copy message %s to %s", fileinfo->file, destfile);
 			g_free(destfile);
 			return -1;
 		}
@@ -865,7 +866,7 @@ static gboolean rssyl_subscribe_uri(Folder *folder, const gchar *uri)
 {
 	if (folder->klass != rssyl_folder_get_class())
 		return FALSE;
-	return (rssyl_feed_subscribe_new(FOLDER_ITEM(folder->node->data), uri, FALSE) ?
+	return (rssyl_subscribe(FOLDER_ITEM(folder->node->data), uri, 0) ?
 			TRUE : FALSE);
 }
 
@@ -945,7 +946,7 @@ FolderClass *rssyl_folder_get_class()
 	if( rssyl_class.idstr == NULL ) {
 		rssyl_class.type = F_UNKNOWN;
 		rssyl_class.idstr = "rssyl";
-		rssyl_class.uistr = "RSSyl";
+		rssyl_class.uistr = PLUGIN_NAME;
 
 		/* Folder functions */
 		rssyl_class.new_folder = rssyl_new_folder;

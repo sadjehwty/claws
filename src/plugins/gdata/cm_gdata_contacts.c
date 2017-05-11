@@ -1,5 +1,6 @@
 /* GData plugin for Claws-Mail
  * Copyright (C) 2011 Holger Berndt
+ * Copyright (C) 2011-2016 the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +31,7 @@
 
 #include "addr_compl.h"
 #include "main.h"
+#include "passwordstore.h"
 #include "prefs_common.h"
 #include "mainwindow.h"
 #include "common/log.h"
@@ -46,6 +48,8 @@
 #define GDATA_C2 "QYjIgZblg/4RMCnEqNQypcHZba9ePqAN"
 #define GDATA_C3 "XHEZEgO06YbWfQWOyYhE/ny5Q10aNOZlkQ=="
 
+#define REFRESH_TIMEOUT_MINUTES 45.0
+
 
 typedef struct
 {
@@ -61,11 +65,12 @@ typedef struct
 } CmGDataContactsCache;
 
 
-CmGDataContactsCache contacts_cache;
-gboolean cm_gdata_contacts_query_running = FALSE;
-gchar *contacts_group_id = NULL;
-GDataOAuth2Authorizer *authorizer = NULL;
-GDataContactsService *service = NULL;
+static CmGDataContactsCache contacts_cache;
+static gboolean cm_gdata_contacts_query_running = FALSE;
+static gchar *contacts_group_id = NULL;
+static GDataOAuth2Authorizer *authorizer = NULL;
+static GDataContactsService *service = NULL;
+static GTimer *refresh_timer = NULL;
 
 
 static void protect_fields_against_NULL(Contact *contact)
@@ -241,10 +246,10 @@ static void write_cache_to_file(void)
 
   /* Actual writing and cleanup */
   xml_write_tree(rootnode, pfile->fp);
-  if(prefs_file_close(pfile) < 0)
+  if (prefs_file_close(pfile) < 0)
     debug_print("GData plugin error: Failed to write file " GDATA_CONTACTS_FILENAME "\n");
-
-  debug_print("GData plugin error: Wrote cache to file " GDATA_CONTACTS_FILENAME "\n");
+  else
+    debug_print("GData plugin: Wrote cache to file " GDATA_CONTACTS_FILENAME "\n");
 
   /* Free XML tree */
   xml_free_tree(rootnode);
@@ -314,7 +319,7 @@ static void cm_gdata_query_contacts_ready(GDataContactsService *service, GAsyncR
   GError *error = NULL;
   guint num_contacts = 0;
   guint num_contacts_added = 0;
-	gchar *tmpstr1, *tmpstr2;
+  gchar *tmpstr1, *tmpstr2;
 
   feed = gdata_service_query_finish(GDATA_SERVICE(service), res, &error);
   cm_gdata_contacts_query_running = FALSE;
@@ -336,13 +341,13 @@ static void cm_gdata_query_contacts_ready(GDataContactsService *service, GAsyncR
   }
   g_object_unref(feed);
   contacts_cache.contacts = g_slist_reverse(contacts_cache.contacts);
-	/* i18n: First part of "Added X of Y contacts to cache" */
+  /* TRANSLATORS: First part of "Added X of Y contacts to cache" */
   tmpstr1 = g_strdup_printf(ngettext("Added %d of", "Added %d of", num_contacts_added), num_contacts_added);
-	/* i18n: Second part of "Added X of Y contacts to cache" */
+  /* TRANSLATORS: Second part of "Added X of Y contacts to cache" */
   tmpstr2 = g_strdup_printf(ngettext("1 contact to the cache", "%d contacts to the cache", num_contacts), num_contacts);
   log_message(LOG_PROTOCOL, "%s %s\n", tmpstr1, tmpstr2);
-	g_free(tmpstr1);
-	g_free(tmpstr2);
+  g_free(tmpstr1);
+  g_free(tmpstr2);
 }
 
 static void query_contacts(GDataContactsService *service)
@@ -480,7 +485,6 @@ static void cm_gdata_interactive_auth()
 }
 
 
-#if GDATA_CHECK_VERSION(0,17,2)
 static void cm_gdata_refresh_ready(GDataOAuth2Authorizer *auth, GAsyncResult *res, gpointer data)
 {
   GError *error = NULL;
@@ -501,9 +505,10 @@ static void cm_gdata_refresh_ready(GDataOAuth2Authorizer *auth, GAsyncResult *re
 
   log_message(LOG_PROTOCOL, _("GData plugin: Authorization refresh successful\n"));
 
+  g_timer_start(refresh_timer);
+
   query_after_auth();
 }
-#endif
 
 
 /* returns allocated string which must be freed */
@@ -520,9 +525,12 @@ static guchar* decode(const gchar *in)
 
 static void query()
 {
+  gchar *token;
+  int elapsed_time_min;
+
   if(cm_gdata_contacts_query_running)
   {
-    debug_print("GData plugin: Network query already in progress");
+    debug_print("GData plugin: Network query already in progress\n");
     return;
   }
 
@@ -546,23 +554,33 @@ static void query()
   }
   g_return_if_fail(service);
 
-  if(!gdata_service_is_authorized(GDATA_SERVICE(service)))
+  if(!refresh_timer)
   {
-#if GDATA_CHECK_VERSION(0,17,2)
+    refresh_timer = g_timer_new();
+  }
+  g_return_if_fail(refresh_timer);
+
+  elapsed_time_min = (int)((g_timer_elapsed(refresh_timer, NULL)/60.0)+0.5);
+  if(elapsed_time_min > REFRESH_TIMEOUT_MINUTES)
+  {
+    log_message(LOG_PROTOCOL, _("GData plugin: Elapsed time since last refresh: %d minutes, refreshing now\n"), elapsed_time_min);
+    gdata_authorizer_refresh_authorization_async(GDATA_AUTHORIZER(authorizer), NULL, (GAsyncReadyCallback)cm_gdata_refresh_ready, NULL);
+  }
+  else if(!gdata_service_is_authorized(GDATA_SERVICE(service)))
+  {
     /* Try to restore from saved refresh token.*/
-    if(cm_gdata_config.oauth2_refresh_token)
+    if((token = passwd_store_get(PWS_PLUGIN, "GData", GDATA_TOKEN_PWD_STRING)) != NULL)
     {
       log_message(LOG_PROTOCOL, _("GData plugin: Trying to refresh authorization\n"));
-      gdata_oauth2_authorizer_set_refresh_token(authorizer, cm_gdata_config.oauth2_refresh_token);
+      gdata_oauth2_authorizer_set_refresh_token(authorizer, token);
+      memset(token, 0, strlen(token));
+      g_free(token);
       gdata_authorizer_refresh_authorization_async(GDATA_AUTHORIZER(authorizer), NULL, (GAsyncReadyCallback)cm_gdata_refresh_ready, NULL);
     }
     else
     {
       cm_gdata_interactive_auth();
     }
-#else
-    cm_gdata_interactive_auth();
-#endif
   }
   else
   {
@@ -617,6 +635,8 @@ gboolean cm_gdata_update_contacts_cache(void)
 
 void cm_gdata_contacts_done(void)
 {
+  gchar *pass;
+
   g_free(contacts_group_id);
   contacts_group_id = NULL;
 
@@ -626,10 +646,14 @@ void cm_gdata_contacts_done(void)
 
   if(authorizer)
   {
-#if GDATA_CHECK_VERSION(0,17,2)
     /* store refresh token */
-    cm_gdata_config.oauth2_refresh_token = gdata_oauth2_authorizer_dup_refresh_token(authorizer);
-#endif
+    pass = gdata_oauth2_authorizer_dup_refresh_token(authorizer);
+    passwd_store_set(PWS_PLUGIN, "GData", GDATA_TOKEN_PWD_STRING, pass, FALSE);
+    if (pass != NULL) {
+      memset(pass, 0, strlen(pass));
+      g_free(pass);
+    }
+    passwd_store_write_config();
 
     g_object_unref(G_OBJECT(authorizer));
     authorizer = NULL;
@@ -639,6 +663,12 @@ void cm_gdata_contacts_done(void)
   {
     g_object_unref(G_OBJECT(service));
     service = NULL;
+  }
+
+  if(refresh_timer)
+  {
+    g_timer_destroy(refresh_timer);
+    refresh_timer = NULL;
   }
 }
 
@@ -665,7 +695,7 @@ void cm_gdata_load_contacts_cache_from_file(void)
 
   /* Check that root entry is "gdata" */
   if(strcmp2(xmlnode->tag->tag, "gdata") != 0) {
-    g_warning("wrong gdata cache file\n");
+    g_warning("wrong gdata cache file");
     xml_free_tree(rootnode);
     return;
   }

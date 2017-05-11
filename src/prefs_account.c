@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -64,6 +63,7 @@
 #include "privacy.h"
 #include "inputdialog.h"
 #include "ssl_certificate.h"
+#include "passwordstore.h"
 
 static gboolean cancelled;
 static gboolean new_account;
@@ -118,6 +118,7 @@ typedef struct BasicPage
 	GtkWidget *pass_label;
 	GtkWidget *uid_entry;
 	GtkWidget *pass_entry;
+	GtkWidget *showpwd_checkbtn;
 	GtkWidget *auto_configure_btn;
 	GtkWidget *auto_configure_cancel_btn;
 	GtkWidget *auto_configure_lbl;
@@ -326,7 +327,6 @@ typedef struct AdvancedPage
 	GtkWidget *draft_folder_entry;
 	GtkWidget *trash_folder_checkbtn;
 	GtkWidget *trash_folder_entry;
-	GtkWidget *imap_use_trash_checkbtn;
 } AdvancedPage;
 
 static BasicPage basic_page;
@@ -350,10 +350,8 @@ struct BasicProtocol {
 };
 
 static char *protocol_names[] = {
-	N_("POP3"),
-	NULL,		/* APOP, deprecated */
-	NULL,		/* RPOP, deprecated */
-	N_("IMAP4"),
+	N_("POP"),
+	N_("IMAP"),
 	N_("News (NNTP)"),
 	N_("Local mbox file"),
 	N_("None (SMTP only)")
@@ -386,6 +384,8 @@ static void prefs_account_crosspost_set_colormenu(PrefParam *pparam);
 static void prefs_account_nntpauth_toggled(GtkToggleButton *button,
 					   gpointer user_data);
 static void prefs_account_mailcmd_toggled(GtkToggleButton *button,
+					  gpointer user_data);
+static void prefs_account_showpwd_checkbtn_toggled(GtkToggleButton *button,
 					  gpointer user_data);
 static void prefs_account_filter_on_recv_toggled(GtkToggleButton *button,
 					  gpointer user_data);
@@ -451,7 +451,7 @@ static PrefParam basic_param[] = {
 	 &basic_page.uid_entry, prefs_set_data_from_entry, prefs_set_entry},
 
 	{"password", NULL, &tmp_ac_prefs.passwd, P_PASSWORD,
-	 &basic_page.pass_entry, prefs_set_data_from_entry, prefs_set_entry},
+	 NULL, NULL, NULL},
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
 };
@@ -555,7 +555,7 @@ static PrefParam send_param[] = {
 	{"smtp_user_id", NULL, &tmp_ac_prefs.smtp_userid, P_STRING,
 	 &send_page.smtp_uid_entry, prefs_set_data_from_entry, prefs_set_entry},
 	{"smtp_password", NULL, &tmp_ac_prefs.smtp_passwd, P_PASSWORD,
-	 &send_page.smtp_pass_entry, prefs_set_data_from_entry, prefs_set_entry},
+	 NULL, NULL, NULL},
 
 	{"pop_before_smtp", "FALSE", &tmp_ac_prefs.pop_before_smtp, P_BOOL,
 	 &send_page.pop_bfr_smtp_checkbtn,
@@ -759,13 +759,13 @@ static PrefParam ssl_param[] = {
 	 &ssl_page.entry_in_cert_file, prefs_set_data_from_entry, prefs_set_entry},
 
 	{"in_ssl_client_cert_pass", "", &tmp_ac_prefs.in_ssl_client_cert_pass, P_PASSWORD,
-	 &ssl_page.entry_in_cert_pass, prefs_set_data_from_entry, prefs_set_entry},
+	 NULL, NULL, NULL},
 
 	{"out_ssl_client_cert_file", "", &tmp_ac_prefs.out_ssl_client_cert_file, P_STRING,
 	 &ssl_page.entry_out_cert_file, prefs_set_data_from_entry, prefs_set_entry},
 
 	{"out_ssl_client_cert_pass", "", &tmp_ac_prefs.out_ssl_client_cert_pass, P_PASSWORD,
-	 &ssl_page.entry_out_cert_pass, prefs_set_data_from_entry, prefs_set_entry},
+	 NULL, NULL, NULL},
 #else
 	{"ssl_pop", "0", &tmp_ac_prefs.ssl_pop, P_ENUM,
 	 NULL, NULL, NULL},
@@ -940,10 +940,6 @@ static PrefParam advanced_param[] = {
 	 &advanced_page.trash_folder_entry,
 	 prefs_set_data_from_entry, prefs_set_entry},
 	 
-	 {"imap_use_trash", "TRUE", &tmp_ac_prefs.imap_use_trash, P_BOOL,
-	 &advanced_page.imap_use_trash_checkbtn,
-	 prefs_set_data_from_toggle, prefs_set_toggle},
-
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
 };
@@ -1077,8 +1073,10 @@ static void basic_create_widget_func(PrefsPage * _page,
 	GtkWidget *auto_configure_btn;
 	GtkWidget *auto_configure_cancel_btn;
 	GtkWidget *auto_configure_lbl;
+	GtkWidget *showpwd_checkbtn;
 	GtkListStore *menu;
 	GtkTreeIter iter;
+	gchar *buf;
 
 	struct BasicProtocol *protocol_optmenu;
 	gint i;
@@ -1204,8 +1202,9 @@ static void basic_create_widget_func(PrefsPage * _page,
 
 	no_imap_warn_icon = gtk_image_new_from_stock
                         (GTK_STOCK_DIALOG_WARNING, GTK_ICON_SIZE_SMALL_TOOLBAR);
-	no_imap_warn_label = gtk_label_new(_("<span weight=\"bold\">Warning: this version of Claws Mail\n"
-			  "has been built without IMAP and News support.</span>"));
+	no_imap_warn_label = gtk_label_new(g_strconcat("<span weight=\"bold\">",
+			_("Warning: this version of Claws Mail\n"
+			  "has been built without IMAP and News support."), "</span>", NULL));
 	gtk_label_set_use_markup(GTK_LABEL(no_imap_warn_label), TRUE);
 
 	gtk_box_pack_start(GTK_BOX (optmenubox), no_imap_warn_icon, FALSE, FALSE, 0);
@@ -1218,7 +1217,7 @@ static void basic_create_widget_func(PrefsPage * _page,
 	protocol_optmenu->no_imap_warn_icon = no_imap_warn_icon;
 	protocol_optmenu->no_imap_warn_label = no_imap_warn_label;
 
-	serv_table = gtk_table_new (6, 4, FALSE);
+	serv_table = gtk_table_new (10, 4, FALSE);
 	gtk_widget_show (serv_table);
 	gtk_box_pack_start (GTK_BOX (vbox2), serv_table, FALSE, FALSE, 0);
 	gtk_table_set_row_spacings (GTK_TABLE (serv_table), VSPACING_NARROW);
@@ -1353,10 +1352,20 @@ static void basic_create_widget_func(PrefsPage * _page,
 	gtk_table_attach (GTK_TABLE (serv_table), pass_label, 0, 1, 8, 9,
 			  GTK_FILL, 0, 0, 0);
 #endif
+
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	gtk_widget_show(showpwd_checkbtn);
+	gtk_table_attach (GTK_TABLE (serv_table), showpwd_checkbtn, 3, 4, 9, 10,
+			GTK_FILL, 0, 0, 0);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(prefs_account_showpwd_checkbtn_toggled), pass_entry);
+
 	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, uid_label);
 	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, pass_label);
 	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, uid_entry);
 	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, pass_entry);
+	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, showpwd_checkbtn);
 	SET_TOGGLE_SENSITIVITY (nntpauth_checkbtn, nntpauth_onconnect_checkbtn);
 
 	page->acname_entry   = acname_entry;
@@ -1386,13 +1395,13 @@ static void basic_create_widget_func(PrefsPage * _page,
 	page->pass_label       = pass_label;
 	page->uid_entry        = uid_entry;
 	page->pass_entry       = pass_entry;
+	page->showpwd_checkbtn = showpwd_checkbtn;
 	page->auto_configure_btn = auto_configure_btn;
 	page->auto_configure_cancel_btn = auto_configure_cancel_btn;
 	page->auto_configure_lbl = auto_configure_lbl;
 
 	if (new_account) {
 		PrefsAccount *def_ac;
-		gchar *buf;
 
 		prefs_set_dialog_to_default(basic_param);
 		buf = g_strdup_printf(_("Account%d"), ac_prefs->account_id);
@@ -1419,8 +1428,18 @@ static void basic_create_widget_func(PrefsPage * _page,
 				g_free(id);
 			}
 		}
-	} else
+	} else {
 		prefs_set_dialog(basic_param);
+
+		/* Passwords are handled outside of PrefParams. */
+		buf = passwd_store_get_account(ac_prefs->account_id,
+				PWS_ACCOUNT_RECV);
+		gtk_entry_set_text(GTK_ENTRY(page->pass_entry), buf != NULL ? buf : "");
+		if (buf != NULL) {
+			memset(buf, 0, strlen(buf));
+			g_free(buf);
+		}
+	}
 
 	page->vbox = vbox1;
 
@@ -1507,7 +1526,7 @@ static void receive_create_widget_func(PrefsPage * _page,
 			  G_CALLBACK (prefs_account_select_folder_cb),
 			  local_inbox_entry);
 
-	vbox2 = gtkut_get_options_frame(vbox1, &frame1, _("POP3"));
+	vbox2 = gtkut_get_options_frame(vbox1, &frame1, _("POP"));
 	PACK_CHECK_BUTTON (vbox2, use_apop_checkbtn,
 			   _("Use secure authentication (APOP)"));
 
@@ -1620,7 +1639,7 @@ static void receive_create_widget_func(PrefsPage * _page,
 	gtk_spin_button_set_numeric
 		(GTK_SPIN_BUTTON (maxarticle_spinbtn), TRUE);
 
-	vbox2 = gtkut_get_options_frame(vbox1, &imap_frame, _("IMAP4"));
+	vbox2 = gtkut_get_options_frame(vbox1, &imap_frame, _("IMAP"));
 
 	hbox1 = gtk_hbox_new (FALSE, 8);
 	gtk_widget_show (hbox1);
@@ -1638,12 +1657,14 @@ static void receive_create_widget_func(PrefsPage * _page,
 
 	COMBOBOX_ADD (menu, _("Automatic"), 0);
 	COMBOBOX_ADD (menu, NULL, 0);
-	COMBOBOX_ADD (menu, "LOGIN", IMAP_AUTH_LOGIN);
+	COMBOBOX_ADD (menu, _("Plain text"), IMAP_AUTH_PLAINTEXT);
 	COMBOBOX_ADD (menu, "CRAM-MD5", IMAP_AUTH_CRAM_MD5);
 	COMBOBOX_ADD (menu, "ANONYMOUS", IMAP_AUTH_ANON);
 	COMBOBOX_ADD (menu, "GSSAPI", IMAP_AUTH_GSSAPI);
 	COMBOBOX_ADD (menu, "DIGEST-MD5", IMAP_AUTH_DIGEST_MD5);
 	COMBOBOX_ADD (menu, "SCRAM-SHA-1", IMAP_AUTH_SCRAM_SHA1);
+	COMBOBOX_ADD (menu, "PLAIN", IMAP_AUTH_PLAIN);
+	COMBOBOX_ADD (menu, "LOGIN", IMAP_AUTH_LOGIN);
 
 	hbox1 = gtk_hbox_new (FALSE, 8);
 	gtk_widget_show (hbox1);
@@ -1757,6 +1778,7 @@ static void send_create_widget_func(PrefsPage * _page,
 	GtkWidget *checkbtn_msgid_with_addr;
 	GtkWidget *vbox3;
 	GtkWidget *smtp_auth_checkbtn;
+	GtkWidget *showpwd_checkbtn;
 	GtkWidget *optmenu;
 	GtkListStore *menu;
 	GtkTreeIter iter;
@@ -1770,6 +1792,7 @@ static void send_create_widget_func(PrefsPage * _page,
 	GtkWidget *pop_bfr_smtp_tm_spinbtn;
 	GtkWidget *pop_auth_timeout_lbl;
 	GtkWidget *pop_auth_minutes_lbl;
+	gchar *buf;
 
 	vbox1 = gtk_vbox_new (FALSE, VSPACING);
 	gtk_widget_show (vbox1);
@@ -1876,8 +1899,15 @@ static void send_create_widget_func(PrefsPage * _page,
 	gtk_widget_show (smtp_pass_entry);
 	gtk_widget_set_size_request (smtp_pass_entry, DEFAULT_ENTRY_WIDTH, -1);
 	gtk_box_pack_start (GTK_BOX (hbox), smtp_pass_entry, TRUE, TRUE, 0);
-
 	gtk_entry_set_visibility (GTK_ENTRY (smtp_pass_entry), FALSE);
+
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	gtk_widget_show(showpwd_checkbtn);
+	gtk_box_pack_start(GTK_BOX (hbox), showpwd_checkbtn, FALSE, FALSE, 0);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(prefs_account_showpwd_checkbtn_toggled), smtp_pass_entry);
+
 	PACK_VSPACER(vbox4, vbox_spc, VSPACING_NARROW_2);
 
 	hbox = gtk_hbox_new (FALSE, 8);
@@ -1901,7 +1931,7 @@ static void send_create_widget_func(PrefsPage * _page,
 	SET_TOGGLE_SENSITIVITY (smtp_auth_checkbtn, vbox4);
 
 	PACK_CHECK_BUTTON (vbox3, pop_bfr_smtp_checkbtn,
-		_("Authenticate with POP3 before sending"));
+		_("Authenticate with POP before sending"));
 	
 	g_signal_connect (G_OBJECT (pop_bfr_smtp_checkbtn), "clicked",
 			  G_CALLBACK (pop_bfr_smtp_tm_set_sens),
@@ -1946,8 +1976,18 @@ static void send_create_widget_func(PrefsPage * _page,
 
 	if (new_account) {
 		prefs_set_dialog_to_default(send_param);
-	} else
+	} else {
 		prefs_set_dialog(send_param);
+
+		/* Passwords are handled outside of PrefParams. */
+		buf = passwd_store_get_account(ac_prefs->account_id,
+				PWS_ACCOUNT_SEND);
+		gtk_entry_set_text(GTK_ENTRY(page->smtp_pass_entry), buf != NULL ? buf : "");
+		if (buf != NULL) {
+			memset(buf, 0, strlen(buf));
+			g_free(buf);
+		}
+	}
 
 	pop_bfr_smtp_tm_set_sens (NULL, NULL);
 
@@ -2070,7 +2110,7 @@ static void compose_create_widget_func(PrefsPage * _page,
 	gtk_table_set_col_spacings (GTK_TABLE (table), 8);
 
 	autocc_checkbtn = gtk_check_button_new_with_label (
-				prefs_common_translated_header_name("Cc"));
+				prefs_common_translated_header_name("Cc:"));
 	gtk_widget_show (autocc_checkbtn);
 	gtk_table_attach (GTK_TABLE (table), autocc_checkbtn, 0, 1, 0, 1,
 			  GTK_FILL, 0, 0, 0);
@@ -2084,7 +2124,7 @@ static void compose_create_widget_func(PrefsPage * _page,
 	SET_TOGGLE_SENSITIVITY (autocc_checkbtn, autocc_entry);
 
 	autobcc_checkbtn = gtk_check_button_new_with_label (
-				prefs_common_translated_header_name("Bcc"));
+				prefs_common_translated_header_name("Bcc:"));
 	gtk_widget_show (autobcc_checkbtn);
 	gtk_table_attach (GTK_TABLE (table), autobcc_checkbtn, 0, 1, 1, 2,
 			  GTK_FILL, 0, 0, 0);
@@ -2098,7 +2138,7 @@ static void compose_create_widget_func(PrefsPage * _page,
 	SET_TOGGLE_SENSITIVITY (autobcc_checkbtn, autobcc_entry);
 
 	autoreplyto_checkbtn = gtk_check_button_new_with_label (
-				prefs_common_translated_header_name("Reply-To"));
+				prefs_common_translated_header_name("Reply-To:"));
 	gtk_widget_show (autoreplyto_checkbtn);
 	gtk_table_attach (GTK_TABLE (table), autoreplyto_checkbtn, 0, 1, 2, 3,
 			  GTK_FILL, 0, 0, 0);
@@ -2479,6 +2519,7 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	GtkWidget *cert_table;
 	GtkWidget *entry_in_cert_pass;
 	GtkWidget *entry_out_cert_pass;
+	GtkWidget *showpwd_checkbtn;
 
 	GtkWidget *vbox7;
 	GtkWidget *ssl_certs_auto_accept_checkbtn;
@@ -2486,37 +2527,38 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	GtkWidget *hbox;
 	GtkWidget *hbox_spc;
 	GtkWidget *label;
+	gchar *buf;
 
 	vbox1 = gtk_vbox_new (FALSE, VSPACING);
 	gtk_widget_show (vbox1);
 	gtk_container_set_border_width (GTK_CONTAINER (vbox1), VBOX_BORDER);
 
-	vbox2 = gtkut_get_options_frame(vbox1, &pop_frame, _("POP3"));
+	vbox2 = gtkut_get_options_frame(vbox1, &pop_frame, _("POP"));
 
 	CREATE_RADIO_BUTTONS(vbox2,
 			     pop_nossl_radiobtn,
-			     _("Don't use SSL"),
+			     _("Don't use SSL/TLS"),
 			     SSL_NONE,
 			     pop_ssltunnel_radiobtn,
-			     _("Use SSL for POP3 connection"),
+			     _("Use SSL/TLS"),
 			     SSL_TUNNEL,
 			     pop_starttls_radiobtn,
-			     _("Use STARTTLS command to start SSL session"),
+			     _("Use STARTTLS command to start encrypted session"),
 			     SSL_STARTTLS);
 	g_signal_connect(G_OBJECT(pop_ssltunnel_radiobtn), "toggled",
 			 G_CALLBACK(pop_ssltunnel_toggled), NULL);
 	
-	vbox3 = gtkut_get_options_frame(vbox1, &imap_frame, _("IMAP4"));
+	vbox3 = gtkut_get_options_frame(vbox1, &imap_frame, _("IMAP"));
 
 	CREATE_RADIO_BUTTONS(vbox3,
 			     imap_nossl_radiobtn,
-			     _("Don't use SSL"),
+			     _("Don't use SSL/TLS"),
 			     SSL_NONE,
 			     imap_ssltunnel_radiobtn,
-			     _("Use SSL for IMAP4 connection"),
+			     _("Use SSL/TLS"),
 			     SSL_TUNNEL,
 			     imap_starttls_radiobtn,
-			     _("Use STARTTLS command to start SSL session"),
+			     _("Use STARTTLS command to start encrypted session"),
 			     SSL_STARTTLS);
 	g_signal_connect(G_OBJECT(imap_ssltunnel_radiobtn), "toggled",
 			 G_CALLBACK(imap_ssltunnel_toggled), NULL);
@@ -2524,7 +2566,7 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	vbox4 = gtkut_get_options_frame(vbox1, &nntp_frame, _("NNTP"));
 
 	nntp_nossl_radiobtn =
-		gtk_radio_button_new_with_label (NULL, _("Don't use SSL"));
+		gtk_radio_button_new_with_label (NULL, _("Don't use SSL/TLS"));
 	gtk_widget_show (nntp_nossl_radiobtn);
 	gtk_box_pack_start (GTK_BOX (vbox4), nntp_nossl_radiobtn,
 			    FALSE, FALSE, 0);
@@ -2533,7 +2575,7 @@ static void ssl_create_widget_func(PrefsPage * _page,
 			   GINT_TO_POINTER (SSL_NONE));
 
 	CREATE_RADIO_BUTTON(vbox4, nntp_ssltunnel_radiobtn, nntp_nossl_radiobtn,
-			    _("Use SSL for NNTP connection"), SSL_TUNNEL);
+			    _("Use SSL/TLS"), SSL_TUNNEL);
 	g_signal_connect(G_OBJECT(nntp_ssltunnel_radiobtn), "toggled",
 			 G_CALLBACK(nntp_ssltunnel_toggled), NULL);
 
@@ -2541,13 +2583,13 @@ static void ssl_create_widget_func(PrefsPage * _page,
 
 	CREATE_RADIO_BUTTONS(vbox5,
 			     smtp_nossl_radiobtn,
-			     _("Don't use SSL (but, if necessary, use STARTTLS)"),
+			     _("Don't use SSL/TLS (but, if necessary, use STARTTLS)"),
 			     SSL_NONE,
 			     smtp_ssltunnel_radiobtn,
-			     _("Use SSL for SMTP connection"),
+			     _("Use SSL/TLS"),
 			     SSL_TUNNEL,
 			     smtp_starttls_radiobtn,
-			     _("Use STARTTLS command to start SSL session"),
+			     _("Use STARTTLS command to start encrypted session"),
 			     SSL_STARTTLS);
 	g_signal_connect(G_OBJECT(smtp_ssltunnel_radiobtn), "toggled",
 			 G_CALLBACK(smtp_ssltunnel_toggled), NULL);
@@ -2578,9 +2620,15 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 	entry_in_cert_pass = gtk_entry_new();
 	gtk_entry_set_visibility(GTK_ENTRY(entry_in_cert_pass), FALSE);
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(prefs_account_showpwd_checkbtn_toggled), entry_in_cert_pass);
 	gtk_table_attach(GTK_TABLE(cert_table), label, 0, 1, 1, 2, GTK_FILL, 0, 0, 0);
 	gtk_table_attach(GTK_TABLE(cert_table), entry_in_cert_pass, 1, 2, 1, 2,
 			 GTK_FILL, 0, 0, 0);
+	gtk_table_attach(GTK_TABLE(cert_table), showpwd_checkbtn, 2, 3, 1, 2,
+			GTK_FILL, 0, 0, 0);
 
 	label = gtk_label_new(_("Certificate for sending"));
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
@@ -2600,9 +2648,16 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 	entry_out_cert_pass = gtk_entry_new();
 	gtk_entry_set_visibility(GTK_ENTRY(entry_out_cert_pass), FALSE);
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(prefs_account_showpwd_checkbtn_toggled), entry_out_cert_pass);
 	gtk_table_attach(GTK_TABLE(cert_table), label, 0, 1, 3, 4, GTK_FILL, 0, 0, 0);
 	gtk_table_attach(GTK_TABLE(cert_table), entry_out_cert_pass, 1, 2, 3, 4,
 			 GTK_FILL, 0, 0, 0);
+	gtk_table_attach(GTK_TABLE(cert_table), showpwd_checkbtn, 2, 3, 3, 4,
+			GTK_FILL, 0, 0, 0);
+
 	gtk_widget_show_all(cert_table);
 
 	g_signal_connect(G_OBJECT(in_ssl_cert_browse_button), "clicked",
@@ -2615,10 +2670,10 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	gtk_box_pack_start (GTK_BOX (vbox1), vbox7, FALSE, FALSE, 0);
 
 	PACK_CHECK_BUTTON(vbox7, ssl_certs_auto_accept_checkbtn,
-			  _("Automatically accept unknown valid SSL certificates"));
+			  _("Automatically accept valid SSL/TLS certificates"));
 
 	PACK_CHECK_BUTTON(vbox7, use_nonblocking_ssl_checkbtn,
-			  _("Use non-blocking SSL"));
+			  _("Use non-blocking SSL/TLS"));
 
 	hbox = gtk_hbox_new (FALSE, 0);
 	gtk_widget_show (hbox);
@@ -2630,7 +2685,7 @@ static void ssl_create_widget_func(PrefsPage * _page,
 	gtk_widget_set_size_request (hbox_spc, 16, -1);
 
 	label = gtk_label_new
-		(_("Turn this off if you have SSL connection problems"));
+		(_("Turn this off if you have SSL/TLS connection problems"));
 	gtk_widget_show (label);
 	gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, FALSE, 0);
 	gtkut_widget_set_small_font_size (label);
@@ -2666,8 +2721,26 @@ static void ssl_create_widget_func(PrefsPage * _page,
 
 	if (new_account) {
 		prefs_set_dialog_to_default(ssl_param);
-	} else
+	} else {
 		prefs_set_dialog(ssl_param);
+
+		/* Passwords are handled outside of PrefParams. */
+		buf = passwd_store_get_account(ac_prefs->account_id,
+				PWS_ACCOUNT_RECV_CERT);
+		gtk_entry_set_text(GTK_ENTRY(page->entry_in_cert_pass), buf != NULL ? buf : "");
+		if (buf != NULL) {
+			memset(buf, 0, strlen(buf));
+			g_free(buf);
+		}
+
+		buf = passwd_store_get_account(ac_prefs->account_id,
+				PWS_ACCOUNT_SEND_CERT);
+		gtk_entry_set_text(GTK_ENTRY(page->entry_out_cert_pass), buf != NULL ? buf : "");
+		if (buf != NULL) {
+			memset(buf, 0, strlen(buf));
+			g_free(buf);
+		}
+	}
 
 	page->vbox = vbox1;
 
@@ -2853,7 +2926,6 @@ static void advanced_create_widget_func(PrefsPage * _page,
 	GtkWidget *draft_folder_entry;
 	GtkWidget *trash_folder_checkbtn;
 	GtkWidget *trash_folder_entry;
-	GtkWidget *imap_use_trash_checkbtn;
 	GtkSizeGroup *size_group = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
 
 #define PACK_HBOX(hbox) \
@@ -2886,14 +2958,14 @@ static void advanced_create_widget_func(PrefsPage * _page,
 	
 	PACK_HBOX (hbox_popport);
 	PACK_CHECK_BUTTON (hbox_popport, checkbtn_popport,
-			   _("POP3 port"));
+			   _("POP port"));
 	PACK_PORT_SPINBTN (hbox_popport, spinbtn_popport);
 	SET_TOGGLE_SENSITIVITY (checkbtn_popport, spinbtn_popport);
 	gtk_size_group_add_widget(size_group, checkbtn_popport);
 
 	PACK_HBOX (hbox_imapport);
 	PACK_CHECK_BUTTON (hbox_imapport, checkbtn_imapport,
-			   _("IMAP4 port"));
+			   _("IMAP port"));
 	PACK_PORT_SPINBTN (hbox_imapport, spinbtn_imapport);
 	SET_TOGGLE_SENSITIVITY (checkbtn_imapport, spinbtn_imapport);
 	gtk_size_group_add_widget(size_group, checkbtn_imapport);
@@ -2929,11 +3001,6 @@ static void advanced_create_widget_func(PrefsPage * _page,
 	gtk_box_pack_start (GTK_BOX (hbox1), entry_tunnelcmd, TRUE, TRUE, 0);
 	SET_TOGGLE_SENSITIVITY (checkbtn_tunnelcmd, entry_tunnelcmd);
 #endif
-	PACK_HBOX (hbox1);
-	PACK_CHECK_BUTTON (hbox1, imap_use_trash_checkbtn,
-			   _("Move deleted mails to trash and expunge immediately"));
-	CLAWS_SET_TIP(imap_use_trash_checkbtn,
-			     _("Moves deleted mails to trash instead of using the \\Deleted flag without expunging."));
 
 #if !GTK_CHECK_VERSION(3, 0, 0)
 	PACK_CHECK_BUTTON (hbox1, checkbtn_crosspost, 
@@ -3032,7 +3099,6 @@ static void advanced_create_widget_func(PrefsPage * _page,
 	page->draft_folder_entry  = draft_folder_entry;
 	page->trash_folder_checkbtn = trash_folder_checkbtn;
 	page->trash_folder_entry  = trash_folder_entry;
-	page->imap_use_trash_checkbtn = imap_use_trash_checkbtn;
 
 	tmp_ac_prefs = *ac_prefs;
 
@@ -3080,7 +3146,7 @@ static gint prefs_basic_apply(void)
 	}
 	if (protocol == A_POP3 &&
 	    *gtk_entry_get_text(GTK_ENTRY(basic_page.recvserv_entry)) == '\0') {
-		alertpanel_error(_("POP3 server is not entered."));
+		alertpanel_error(_("POP server is not entered."));
 		return -1;
 	}
 	if (protocol == A_POP3 || protocol == A_LOCAL) {
@@ -3106,7 +3172,7 @@ static gint prefs_basic_apply(void)
 	}
 	if (protocol == A_IMAP4 &&
 	    *gtk_entry_get_text(GTK_ENTRY(basic_page.recvserv_entry)) == '\0') {
-		alertpanel_error(_("IMAP4 server is not entered."));
+		alertpanel_error(_("IMAP server is not entered."));
 		return -1;
 	}
 	if (protocol == A_NNTP &&
@@ -3133,6 +3199,12 @@ static gint prefs_basic_apply(void)
 				tmp_ac_prefs.account_name ? tmp_ac_prefs.account_name : "(null)");
 	
 	prefs_set_data_from_dialog(basic_param);
+
+	/* Passwords are stored outside of PrefParams. */
+	passwd_store_set_account(tmp_ac_prefs.account_id,
+			PWS_ACCOUNT_RECV,
+			gtk_entry_get_text(GTK_ENTRY(basic_page.pass_entry)),
+			FALSE);
 	
 	if (protocol == A_IMAP4 || protocol == A_NNTP) {
 		new_id = g_strdup_printf("#%s/%s",
@@ -3156,6 +3228,13 @@ static gint prefs_receive_apply(void)
 static gint prefs_send_apply(void)
 {
 	prefs_set_data_from_dialog(send_param);
+
+	/* Passwords are stored outside of PrefParams. */
+	passwd_store_set_account(tmp_ac_prefs.account_id,
+			PWS_ACCOUNT_SEND,
+			gtk_entry_get_text(GTK_ENTRY(send_page.smtp_pass_entry)),
+			FALSE);
+
 	return 0;
 }
 
@@ -3181,6 +3260,17 @@ static gint prefs_privacy_apply(void)
 static gint prefs_ssl_apply(void)
 {
 	prefs_set_data_from_dialog(ssl_param);
+
+	/* Passwords are stored outside of PrefParams. */
+	passwd_store_set_account(tmp_ac_prefs.account_id,
+			PWS_ACCOUNT_RECV_CERT,
+			gtk_entry_get_text(GTK_ENTRY(ssl_page.entry_in_cert_pass)),
+			FALSE);
+	passwd_store_set_account(tmp_ac_prefs.account_id,
+			PWS_ACCOUNT_SEND_CERT,
+			gtk_entry_get_text(GTK_ENTRY(ssl_page.entry_out_cert_pass)),
+			FALSE);
+
 	return 0;
 }
 #endif
@@ -3563,7 +3653,7 @@ static void register_ssl_page(void)
 	static gchar *path[3];
 
 	path[0] = _("Account");
-	path[1] = _("SSL");
+	path[1] = _("SSL/TLS");
 	path[2] = NULL;
         
 	ssl_page.page.path = path;
@@ -3580,26 +3670,27 @@ static gboolean sslcert_get_client_cert_hook(gpointer source, gpointer data)
 {
 	SSLClientCertHookData *hookdata = (SSLClientCertHookData *)source;
 	PrefsAccount *account = (PrefsAccount *)hookdata->account;
+	gchar *pwd_id;
 
 	hookdata->cert_path = NULL;
 	hookdata->password = NULL;
 
 	if (!g_list_find(account_get_list(), account)) {
-		g_warning("can't find sock account\n");
+		g_warning("can't find account");
 		return TRUE;
 	}
 	
 	if (hookdata->is_smtp) {
 		if (account->out_ssl_client_cert_file && *account->out_ssl_client_cert_file)
 			hookdata->cert_path = account->out_ssl_client_cert_file;
-		if (account->out_ssl_client_cert_pass && *account->out_ssl_client_cert_pass)
-			hookdata->password = account->out_ssl_client_cert_pass;
+		pwd_id = PWS_ACCOUNT_SEND_CERT;
 	} else {
 		if (account->in_ssl_client_cert_file && *account->in_ssl_client_cert_file)
 			hookdata->cert_path = account->in_ssl_client_cert_file;
-		if (account->in_ssl_client_cert_pass && *account->in_ssl_client_cert_pass)
-			hookdata->password = account->in_ssl_client_cert_pass;
+		pwd_id = PWS_ACCOUNT_RECV_CERT;
 	}
+
+	hookdata->password = passwd_store_get_account(account->account_id, pwd_id);
 	return TRUE;
 }
 
@@ -3755,14 +3846,8 @@ void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
 	*ac_prefs = tmp_ac_prefs;
 	while (*p && !g_ascii_isdigit(*p)) p++;
 	id = atoi(p);
-	if (id < 0) g_warning("wrong account id: %d\n", id);
+	if (id < 0) g_warning("wrong account id: %d", id);
 	ac_prefs->account_id = id;
-
-	if (ac_prefs->protocol == A_APOP) {
-		debug_print("converting protocol A_APOP to new prefs.\n");
-		ac_prefs->protocol = A_POP3;
-		ac_prefs->use_apop_auth = TRUE;
-	}
 
 	if (privacy_prefs != NULL) {
 		strv = g_strsplit(privacy_prefs, ",", 0);
@@ -3786,6 +3871,36 @@ void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
 		privacy_prefs = NULL;
 	}
 
+	gboolean passwords_migrated = FALSE;
+
+	if (ac_prefs->passwd != NULL && strlen(ac_prefs->passwd) > 1) {
+		passwd_store_set_account(ac_prefs->account_id,
+				PWS_ACCOUNT_RECV, ac_prefs->passwd, TRUE);
+		passwords_migrated = TRUE;
+	}
+	if (ac_prefs->smtp_passwd != NULL && strlen(ac_prefs->smtp_passwd) > 1) {
+		passwd_store_set_account(ac_prefs->account_id,
+				PWS_ACCOUNT_SEND, ac_prefs->smtp_passwd, TRUE);
+		passwords_migrated = TRUE;
+	}
+	if (ac_prefs->in_ssl_client_cert_pass != NULL
+			&& strlen(ac_prefs->in_ssl_client_cert_pass) > 1) {
+		passwd_store_set_account(ac_prefs->account_id,
+				PWS_ACCOUNT_RECV_CERT, ac_prefs->in_ssl_client_cert_pass, TRUE);
+		passwords_migrated = TRUE;
+	}
+	if (ac_prefs->out_ssl_client_cert_pass != NULL
+			&& strlen(ac_prefs->out_ssl_client_cert_pass) > 1) {
+		passwd_store_set_account(ac_prefs->account_id,
+				PWS_ACCOUNT_SEND_CERT, ac_prefs->out_ssl_client_cert_pass, TRUE);
+		passwords_migrated = TRUE;
+	}
+
+	/* Write out password store to file immediately after their move
+	 * from accountrc there. */
+	if (passwords_migrated)
+		passwd_store_write_config();
+
 	ac_prefs->receive_in_progress = FALSE;
 
 	prefs_custom_header_read_config(ac_prefs);
@@ -3807,7 +3922,7 @@ static void create_privacy_prefs(gpointer key, gpointer _value, gpointer user_da
 
 #define WRITE_PARAM(PARAM_TABLE) \
 		if (prefs_write_param(PARAM_TABLE, pfile->fp) < 0) { \
-			g_warning("failed to write configuration to file\n"); \
+			g_warning("failed to write configuration to file"); \
 			prefs_file_close_revert(pfile); \
 			g_free(privacy_prefs); \
 			privacy_prefs = NULL; \
@@ -3863,7 +3978,9 @@ void prefs_account_write_config_all(GList *account_list)
 	}
 
 	if (prefs_file_close(pfile) < 0)
-		g_warning("failed to write configuration to file\n");
+		g_warning("failed to write configuration to file");
+
+	passwd_store_write_config();
 }
 #undef WRITE_PARAM
 
@@ -3976,7 +4093,7 @@ PrefsAccount *prefs_account_open(PrefsAccount *ac_prefs, gboolean *dirty)
 
 	prefswindow_open_full(title, prefs_pages, ac_prefs, destroy_dialog,
 			&prefs_common.editaccountwin_width, &prefs_common.editaccountwin_height,
-			TRUE, NULL, NULL);
+			TRUE, NULL, NULL, NULL);
 	g_free(title);
 	gtk_main();
 
@@ -4048,7 +4165,7 @@ static void prefs_account_select_folder_cb(GtkWidget *widget, gpointer data)
 	FolderItem *item;
 	gchar *id;
 
-	item = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE);
+	item = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE, NULL);
 	if (item && item->path) {
 		id = folder_item_get_identifier(item);
 		if (id) {
@@ -4062,7 +4179,6 @@ static void prefs_account_select_folder_cb(GtkWidget *widget, gpointer data)
 static void auto_configure_cb (GtkWidget *widget, gpointer data)
 {
 	gchar *address = NULL;
-	const gchar *domain = NULL;
 	AutoConfigureData *recv_data;
 	AutoConfigureData *send_data;
 	static GCancellable *recv_cancel = NULL;
@@ -4096,7 +4212,6 @@ static void auto_configure_cb (GtkWidget *widget, gpointer data)
 			   _("Failed (wrong address)"));
 		return;
 	}
-	domain = strchr(address, '@') + 1;
 
 	if (protocol == A_POP3 || protocol == A_IMAP4) {
 		recv_data = g_new0(AutoConfigureData, 1);
@@ -4108,7 +4223,7 @@ static void auto_configure_cb (GtkWidget *widget, gpointer data)
 		case A_POP3:
 			recv_data->ssl_service = "pop3s";
 			recv_data->tls_service = "pop3";
-			recv_data->domain = g_strdup(domain);
+			recv_data->address = g_strdup(address);
 			recv_data->hostname_entry = GTK_ENTRY(basic_page.recvserv_entry);
 			recv_data->set_port = GTK_TOGGLE_BUTTON(advanced_page.popport_checkbtn);
 			recv_data->port = GTK_SPIN_BUTTON(advanced_page.popport_spinbtn);
@@ -4116,11 +4231,12 @@ static void auto_configure_cb (GtkWidget *widget, gpointer data)
 			recv_data->ssl_checkbtn = GTK_TOGGLE_BUTTON(ssl_page.pop_ssltunnel_radiobtn);
 			recv_data->default_port = 110;
 			recv_data->default_ssl_port = 995;
+			recv_data->uid_entry = GTK_ENTRY(basic_page.uid_entry);
 			break;
 		case A_IMAP4:
 			recv_data->ssl_service = "imaps";
 			recv_data->tls_service = "imap";
-			recv_data->domain = g_strdup(domain);
+			recv_data->address = g_strdup(address);
 			recv_data->hostname_entry = GTK_ENTRY(basic_page.recvserv_entry);
 			recv_data->set_port = GTK_TOGGLE_BUTTON(advanced_page.imapport_checkbtn);
 			recv_data->port = GTK_SPIN_BUTTON(advanced_page.imapport_spinbtn);
@@ -4128,6 +4244,7 @@ static void auto_configure_cb (GtkWidget *widget, gpointer data)
 			recv_data->ssl_checkbtn = GTK_TOGGLE_BUTTON(ssl_page.imap_ssltunnel_radiobtn);
 			recv_data->default_port = 143;
 			recv_data->default_ssl_port = 993;
+			recv_data->uid_entry = GTK_ENTRY(basic_page.uid_entry);
 			break;
 		default:
 			cm_return_if_fail(FALSE);
@@ -4143,14 +4260,15 @@ static void auto_configure_cb (GtkWidget *widget, gpointer data)
 
 	send_data->ssl_service = NULL;
 	send_data->tls_service = "submission";
-	send_data->domain = g_strdup(domain);
+	send_data->address = g_strdup(address);
 	send_data->hostname_entry = GTK_ENTRY(basic_page.smtpserv_entry);
 	send_data->set_port = GTK_TOGGLE_BUTTON(advanced_page.smtpport_checkbtn);
 	send_data->port = GTK_SPIN_BUTTON(advanced_page.smtpport_spinbtn);
 	send_data->tls_checkbtn = GTK_TOGGLE_BUTTON(ssl_page.smtp_starttls_radiobtn);
-	send_data->ssl_checkbtn = NULL;
+	send_data->ssl_checkbtn = GTK_TOGGLE_BUTTON(ssl_page.smtp_ssltunnel_radiobtn);
 	send_data->default_port = 25;
 	send_data->default_ssl_port = -1;
+	send_data->uid_entry = NULL;
 	send_data->auth_checkbtn = GTK_TOGGLE_BUTTON(send_page.smtp_auth_checkbtn);
 
 	auto_configure_service(send_data);
@@ -4518,6 +4636,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_show(basic_page.pass_label);
 		gtk_widget_show(basic_page.uid_entry);
 		gtk_widget_show(basic_page.pass_entry);
+		gtk_widget_show(basic_page.showpwd_checkbtn);
   		gtk_table_set_row_spacing (GTK_TABLE (basic_page.serv_table),
 					   7, VSPACING_NARROW);
 
@@ -4525,6 +4644,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_set_sensitive(basic_page.pass_label, TRUE);
 		gtk_widget_set_sensitive(basic_page.uid_entry,  TRUE);
 		gtk_widget_set_sensitive(basic_page.pass_entry, TRUE);
+		gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, TRUE);
 
 		/* update userid/passwd sensitive state */
 
@@ -4573,7 +4693,6 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(advanced_page.tunnelcmd_checkbtn);
 		gtk_widget_hide(advanced_page.tunnelcmd_entry);
 #endif
-		gtk_widget_hide(advanced_page.imap_use_trash_checkbtn);
 		gtk_widget_hide(receive_page.imapdir_label);
 		gtk_widget_hide(receive_page.imapdir_entry);
 		gtk_widget_hide(receive_page.subsonly_checkbtn);
@@ -4618,6 +4737,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(basic_page.pass_label);
 		gtk_widget_hide(basic_page.uid_entry);
 		gtk_widget_hide(basic_page.pass_entry);
+		gtk_widget_hide(basic_page.showpwd_checkbtn);
   		gtk_table_set_row_spacing (GTK_TABLE (basic_page.serv_table),
 					   7, 0);
 
@@ -4625,6 +4745,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_set_sensitive(basic_page.pass_label, TRUE);
 		gtk_widget_set_sensitive(basic_page.uid_entry,  TRUE);
 		gtk_widget_set_sensitive(basic_page.pass_entry, TRUE);
+		gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, TRUE);
 		gtk_widget_hide(receive_page.pop3_frame);
 		gtk_widget_hide(receive_page.imap_frame);
 		gtk_widget_show(receive_page.local_frame);
@@ -4671,7 +4792,6 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(advanced_page.tunnelcmd_checkbtn);
 		gtk_widget_hide(advanced_page.tunnelcmd_entry);
 #endif
-		gtk_widget_hide(advanced_page.imap_use_trash_checkbtn);
 		gtk_widget_hide(receive_page.imapdir_label);
 		gtk_widget_hide(receive_page.imapdir_entry);
 		gtk_widget_hide(receive_page.subsonly_checkbtn);
@@ -4725,6 +4845,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_show(basic_page.pass_label);
 		gtk_widget_show(basic_page.uid_entry);
 		gtk_widget_show(basic_page.pass_entry);
+		gtk_widget_show(basic_page.showpwd_checkbtn);
   		gtk_table_set_row_spacing (GTK_TABLE (basic_page.serv_table),
 					   7, VSPACING_NARROW);
 
@@ -4732,6 +4853,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_set_sensitive(basic_page.pass_label, TRUE);
 		gtk_widget_set_sensitive(basic_page.uid_entry,  TRUE);
 		gtk_widget_set_sensitive(basic_page.pass_entry, TRUE);
+		gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, TRUE);
 		gtk_widget_hide(receive_page.pop3_frame);
 		gtk_widget_show(receive_page.imap_frame);
 		gtk_widget_hide(receive_page.local_frame);
@@ -4778,7 +4900,6 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_show(advanced_page.tunnelcmd_checkbtn);
 		gtk_widget_show(advanced_page.tunnelcmd_entry);
 #endif
-		gtk_widget_show(advanced_page.imap_use_trash_checkbtn);
 		gtk_widget_show(receive_page.imapdir_label);
 		gtk_widget_show(receive_page.imapdir_entry);
 		gtk_widget_show(receive_page.subsonly_checkbtn);
@@ -4826,6 +4947,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(basic_page.pass_label);
 		gtk_widget_hide(basic_page.uid_entry);
 		gtk_widget_hide(basic_page.pass_entry);
+		gtk_widget_hide(basic_page.showpwd_checkbtn);
   		gtk_table_set_row_spacing (GTK_TABLE (basic_page.serv_table),
 					   7, VSPACING_NARROW);
 
@@ -4833,6 +4955,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_set_sensitive(basic_page.pass_label, FALSE);
 		gtk_widget_set_sensitive(basic_page.uid_entry,  FALSE);
 		gtk_widget_set_sensitive(basic_page.pass_entry, FALSE);
+		gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, FALSE);
 		gtk_widget_set_sensitive(receive_page.pop3_frame, FALSE);
 		gtk_widget_hide(receive_page.pop3_frame);
 		gtk_widget_hide(receive_page.imap_frame);
@@ -4874,7 +4997,6 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(advanced_page.tunnelcmd_checkbtn);
 		gtk_widget_hide(advanced_page.tunnelcmd_entry);
 #endif
-		gtk_widget_hide(advanced_page.imap_use_trash_checkbtn);
 		gtk_widget_hide(receive_page.imapdir_label);
 		gtk_widget_hide(receive_page.imapdir_entry);
 		gtk_widget_hide(receive_page.subsonly_checkbtn);
@@ -4924,6 +5046,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_show(basic_page.pass_label);
 		gtk_widget_show(basic_page.uid_entry);
 		gtk_widget_show(basic_page.pass_entry);
+		gtk_widget_show(basic_page.showpwd_checkbtn);
   		gtk_table_set_row_spacing (GTK_TABLE (basic_page.serv_table),
 					   7, VSPACING_NARROW);
 
@@ -4931,6 +5054,7 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_set_sensitive(basic_page.pass_label, TRUE);
 		gtk_widget_set_sensitive(basic_page.uid_entry,  TRUE);
 		gtk_widget_set_sensitive(basic_page.pass_entry, TRUE);
+		gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, TRUE);
 		gtk_widget_set_sensitive(receive_page.pop3_frame, TRUE);
 		gtk_widget_show(receive_page.pop3_frame);
 		gtk_widget_hide(receive_page.imap_frame);
@@ -4977,7 +5101,6 @@ static void prefs_account_protocol_changed(GtkComboBox *combobox, gpointer data)
 		gtk_widget_hide(advanced_page.tunnelcmd_checkbtn);
 		gtk_widget_hide(advanced_page.tunnelcmd_entry);
 #endif
-		gtk_widget_hide(advanced_page.imap_use_trash_checkbtn);
 		gtk_widget_hide(receive_page.imapdir_label);
 		gtk_widget_hide(receive_page.imapdir_entry);
 		gtk_widget_hide(receive_page.subsonly_checkbtn);
@@ -5000,6 +5123,7 @@ static void prefs_account_nntpauth_toggled(GtkToggleButton *button,
 	gtk_widget_set_sensitive(basic_page.pass_label, auth);
 	gtk_widget_set_sensitive(basic_page.uid_entry,  auth);
 	gtk_widget_set_sensitive(basic_page.pass_entry, auth);
+	gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, auth);
 	gtk_widget_set_sensitive(basic_page.nntpauth_onconnect_checkbtn, auth);
 }
 
@@ -5016,6 +5140,16 @@ static void prefs_account_mailcmd_toggled(GtkToggleButton *button,
 	gtk_widget_set_sensitive(basic_page.smtpserv_label, !use_mailcmd);
 	gtk_widget_set_sensitive(basic_page.uid_entry,  !use_mailcmd);
 	gtk_widget_set_sensitive(basic_page.pass_entry, !use_mailcmd);
+	gtk_widget_set_sensitive(basic_page.showpwd_checkbtn, !use_mailcmd);
+}
+
+static void prefs_account_showpwd_checkbtn_toggled(GtkToggleButton *button,
+		gpointer user_data)
+{
+	gboolean active = gtk_toggle_button_get_active(button);
+	GtkWidget *entry = GTK_WIDGET(user_data);
+
+	gtk_entry_set_visibility(GTK_ENTRY(entry), active);
 }
 
 static void prefs_account_filter_on_recv_toggled(GtkToggleButton *button,
@@ -5077,6 +5211,51 @@ static void prefs_account_compose_default_dictionary_set_optmenu_from_string
 }
 #endif
 
+gchar *prefs_account_generate_msgid(PrefsAccount *account)
+{
+	gchar *addr, *tmbuf, *buf = NULL;
+	GDateTime *now;
+	gchar *user_addr = account->msgid_with_addr ? g_strdup(account->address) : NULL;
+
+	if (account->set_domain && account->domain) {
+		buf = g_strdup(account->domain);
+	} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
+		buf = g_strdup(
+				strchr(account->address, '@') ?
+				strchr(account->address, '@')+1 :
+				account->address);
+	}
+
+	if (user_addr != NULL) {
+		addr = g_strdup_printf(".%s", user_addr);
+	} else {
+		addr = g_strdup_printf("@%s",
+				buf != NULL && strlen(buf) > 0 ?
+				buf : get_domain_name());
+	}
+
+	if (buf != NULL)
+		g_free(buf);
+	if (user_addr != NULL)
+		g_free(user_addr);
+
+	/* Replace all @ but the last one in addr, with underscores.
+	 * RFC 2822 States that msg-id syntax only allows one @.
+	 */
+	while (strchr(addr, '@') != NULL && strchr(addr, '@') != strrchr(addr, '@'))
+		*(strchr(addr, '@')) = '_';
+
+	now = g_date_time_new_now_local();
+	tmbuf = g_date_time_format(now, "%Y%m%d%H%M%S");
+	buf = g_strdup_printf("%s.%08x%s",
+			tmbuf, (guint)rand(), addr);
+	g_free(tmbuf);
+	g_free(addr);
+
+	debug_print("Generated Message-ID string '%s'\n", buf);
+	return buf;
+}
+
 void prefs_account_register_page(PrefsPage *page)
 {
 	prefs_pages = g_slist_append(prefs_pages, page);
@@ -5086,4 +5265,45 @@ void prefs_account_register_page(PrefsPage *page)
 void prefs_account_unregister_page(PrefsPage *page)
 {
 	prefs_pages = g_slist_remove(prefs_pages, page);
+}
+
+gchar *prefs_account_cache_dir(PrefsAccount *ac_prefs, gboolean for_server)
+{
+	gchar *dir = NULL;
+#ifdef G_OS_WIN32
+	gchar *sanitized_server;
+#endif
+
+	if (ac_prefs->protocol == A_IMAP4) {
+#ifdef G_OS_WIN32
+		sanitized_server = g_strdup(ac_prefs->recv_server);
+		g_strdelimit(sanitized_server, ":", ',');
+#endif
+		if (for_server) {
+			dir = g_strconcat(get_imap_cache_dir(),
+					  G_DIR_SEPARATOR_S,
+#ifdef G_OS_WIN32
+					  sanitized_server,
+#else
+					  ac_prefs->recv_server,
+#endif
+					  NULL);
+		} else {
+			dir = g_strconcat(get_imap_cache_dir(),
+					  G_DIR_SEPARATOR_S,
+#ifdef G_OS_WIN32
+					  sanitized_server,
+#else
+					  ac_prefs->recv_server,
+#endif
+					  G_DIR_SEPARATOR_S,
+					  ac_prefs->userid,
+					  NULL);
+		}
+#ifdef G_OS_WIN32
+		g_free(sanitized_server);
+#endif
+	}
+
+	return dir;
 }

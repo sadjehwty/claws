@@ -148,7 +148,7 @@ static int partial_uidl_mark_mail(MsgInfo *msginfo, int download)
 
 	filename = procmsg_get_message_file_path(msginfo);
 	if (!filename) {
-		g_warning("can't get message file path.\n");
+		g_warning("can't get message file path.");
 		return err;
 	}
 	tinfo = procheader_parse_file(filename, msginfo->flags, TRUE, TRUE);
@@ -171,7 +171,7 @@ static int partial_uidl_mark_mail(MsgInfo *msginfo, int download)
 			   "-", sanitized_uid, NULL);
 
 	if ((fp = g_fopen(path, "rb")) == NULL) {
-		perror("fopen1");
+		FILE_OP_ERROR(path, "fopen");
 		if (ENOENT != errno) FILE_OP_ERROR(path, "fopen");
 		g_free(path);
 		path = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S,
@@ -191,7 +191,7 @@ static int partial_uidl_mark_mail(MsgInfo *msginfo, int download)
 	g_free(sanitized_uid);
 
 	if ((fpnew = g_fopen(pathnew, "wb")) == NULL) {
-		perror("fopen2");
+		FILE_OP_ERROR(pathnew, "fopen");
 		fclose(fp);
 		g_free(pathnew);
 		goto bail;
@@ -263,12 +263,12 @@ static int partial_uidl_mark_mail(MsgInfo *msginfo, int download)
 	g_free(pathnew);
 	
 	if ((fp = g_fopen(filename,"rb")) == NULL) {
-		perror("fopen3");
+		FILE_OP_ERROR(filename, "fopen");
 		goto bail;
 	}
 	pathnew = g_strdup_printf("%s.new", filename);
 	if ((fpnew = g_fopen(pathnew, "wb")) == NULL) {
-		perror("fopen4");
+		FILE_OP_ERROR(pathnew, "fopen");
 		fclose(fp);
 		g_free(pathnew);
 		goto bail;
@@ -328,7 +328,7 @@ static int partial_uidl_mark_mail(MsgInfo *msginfo, int download)
 	err = 0;
 bail:
 	g_free(filename);
-	procmsg_msginfo_free(tinfo);
+	procmsg_msginfo_free(&tinfo);
 	
 	return err;
 }

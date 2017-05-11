@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 the Claws Mail team
+ * Copyright (C) 1999-2016 the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -71,7 +70,7 @@ static PrivacyDataPGP *pgpmime_new_privacydata()
 	data->is_signed = FALSE;
 	data->sigstatus = NULL;
 	if ((err = gpgme_new(&data->ctx)) != GPG_ERR_NO_ERROR) {
-		g_warning(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		g_warning("Couldn't initialize GPG context: %s", gpgme_strerror(err));
 		return NULL;
 	}
 	
@@ -180,7 +179,7 @@ static gint pgpmime_check_signature(MimeInfo *mimeinfo)
 	cm_return_val_if_fail(mimeinfo->privacy != NULL, -1);
 	data = (PrivacyDataPGP *) mimeinfo->privacy;
 	if ((err = gpgme_new(&data->ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		return 0;
 	}
@@ -326,7 +325,7 @@ static MimeInfo *pgpmime_decrypt(MimeInfo *mimeinfo)
 	gpgme_error_t err;
 
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		return NULL;
 	}
@@ -411,7 +410,7 @@ static MimeInfo *pgpmime_decrypt(MimeInfo *mimeinfo)
 	}
 
 	g_node_unlink(decinfo->node);
-	procmime_mimeinfo_free_all(parseinfo);
+	procmime_mimeinfo_free_all(&parseinfo);
 
 	decinfo->tmp = TRUE;
 
@@ -453,6 +452,7 @@ gboolean pgpmime_sign(MimeInfo *mimeinfo, PrefsAccount *account, const gchar *fr
 	
 	fp = my_tmpfile();
 	if (fp == NULL) {
+		perror("my_tmpfile");
 		privacy_set_error(_("Couldn't create temporary file: %s"), g_strerror(errno));
 		return FALSE;
 	}
@@ -506,7 +506,7 @@ gboolean pgpmime_sign(MimeInfo *mimeinfo, PrefsAccount *account, const gchar *fr
 	gpgme_data_new_from_mem(&gpgtext, textstr, (size_t)strlen(textstr), 0);
 	gpgme_data_new(&gpgsig);
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		return FALSE;
 	}
@@ -520,7 +520,7 @@ gboolean pgpmime_sign(MimeInfo *mimeinfo, PrefsAccount *account, const gchar *fr
 	}
 
 	prefs_gpg_enable_agent(prefs_gpg_get_config()->use_gpg_agent);
-	if (getenv("GPG_AGENT_INFO") && prefs_gpg_get_config()->use_gpg_agent) {
+	if (g_getenv("GPG_AGENT_INFO") && prefs_gpg_get_config()->use_gpg_agent) {
 		debug_print("GPG_AGENT_INFO environment defined, running without passphrase callback\n");
 	} else {
    		info.c = ctx;
@@ -544,8 +544,10 @@ gboolean pgpmime_sign(MimeInfo *mimeinfo, PrefsAccount *account, const gchar *fr
 	if (result && result->signatures) {
 		gpgme_new_signature_t sig = result->signatures;
 		if (gpgme_get_protocol(ctx) == GPGME_PROTOCOL_OpenPGP) {
-			micalg = g_strdup_printf("pgp-%s", g_ascii_strdown(gpgme_hash_algo_name(
-				result->signatures->hash_algo),-1));
+			gchar *down_algo = g_ascii_strdown(gpgme_hash_algo_name(
+				result->signatures->hash_algo), -1);
+			micalg = g_strdup_printf("pgp-%s", down_algo);
+			g_free(down_algo);
 		} else {
 			micalg = g_strdup(gpgme_hash_algo_name(
 				result->signatures->hash_algo));
@@ -647,7 +649,7 @@ gboolean pgpmime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	kset = g_malloc(sizeof(gpgme_key_t)*(i+1));
 	memset(kset, 0, sizeof(gpgme_key_t)*(i+1));
 	if ((err = gpgme_new(&ctx)) != GPG_ERR_NO_ERROR) {
-		debug_print(("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
+		debug_print(("Couldn't initialize GPG context, %s\n"), gpgme_strerror(err));
 		privacy_set_error(_("Couldn't initialize GPG context, %s"), gpgme_strerror(err));
 		g_free(kset);
 		return FALSE;
@@ -687,6 +689,7 @@ gboolean pgpmime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	/* write message content to temporary file */
 	fp = my_tmpfile();
 	if (fp == NULL) {
+		perror("my_tmpfile");
 		privacy_set_error(_("Couldn't create temporary file, %s"), g_strerror(errno));
 		g_free(kset);
 		return FALSE;
@@ -722,7 +725,7 @@ gboolean pgpmime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 
 	/* create encrypted multipart */
 	g_node_unlink(msgcontent->node);
-	procmime_mimeinfo_free_all(msgcontent);
+	procmime_mimeinfo_free_all(&msgcontent);
 	g_node_append(mimeinfo->node, encmultipart->node);
 
 	newinfo = procmime_mimeinfo_new();

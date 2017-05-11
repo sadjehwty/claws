@@ -20,6 +20,8 @@
 
 #include "prefs_gtk.h"
 
+#define GDATA_TOKEN_PWD_STRING "oauth2_refresh_token"
+
 typedef struct {
   char *username;
   char *password;

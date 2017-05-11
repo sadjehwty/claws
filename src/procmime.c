@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Hiroyuki Yamamoto & The Claws Mail Team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto & The Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -138,13 +137,12 @@ static gboolean free_func(GNode *node, gpointer data)
 	if (mimeinfo->privacy)
 		privacy_free_privacydata(mimeinfo->privacy);
 
-	g_free(mimeinfo);
-
 	return FALSE;
 }
 
-void procmime_mimeinfo_free_all(MimeInfo *mimeinfo)
+void procmime_mimeinfo_free_all(MimeInfo **mimeinfo_ptr)
 {
+	MimeInfo *mimeinfo = *mimeinfo_ptr;
 	GNode *node;
 
 	if (!mimeinfo)
@@ -154,6 +152,9 @@ void procmime_mimeinfo_free_all(MimeInfo *mimeinfo)
 	g_node_traverse(node, G_IN_ORDER, G_TRAVERSE_ALL, -1, free_func, NULL);
 
 	g_node_destroy(node);
+
+	g_free(mimeinfo);
+	*mimeinfo_ptr = NULL;
 }
 
 MimeInfo *procmime_mimeinfo_parent(MimeInfo *mimeinfo)
@@ -358,11 +359,11 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 
 	infp = procmime_fopen(mimeinfo->data.filename, "rb");
 	if (!infp) {
-		perror("fopen");
+		FILE_OP_ERROR(mimeinfo->data.filename, "fopen");
 		return FALSE;
 	}
 	if (fseek(infp, mimeinfo->offset, SEEK_SET) < 0) {
-		perror("fseek");
+		FILE_OP_ERROR(mimeinfo->data.filename, "fseek");
 		procmime_fclose(infp);
 		return FALSE;
 	}
@@ -407,7 +408,7 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 			uncanonicalize = TRUE;
 			tmpfp = my_tmpfile();
 			if (!tmpfp) {
-				perror("tmpfile");
+				perror("my_tmpfile");
 				if (tmp_file) 
 					procmime_fclose(outfp);
 				procmime_fclose(infp);
@@ -428,7 +429,7 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 			}
 			starting = FALSE;
 			if (((inread != inlen) || len < 0) && !got_error) {
-				g_warning("Bad BASE64 content.\n");
+				g_warning("Bad BASE64 content.");
 				if (SC_FWRITE(_("[Error decoding BASE64]\n"),
 					sizeof(gchar),
 					strlen(_("[Error decoding BASE64]\n")),
@@ -472,7 +473,7 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 				len = fromuutobits(outbuf, buf);
 				if (len <= 0) {
 					if (len < 0) 
-						g_warning("Bad UUENCODE content(%d)\n", len);
+						g_warning("Bad UUENCODE content (%d)", len);
 					break;
 				}
 				if (SC_FWRITE(outbuf, sizeof(gchar), len, outfp) < len)
@@ -551,7 +552,7 @@ gboolean procmime_encode_content(MimeInfo *mimeinfo, EncodingType encoding)
 
 	if (mimeinfo->content == MIMECONTENT_FILE && mimeinfo->data.filename) {
 		if ((infp = procmime_fopen(mimeinfo->data.filename, "rb")) == NULL) {
-			g_warning("Can't open file %s\n", mimeinfo->data.filename);
+			g_warning("Can't open file %s", mimeinfo->data.filename);
 			procmime_fclose(outfp);
 			return FALSE;
 		}
@@ -837,7 +838,7 @@ gboolean procmime_scan_text_content(MimeInfo *mimeinfo,
 	}
 
 	if (conv_fail)
-		g_warning("procmime_get_text_content(): Code conversion failed.\n");
+		g_warning("procmime_get_text_content(): Code conversion failed.");
 
 	procmime_fclose(tmpfp);
 	claws_unlink(tmpfile);
@@ -860,7 +861,7 @@ FILE *procmime_get_text_content(MimeInfo *mimeinfo)
 	gboolean err;
 
 	if ((outfp = my_tmpfile()) == NULL) {
-		perror("tmpfile");
+		perror("my_tmpfile");
 		return NULL;
 	}
 #ifdef HAVE_FGETS_UNLOCKED
@@ -946,17 +947,17 @@ scan_again:
 		 * fully for non-empty parts
 		 */
 		short_scan = FALSE;
-		procmime_mimeinfo_free_all(mimeinfo);
+		procmime_mimeinfo_free_all(&mimeinfo);
 		goto scan_again;
 	} else if (!empty_ok && !short_scan) {
 		/* if full scan didn't find a non-empty part, rescan
 		 * accepting empty parts 
 		 */
 		empty_ok = TRUE;
-		procmime_mimeinfo_free_all(mimeinfo);
+		procmime_mimeinfo_free_all(&mimeinfo);
 		goto scan_again;
 	}
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	/* outfp already unlocked at this time */
 	return outfp;
@@ -1019,7 +1020,7 @@ FILE *procmime_get_first_encrypted_text_content(MsgInfo *msginfo)
 	if (partinfo)
 		outfp = procmime_get_text_content(partinfo);
 
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	/* outfp already unlocked at this time */
 	return outfp;
@@ -1039,7 +1040,7 @@ gboolean procmime_msginfo_is_encrypted(MsgInfo *msginfo)
 
 	partinfo = mimeinfo;
 	result = (find_encrypted_part(partinfo) != NULL);
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	return result;
 }
@@ -1104,6 +1105,8 @@ gchar *procmime_get_mime_type(const gchar *filename)
 	base = g_path_get_basename(filename);
 	if ((p = strrchr(base, '.')) != NULL)
 		ext = g_utf8_strdown(p + 1, -1);
+	else
+		ext = g_utf8_strdown(base, -1);
 	g_free(base);
 
 #ifndef G_OS_WIN32
@@ -1255,7 +1258,7 @@ GList *procmime_get_mime_type_list(void)
 	procmime_fclose(fp);
 
 	if (!list)
-		g_warning("Can't read mime.types\n");
+		g_warning("Can't read mime.types");
 
 	return list;
 }
@@ -1582,7 +1585,7 @@ static void procmime_parse_disposition_notification(MimeInfo *mimeinfo,
 			debug_print("%s %s in %s\n", info?"found":"didn't find", orig_msg_id, outbox->path);
 			if (info) {
 				procmsg_msginfo_set_flags(info, MSG_RETRCPT_GOT, 0);
-				procmsg_msginfo_free(info);
+				procmsg_msginfo_free(&info);
 			}
 		}
 	}
@@ -2041,7 +2044,7 @@ static int procmime_parse_mimepart(MimeInfo *parent,
 			 * this avoids DOSsing ourselves 
 			 * with enormous messages
 			 */
-			procmime_mimeinfo_free_all(mimeinfo);
+			procmime_mimeinfo_free_all(&mimeinfo);
 			return -1;			
 		}
 		g_node_append(parent->node, mimeinfo->node);
@@ -2347,7 +2350,7 @@ static void write_parameters(gpointer key, gpointer value, gpointer user_data)
 		break;
 #else
 	case ENC_AS_EXTENDED:
-		debug_print("Unhandled ENC_AS_EXTENDED.");
+		debug_print("Unhandled ENC_AS_EXTENDED.\n");
 		break;
 #endif
 	case ENC_AS_ENCWORD:

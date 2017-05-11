@@ -83,7 +83,7 @@ static FolderViewPopup claws_mailmbox_popup =
 
 static GtkActionEntry mainwindow_add_mailbox[] = {{
 	"File/AddMailbox/Mbox",
-	NULL, N_("mbox (etPan!)..."), NULL, NULL, G_CALLBACK(add_mailbox)
+	NULL, "mbox...", NULL, NULL, G_CALLBACK(add_mailbox)
 }};
 
 static guint main_menu_id = 0;
@@ -112,7 +112,7 @@ void plugin_gtk_done(void)
 
 	folderview_unregister_popup(&claws_mailmbox_popup);
 
-	MENUITEM_REMUI_MANAGER(mainwin->ui_manager,mainwin->action_group, "File/AddMailbox/RSSyl", main_menu_id);
+	MENUITEM_REMUI_MANAGER(mainwin->ui_manager,mainwin->action_group, "File/AddMailbox/Mbox", main_menu_id);
 	main_menu_id = 0;
 }
 
@@ -146,16 +146,16 @@ static void set_sensitivity(GtkUIManager *ui_manager, FolderItem *item)
 #define SET_SENS(name, sens) \
 	cm_menu_set_sensitive_full(ui_manager, "Popup/"name, sens)
 
-	SET_SENS("FolderViewPopup/CreateNewFolder",   item->stype != F_INBOX);
-	SET_SENS("FolderViewPopup/RenameFolder",       item->stype == F_NORMAL && folder_item_parent(item) != NULL);
-	SET_SENS("FolderViewPopup/MoveFolder", 	    folder_is_normal && folder_item_parent(item) != NULL);
-	SET_SENS("FolderViewPopup/DeleteFolder", 	    item->stype == F_NORMAL && folder_item_parent(item) != NULL);
+	SET_SENS("FolderViewPopup/CreateNewFolder",	item && item->stype != F_INBOX);
+	SET_SENS("FolderViewPopup/RenameFolder",	item && item->stype == F_NORMAL && folder_item_parent(item) != NULL);
+	SET_SENS("FolderViewPopup/MoveFolder",		folder_is_normal && folder_item_parent(item) != NULL);
+	SET_SENS("FolderViewPopup/DeleteFolder",	item && item->stype == F_NORMAL && folder_item_parent(item) != NULL);
 
-	SET_SENS("FolderViewPopup/CheckNewMessages", folder_item_parent(item) == NULL);
-	SET_SENS("FolderViewPopup/CheckNewFolders",  folder_item_parent(item) == NULL);
-	SET_SENS("FolderViewPopup/RebuildTree",    folder_item_parent(item) == NULL);
+	SET_SENS("FolderViewPopup/CheckNewMessages",	folder_item_parent(item) == NULL);
+	SET_SENS("FolderViewPopup/CheckNewFolders", 	folder_item_parent(item) == NULL);
+	SET_SENS("FolderViewPopup/RebuildTree",		folder_item_parent(item) == NULL);
 
-	SET_SENS("FolderViewPopup/RemoveMailbox",         folder_item_parent(item) == NULL);
+	SET_SENS("FolderViewPopup/RemoveMailbox",	folder_item_parent(item) == NULL);
 
 #undef SET_SENS
 }
@@ -229,7 +229,6 @@ static void add_mailbox(GtkAction *action, gpointer callback_data)
 static void new_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	FolderItem *new_item;
 	gchar *new_folder;
@@ -238,7 +237,7 @@ static void new_folder_cb(GtkAction *action, gpointer data)
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->folder != NULL);
 
@@ -314,8 +313,7 @@ static void remove_mailbox_cb(GtkAction *action, gpointer data)
 static void delete_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item;
+	FolderItem *item, *opened;
 	gchar *message, *name;
 	AlertValue avalue;
 	gchar *old_id;
@@ -324,11 +322,12 @@ static void delete_folder_cb(GtkAction *action, gpointer data)
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->path != NULL);
 	g_return_if_fail(item->folder != NULL);
+	opened = folderview_get_opened_item(folderview);
 
 	name = trim_string(item->name, 32);
 	AUTORELEASE_STR(name, {g_free(name); return;});
 	message = g_strdup_printf
-		(_("All folder(s) and message(s) under '%s' will be deleted.\n"
+		(_("All folders and messages under '%s' will be deleted.\n"
 		   "Do you really want to delete?"), name);
 	avalue = alertpanel_full(_("Delete folder"), message,
 				 GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, FALSE,
@@ -338,17 +337,15 @@ static void delete_folder_cb(GtkAction *action, gpointer data)
 
 	old_id = folder_item_get_identifier(item);
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (item == opened ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	if (item->folder->klass->remove_folder(item->folder, item) < 0) {
 		alertpanel_error(_("Can't remove the folder '%s'."), name);
-		if (folderview->opened == folderview->selected)
+		if (item == opened)
 			summary_show(folderview->summaryview,
 				     folderview->summaryview->folder_item);
 		g_free(old_id);
@@ -371,7 +368,12 @@ static void move_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != claws_mailmbox_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE,
+			ngettext(
+				"Select folder to move selected message to",
+				"Select folder to move selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 
@@ -387,7 +389,12 @@ static void copy_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != claws_mailmbox_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE,
+			ngettext(
+				"Select folder to copy selected message to",
+				"Select folder to copy selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 

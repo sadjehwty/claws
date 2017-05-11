@@ -1,7 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Colin Leroy <colin@colino.net> 
- * and the Claws Mail team
+ * Copyright (C) 1999-2016 Colin Leroy and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
@@ -142,9 +140,10 @@ static GtkWidget *ssl_manager_list_view_create	(void)
 
 }
 
-void ssl_manager_create(void) 
+void ssl_manager_create(void)
 {
 	GtkWidget *window;
+	GtkWidget *scroll;
 	GtkWidget *hbox1;
 	GtkWidget *vbox1;
 	GtkWidget *certlist;
@@ -154,7 +153,7 @@ void ssl_manager_create(void)
 
 	window = gtkut_window_new(GTK_WINDOW_TOPLEVEL, "ssl_manager");
 	gtk_window_set_title (GTK_WINDOW(window),
-			      _("Saved SSL certificates"));
+			      _("Saved SSL/TLS certificates"));
 
 	gtk_container_set_border_width (GTK_CONTAINER (window), 8);
 	gtk_window_set_position (GTK_WINDOW (window), GTK_WIN_POS_CENTER);
@@ -168,7 +167,7 @@ void ssl_manager_create(void)
 	hbox1 = gtk_hbox_new(FALSE, 6);
 	vbox1 = gtk_vbox_new(FALSE, 0);
 	delete_btn = gtk_button_new_from_stock(GTK_STOCK_DELETE);
-	
+
 	g_signal_connect(G_OBJECT(delete_btn), "clicked",
 			 G_CALLBACK(ssl_manager_delete_cb), NULL);
 
@@ -181,14 +180,21 @@ void ssl_manager_create(void)
 			 G_CALLBACK(ssl_manager_close_cb), NULL);
 
 	certlist = ssl_manager_list_view_create();
-	
-	gtk_box_pack_start(GTK_BOX(hbox1), certlist, TRUE, TRUE, 0);
+
+	scroll = gtk_scrolled_window_new (NULL, NULL);
+	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroll),
+					GTK_POLICY_NEVER,
+					GTK_POLICY_AUTOMATIC);
+	gtk_container_add(GTK_CONTAINER (scroll), certlist);
+
+	gtk_box_pack_start(GTK_BOX(hbox1), scroll, TRUE, TRUE, 0);
 	gtk_box_pack_start(GTK_BOX(hbox1), vbox1, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox1), view_btn, FALSE, FALSE, 4);
 	gtk_box_pack_start(GTK_BOX(vbox1), delete_btn, FALSE, FALSE, 4);
 	gtk_box_pack_end(GTK_BOX(vbox1), close_btn, FALSE, FALSE, 4);
-	
+
 	gtk_widget_show(certlist);
+	gtk_widget_show(scroll);
 	gtk_widget_show(hbox1);
 	gtk_widget_show(vbox1);
 	gtk_widget_show(close_btn);
@@ -205,63 +211,33 @@ void ssl_manager_create(void)
 	manager.close_btn = close_btn;
 
 	gtk_widget_show(window);
-		
 }
 
-static char *get_server(const char *str)
+static gboolean get_serverport(const gchar *str, gchar **server, gchar **port)
 {
-	char *ret = NULL, *tmp = g_strdup(str);
-	char *first_pos = NULL, *last_pos = NULL;
-	char *previous_pos = NULL, *pre_previous_pos = NULL;
-	int previous_dot_pos;
+	const gchar *pos, *prevpos;
 
-	if (!strchr(tmp, ':')) {
-		/* no fingerprint */
-		if (strstr(tmp, ".cert"))
-			*(strstr(tmp, ".cert")+1) = '.';
+	g_return_val_if_fail(str != NULL, FALSE);
+
+	/* We expect 'host.name.port.cert' here, only set
+	 * server and port if we find that.
+	 * Validity of string in port should be checked by caller. */
+	for (prevpos = str, pos = strstr(str, ".");
+			pos != NULL;
+			prevpos = pos, pos = strstr(pos+1, ".")) {
+		if (!strcmp(pos, ".cert")) {
+			if (prevpos > str) {
+				*server = g_strndup(str, prevpos - str);
+				*port = g_strndup(prevpos+1, pos - prevpos - 1);
+			} else {
+				*server = *port = NULL;
+			}
+
+			return TRUE;
+		}
 	}
 
-	first_pos = tmp;
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
-		pre_previous_pos = previous_pos;
-		previous_pos = last_pos;
-		last_pos = tmp;
-	}
-	previous_dot_pos = (pre_previous_pos - first_pos);
-	if (previous_dot_pos - 1 > 0)
-		ret = g_strndup(first_pos, previous_dot_pos - 1);
-	else 
-		ret = g_strdup(first_pos);
-	g_free(first_pos);
-	return ret;
-}
-
-static char *get_port(const char *str)
-{
-	char *ret = NULL, *tmp = g_strdup(str);
-	char *last_pos = NULL;
-	char *previous_pos = NULL, *pre_previous_pos = NULL;
-
-	if (!strchr(tmp, ':')) {
-		/* no fingerprint */
-		if (strstr(tmp, ".cert"))
-			*(strstr(tmp, ".cert")+1) = '.';
-	}
-
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
-		pre_previous_pos = previous_pos;
-		previous_pos = last_pos;
-		last_pos = tmp;
-	}
-	if (previous_pos && pre_previous_pos && (int)(previous_pos - pre_previous_pos - 1) > 0)
-		ret = g_strndup(pre_previous_pos, (int)(previous_pos - pre_previous_pos - 1));
-	else
-		ret = g_strdup("0");
-	g_free(tmp);
-	return ret;
-	
+	return FALSE;
 }
 
 static char *get_fingerprint(const char *str)
@@ -341,20 +317,23 @@ static void ssl_manager_load_certs (void)
 	}
 	
 	while ((d = g_dir_read_name(dir)) != NULL) {
-		gchar *server, *port, *fp;
+		gchar *server = NULL, *port = NULL, *fp = NULL;
 		SSLCertificate *cert;
 
 		if(strstr(d, ".cert") != d + (strlen(d) - strlen(".cert"))) 
 			continue;
 
-		server = get_server(d);
-		port = get_port(d);
+		get_serverport(d, &server, &port);
 		fp = get_fingerprint(d);
-		
-		cert = ssl_certificate_find(server, atoi(port), fp);
 
-		ssl_manager_list_view_insert_cert(manager.certlist, NULL, 
-						  server, port, cert);
+		if (server != NULL && port != NULL) {
+			gint portnum = atoi(port);
+			if (portnum > 0 && portnum <= 65535) {
+				cert = ssl_certificate_find(server, portnum, fp);
+				ssl_manager_list_view_insert_cert(manager.certlist, NULL,
+						server, port, cert);
+			}
+		}
 		
 		g_free(server);
 		g_free(port);

@@ -1,7 +1,6 @@
 /* 
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Colin Leroy <colin@colino.net> and 
- * the Claws Mail team
+ * Copyright (C) 1999-2016 Colin Leroy and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,8 +13,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -68,7 +66,7 @@ static PrivacyDataPGP *smime_new_privacydata()
 	gpgme_ctx_t 	ctx;
 
 	if (gpgme_new(&ctx) != GPG_ERR_NO_ERROR) {
-		debug_print("gpgme_new failed");
+		debug_print("gpgme_new failed\n");
 		return NULL;
 	}
 
@@ -296,7 +294,7 @@ static gint smime_check_signature(MimeInfo *mimeinfo)
 					return -1;
 
 				g_node_unlink(decinfo->node);
-				procmime_mimeinfo_free_all(newinfo);
+				procmime_mimeinfo_free_all(&newinfo);
 				decinfo->tmp = TRUE;
 				parentinfo = procmime_mimeinfo_parent(mimeinfo);
 
@@ -506,7 +504,7 @@ static MimeInfo *smime_decrypt(MimeInfo *mimeinfo)
 	}
 
 	g_node_unlink(decinfo->node);
-	procmime_mimeinfo_free_all(parseinfo);
+	procmime_mimeinfo_free_all(&parseinfo);
 
 	decinfo->tmp = TRUE;
 
@@ -642,8 +640,10 @@ gboolean smime_sign(MimeInfo *mimeinfo, PrefsAccount *account, const gchar *from
 	result = gpgme_op_sign_result(ctx);
 	if (result && result->signatures) {
 	    if (gpgme_get_protocol(ctx) == GPGME_PROTOCOL_OpenPGP) {
-		micalg = g_strdup_printf("pgp-%s", g_ascii_strdown(gpgme_hash_algo_name(
-			    result->signatures->hash_algo),-1));
+		gchar *down_algo = g_ascii_strdown(gpgme_hash_algo_name(
+			    result->signatures->hash_algo), -1);
+		micalg = g_strdup_printf("pgp-%s", down_algo);
+		g_free(down_algo);
 	    } else {
 		micalg = g_strdup(gpgme_hash_algo_name(
 			    result->signatures->hash_algo));
@@ -793,7 +793,7 @@ gboolean smime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	tmpfile = get_tmp_file();
 	fp = g_fopen(tmpfile, "wb");
 	if (fp == NULL) {
-		perror("get_tmp_file");
+		FILE_OP_ERROR(tmpfile, "create");
 		g_free(kset);
 		return FALSE;
 	}
@@ -804,7 +804,7 @@ gboolean smime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	canonicalize_file_replace(tmpfile);
 	fp = g_fopen(tmpfile, "rb");
 	if (fp == NULL) {
-		perror("get_tmp_file");
+		FILE_OP_ERROR(tmpfile, "open");
 		g_free(kset);
 		return FALSE;
 	}
@@ -827,7 +827,7 @@ gboolean smime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	enccontent = sgpgme_data_release_and_get_mem(gpgenc, &len);
 
 	if (!enccontent) {
-		g_warning("no enccontent\n");
+		g_warning("no enccontent");
 		return FALSE;
 	}
 
@@ -839,16 +839,18 @@ gboolean smime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 			fclose(fp);
 			claws_unlink(tmpfile);
 			g_free(tmpfile);
+			g_free(enccontent);
 			return FALSE;
 		}
 		if (fclose(fp) == EOF) {
 			FILE_OP_ERROR(tmpfile, "fclose");
 			claws_unlink(tmpfile);
 			g_free(tmpfile);
+			g_free(enccontent);
 			return FALSE;
 		}
 	} else {
-		perror("get_tmp_file");
+		FILE_OP_ERROR(tmpfile, "create");
 		g_free(tmpfile);
 		g_free(enccontent);
 		return FALSE;
@@ -857,7 +859,7 @@ gboolean smime_encrypt(MimeInfo *mimeinfo, const gchar *encrypt_data)
 	g_free(textstr);
 
 	/* create encrypted multipart */
-	procmime_mimeinfo_free_all(msgcontent);
+	procmime_mimeinfo_free_all(&msgcontent);
 	g_node_append(mimeinfo->node, encmultipart->node);
 
 	encmultipart->content = MIMECONTENT_FILE;

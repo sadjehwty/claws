@@ -32,7 +32,7 @@
 #include "addrharvest.h"
 #include "codeconv.h"
 #include "addritem.h"
-#ifdef USE_NEW_ADDRBOOK
+#ifdef USE_ALT_ADDRBOOK
 	#include "addressbook-dbus.h"
 #endif
 
@@ -66,7 +66,7 @@ struct _HeaderEntry {
 	gint       count;
 };
 
-#ifdef USE_NEW_ADDRBOOK
+#ifdef USE_ALT_ADDRBOOK
 typedef enum {
     FIRST = 0,
     LAST,
@@ -280,7 +280,7 @@ void addrharvest_free( AddressHarvester *harvester ) {
 	g_free( harvester );
 }
 
-#ifdef USE_NEW_ADDRBOOK
+#ifdef USE_ALT_ADDRBOOK
 static gchar* get_namepart(const gchar* name, Namepart namepart) {
     gchar *pos, *part = NULL;
     gchar *token = g_strdup(name);
@@ -319,7 +319,7 @@ static void addrharvest_insert_cache(
 		AddressCache *cache, const gchar *name,
 		const gchar *address )
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	ItemPerson *person;
 	ItemFolder *folder;
 	gchar *folderName;
@@ -343,7 +343,7 @@ static void addrharvest_insert_cache(
 	/* Insert address */
 	key = g_utf8_strdown( address, -1 );
 	person = g_hash_table_lookup( harvester->dupTable, key );
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	if( person ) {
 		/* Update existing person to use longest name */
 		value = ADDRITEM_NAME(person);
@@ -583,7 +583,7 @@ static void addrharvest_parse_address(
 				name = conv_unmime_header(buffer, NULL, TRUE);
 
 			/* Insert into address book */
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 			addrharvest_insert_cache(
 				harvester, entry, cache, name, email );
 #else
@@ -765,9 +765,11 @@ static void addrharvest_harvest_dir(
 {
 	GDir *dp;
 	const gchar *d;
+	gchar *fullname;
 	GError *error = NULL;
 	gint num;
-	int r;
+
+	debug_print("Harvesting addresses from dir '%s'\n", dir);
 
 	if( ( dp = g_dir_open( dir, 0, &error ) ) == NULL ) {
 		debug_print("opening '%s' failed: %d (%s)\n", dir,
@@ -777,24 +779,27 @@ static void addrharvest_harvest_dir(
 	}
 
 	/* Process directory */
-	r = g_chdir( dir );
-	while( r == 0 && ( d = g_dir_read_name( dp ) ) != NULL ) {
-		if( g_file_test(d, G_FILE_TEST_IS_DIR) ) {
+	while( (d = g_dir_read_name( dp )) != NULL ) {
+		fullname = g_strconcat(dir, G_DIR_SEPARATOR_S, d, NULL);
+		if( g_file_test(fullname, G_FILE_TEST_IS_DIR) ) {
 			if( harvester->folderRecurse ) {
-				if( strstr( DIR_IGNORE, d ) != NULL )
+				if( strstr( DIR_IGNORE, d ) != NULL ) {
+					g_free(fullname);
 					continue;
+				}
+
 				addrharvest_harvest_dir(
-					harvester, cache, listHdr, (gchar *)d );
+					harvester, cache, listHdr, (gchar *)fullname );
 			}
 		}
-		if( g_file_test(d, G_FILE_TEST_IS_REGULAR) ) {
+		if( g_file_test(fullname, G_FILE_TEST_IS_REGULAR) ) {
 			if( ( num = to_number( d ) ) >= 0 ) {
 				addrharvest_readfile(
-					harvester, d, cache, listHdr );
+					harvester, fullname, cache, listHdr );
 			}
 		}
+		g_free(fullname);
 	}
-	r = g_chdir( ".." );
 	g_dir_close( dp );
 }
 
@@ -810,8 +815,7 @@ static void addrharvest_harvest_list(
 {
 	gint num;
 	GList *node;
-	gchar msgNum[ MSGNUM_BUFFSIZE ];
-	int r;
+	gchar *fullname;
 
 	if (!g_file_test(harvester->path, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)) {
 		debug_print("'%s' doesn't exist or is not a dir\n", harvester->path);
@@ -819,16 +823,13 @@ static void addrharvest_harvest_list(
 	}
 
 	/* Process message list */
-	r = g_chdir( harvester->path );
-	if (r != 0) {
-		g_message("cannot g_chdir to '%s'\n", harvester->path);
-		return;
-	}
 	node = msgList;
 	while( node ) {
 		num = GPOINTER_TO_UINT( node->data );
-		sprintf( msgNum, "%d", num );
-		addrharvest_readfile( harvester, msgNum, cache, listHdr );
+		fullname = g_strdup_printf("%s%c%d",
+				harvester->path, G_DIR_SEPARATOR, num);
+		addrharvest_readfile( harvester, fullname, cache, listHdr );
+		g_free(fullname);
 		node = g_list_next( node );
 	}
 }
@@ -851,12 +852,12 @@ gint addrharvest_harvest(
 
 	retVal = MGU_BAD_ARGS;
 	cm_return_val_if_fail( harvester != NULL, retVal );
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	cm_return_val_if_fail( cache != NULL, retVal );
 #endif
 	cm_return_val_if_fail( harvester->path != NULL, retVal );
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	/* Clear cache */
 	addrcache_clear( cache );
 	cache->dataRead = FALSE;
@@ -886,7 +887,7 @@ gint addrharvest_harvest(
 	}
 	mgu_free_dlist( listHdr );
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	/* Mark cache */
 	cache->modified = FALSE;
 	cache->dataRead = TRUE;

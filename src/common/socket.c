@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2017 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -26,13 +25,15 @@
 #define _BSD_SOURCE
 #endif
 
+/* This can probably be handled better, e.g. define it in config.h. */
+#define _WIN32_WINNT _WIN32_WINNT_WIN6
 #include <glib.h>
 #include <glib/gi18n.h>
 
 #include <sys/time.h>
 #include <sys/types.h>
 #ifdef G_OS_WIN32
-#  include <winsock2.h>
+#  include <ws2tcpip.h>
 #  ifndef EINPROGRESS
 #    define EINPROGRESS WSAEINPROGRESS
 #  endif
@@ -47,6 +48,9 @@
 #  include <netinet/in.h>
 #  include <arpa/inet.h>
 #  include <resolv.h>
+#  ifndef _PATH_RESCONF
+#    define _PATH_RESCONF "/etc/resolv.conf"
+#  endif
 #  include <netdb.h>
 #endif /* G_OS_WIN32 */
 #include <unistd.h>
@@ -151,14 +155,8 @@ static gint sock_connect_with_timeout	(gint			 sock,
 					 gint			 addrlen,
 					 guint			 timeout_secs);
 
-#ifndef INET6
-static gint sock_connect_by_hostname	(gint		 sock,
-					 const gchar	*hostname,
-					 gushort	 port);
-#else
 static gint sock_connect_by_getaddrinfo	(const gchar	*hostname,
 					 gushort	 port);
-#endif
 
 static SockInfo *sockinfo_from_fd(const gchar *hostname,
 				  gushort port,
@@ -193,7 +191,7 @@ gint sock_init(void)
 
 	result = WSAStartup(MAKEWORD(2, 2), &wsadata);
 	if (result != NO_ERROR) {
-		g_warning("WSAStartup() failed\n");
+		g_warning("WSAStartup() failed");
 		return -1;
 	}
 #endif
@@ -225,7 +223,7 @@ void refresh_resolvers(void)
 	 * know if it'd work on BSDs.
 	 * Why doesn't the glibc do it by itself?
 	 */
-	if (g_stat("/etc/resolv.conf", &s) == 0) {
+	if (g_stat(_PATH_RESCONF, &s) == 0) {
 		if (s.st_mtime > resolv_conf_changed) {
 			resolv_conf_changed = s.st_mtime;
 			res_init();
@@ -294,7 +292,7 @@ gint fd_open_inet(gushort port)
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (!SOCKET_IS_VALID(sock)) {
 #ifdef G_OS_WIN32
-		g_warning("fd_open_inet(): socket() failed: %d\n",
+		g_warning("fd_open_inet(): socket() failed: %d",
 			  WSAGetLastError());
 #else
 		perror("fd_open_inet(): socket");
@@ -569,7 +567,7 @@ static gint fd_check_io(gint fd, GIOCondition cond)
 	if (FD_ISSET(fd, &fds)) {
 		return 0;
 	} else {
-		g_warning("Socket IO timeout\n");
+		g_warning("Socket IO timeout");
 		log_error(LOG_PROTOCOL, _("Socket IO timeout.\n"));
 		return -1;
 	}
@@ -615,98 +613,6 @@ static gint sock_connect_with_timeout(gint sock,
 	return ret;
 }
 
-struct hostent *my_gethostbyname(const gchar *hostname)
-{
-	struct hostent *hp;
-#ifdef G_OS_UNIX
-	void (*prev_handler)(gint);
-	
-	alarm(0);
-	prev_handler = signal(SIGALRM, timeout_handler);
-	if (sigsetjmp(jmpenv, 1)) {
-		alarm(0);
-		signal(SIGALRM, prev_handler);
-		g_printerr("%s: host lookup timed out.\n", hostname);
-		log_error(LOG_PROTOCOL, _("%s: host lookup timed out.\n"), hostname);
-		errno = 0;
-		return NULL;
-	}
-	alarm(io_timeout);
-#endif
-
-	if ((hp = gethostbyname(hostname)) == NULL) {
-#ifdef G_OS_UNIX
-		alarm(0);
-		signal(SIGALRM, prev_handler);
-#endif
-		g_printerr("%s: unknown host.\n", hostname);
-		log_error(LOG_PROTOCOL, _("%s: unknown host.\n"), hostname);
-		errno = 0;
-		return NULL;
-	}
-
-#ifdef G_OS_UNIX
-	alarm(0);
-	signal(SIGALRM, prev_handler);
-#endif
-
-	return hp;
-}
-
-#ifndef INET6
-static gint my_inet_aton(const gchar *hostname, struct in_addr *inp)
-{
-#if HAVE_INET_ATON
-	return inet_aton(hostname, inp);
-#else
-#if HAVE_INET_ADDR
-	guint32 inaddr;
-
-	inaddr = inet_addr(hostname);
-	if (inaddr != -1) {
-		memcpy(inp, &inaddr, sizeof(inaddr));
-		return 1;
-	} else
-		return 0;
-#else
-	return 0;
-#endif
-#endif /* HAVE_INET_ATON */
-}
-
-static gint sock_connect_by_hostname(gint sock, const gchar *hostname,
-				     gushort port)
-{
-	struct hostent *hp;
-	struct sockaddr_in ad;
-
-	memset(&ad, 0, sizeof(ad));
-	ad.sin_family = AF_INET;
-	ad.sin_port = htons(port);
-
-	refresh_resolvers();
-
-	if (!my_inet_aton(hostname, &ad.sin_addr)) {
-		if ((hp = my_gethostbyname(hostname)) == NULL) {
-			g_printerr("%s: unknown host.\n", hostname);
-			errno = 0;
-			return -1;
-		}
-
-		if (hp->h_length != 4 && hp->h_length != 8) {
-			g_printerr("illegal address length received for host %s\n", hostname);
-			errno = 0;
-			return -1;
-		}
-
-		memcpy(&ad.sin_addr, hp->h_addr, hp->h_length);
-	}
-
-	return sock_connect_with_timeout(sock, (struct sockaddr *)&ad,
-					 sizeof(ad), io_timeout);
-}
-
-#else /* INET6 */
 static gint sock_connect_by_getaddrinfo(const gchar *hostname, gushort	port)
 {
 	gint sock = -1, gai_error;
@@ -716,8 +622,14 @@ static gint sock_connect_by_getaddrinfo(const gchar *hostname, gushort	port)
 	refresh_resolvers();
 
 	memset(&hints, 0, sizeof(hints));
-	/* hints.ai_flags = AI_CANONNAME; */
+	hints.ai_flags = AI_ADDRCONFIG;
+
+#ifdef INET6
 	hints.ai_family = AF_UNSPEC;
+#else
+	hints.ai_family = AF_INET;
+#endif
+
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
@@ -731,9 +643,18 @@ static gint sock_connect_by_getaddrinfo(const gchar *hostname, gushort	port)
 	}
 
 	for (ai = res; ai != NULL; ai = ai->ai_next) {
-		sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-		if (sock < 0)
+#ifndef INET6
+		if (ai->ai_family == AF_INET6)
 			continue;
+#endif
+
+		sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+		if (sock < 0 )
+			continue;
+#ifdef G_OS_WIN32
+		if (sock == INVALID_SOCKET)
+			continue;
+#endif
 
 		if (sock_connect_with_timeout
 			(sock, ai->ai_addr, ai->ai_addrlen, io_timeout) == 0)
@@ -750,7 +671,6 @@ static gint sock_connect_by_getaddrinfo(const gchar *hostname, gushort	port)
 
 	return sock;
 }
-#endif /* !INET6 */
 
 SockInfo *sock_connect(const gchar *hostname, gushort port)
 {
@@ -760,26 +680,9 @@ SockInfo *sock_connect(const gchar *hostname, gushort port)
 	gint sock;
 #endif
 
-#ifdef INET6
-	if ((sock = sock_connect_by_getaddrinfo(hostname, port)) < 0)
-		return NULL;
-#else
-#ifdef G_OS_WIN32
-	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
-		g_warning("socket() failed: %d\n", WSAGetLastError());
-#else
-	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-		perror("socket");
-#endif /* G_OS_WIN32 */
+	if ((sock = sock_connect_by_getaddrinfo(hostname, port)) < 0) {
 		return NULL;
 	}
-
-	if (sock_connect_by_hostname(sock, hostname, port) < 0) {
-		if (errno != 0) perror("connect");
-		close(sock);
-		return NULL;
-	}
-#endif /* INET6 */
 
 	return sockinfo_from_fd(hostname, port, sock);
 }
@@ -819,7 +722,7 @@ static gboolean sock_connect_async_cb(GIOChannel *source,
 	g_io_channel_unref(source);
 
 	len = sizeof(val);
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &val, &len) < 0) {
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)&val, &len) < 0) {
 		perror("getsockopt");
 		close(fd);
 		sock_connect_address_list_async(conn_data);
@@ -936,7 +839,7 @@ gint sock_connect_async_cancel(gint id)
 		g_free(conn_data->hostname);
 		g_free(conn_data);
 	} else {
-		g_warning("sock_connect_async_cancel: id %d not found.\n", id);
+		g_warning("sock_connect_async_cancel: id %d not found", id);
 		return -1;
 	}
 
@@ -1010,7 +913,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 	
 	g_io_channel_set_encoding(source, NULL, &err);
 	if (err) {
-		g_warning("can unset encoding: %s\n", err->message);
+		g_warning("can unset encoding: %s", err->message);
 		g_error_free(err);
 		return FALSE;
 	}
@@ -1018,7 +921,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 	if (g_io_channel_read_chars(source, &len, sizeof(len),
 			      &bytes_read, &err) == G_IO_STATUS_NORMAL) {
 		if (err != NULL) {
-			g_warning("g_io_channel_read_chars: %s\n", err->message);
+			g_warning("g_io_channel_read_chars: %s", err->message);
 			g_error_free(err);
 			return FALSE;
 		} 
@@ -1031,7 +934,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 				if (g_io_channel_read_chars(source, cur, todo,
 				      &bytes_read, &err) != G_IO_STATUS_NORMAL) {
 					if (err) {
-					      g_warning("canonical name not read %s\n", err->message);
+					      g_warning("canonical name not read %s", err->message);
 					      g_free(canonical_name);
 					      canonical_name = NULL;
 					      g_error_free(err);
@@ -1043,7 +946,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 					todo -= bytes_read;
 				}
 				if (bytes_read == 0) {
-				      g_warning("canonical name not read\n");
+				      g_warning("canonical name not read");
 				      g_free(canonical_name);
 				      canonical_name = NULL;
 				      break;
@@ -1056,7 +959,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 				      sizeof(ai_member), &bytes_read, &err) 
 		    != G_IO_STATUS_NORMAL) {
 			if (err != NULL) {
-				g_warning("g_io_channel_read_chars: addr len %s\n", err->message);
+				g_warning("g_io_channel_read_chars: addr len %s", err->message);
 				g_error_free(err);
 				err = NULL;
 				break;
@@ -1067,7 +970,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 			break;
 
 		if (ai_member[0] == AF_UNSPEC) {
-			g_warning("DNS lookup failed\n");
+			g_warning("DNS lookup failed");
 			log_error(LOG_PROTOCOL, _("%s:%d: unknown host.\n"),
 				lookup_data->hostname, lookup_data->port);
 			break;
@@ -1078,7 +981,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 				      &bytes_read, &err) 
 		    != G_IO_STATUS_NORMAL) {
 			if (err != NULL) {
-				g_warning("g_io_channel_read_chars: addr data read %s\n", err->message);
+				g_warning("g_io_channel_read_chars: addr data read %s", err->message);
 				g_error_free(err);
 				err = NULL;
 				g_free(addr);
@@ -1088,7 +991,7 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 
 		if (bytes_read != ai_member[3]) {
 			g_warning("sock_get_address_info_async_cb: "
-				  "incomplete address data\n");
+				  "incomplete address data");
 			g_free(addr);
 			break;
 		}
@@ -1133,15 +1036,9 @@ static gboolean sock_get_address_info_async_cb(GIOChannel *source,
 static void address_info_async_child(void *opaque)
 {
         SockLookupData *parm = opaque;
-#ifdef INET6
         gint gai_err;
         struct addrinfo hints, *res, *ai;
         gchar port_str[6];
-#else /* !INET6 */
-        struct hostent *hp;
-        gchar **addr_list_p;
-        struct sockaddr_in ad;
-#endif /* INET6 */
         gint ai_member[4] = {AF_UNSPEC, 0, 0, 0};
 
 #ifndef G_OS_WIN32
@@ -1149,10 +1046,13 @@ static void address_info_async_child(void *opaque)
         parm->pipe_fds[0] = -1;
 #endif
 
-#ifdef INET6
         memset(&hints, 0, sizeof(hints));
-        hints.ai_flags = AI_CANONNAME;
+        hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG;
+#ifdef INET6
         hints.ai_family = AF_UNSPEC;
+#else
+				hints.ai_family = AF_INET;
+#endif
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
 
@@ -1161,7 +1061,7 @@ static void address_info_async_child(void *opaque)
         gai_err = getaddrinfo(parm->hostname, port_str, &hints, &res);
         if (gai_err != 0) {
 		gchar len = 0;
-                g_warning("getaddrinfo for %s:%s failed: %s\n",
+                g_warning("getaddrinfo for %s:%s failed: %s",
                           parm->hostname, port_str, gai_strerror(gai_err));
 		log_error(LOG_PROTOCOL, _("%s:%s: host lookup failed (%s).\n"),
 			  parm->hostname, port_str, gai_strerror(gai_err));
@@ -1210,51 +1110,6 @@ static void address_info_async_child(void *opaque)
 
         if (res != NULL)
                 freeaddrinfo(res);
-#else /* !INET6 */
-        hp = my_gethostbyname(parm->hostname);
-        if (hp == NULL || hp->h_addrtype != AF_INET) {
-		gchar len = 0;
- 	        fd_write_all(parm->pipe_fds[1], &len,
-                     sizeof(len));
-                fd_write_all(parm->pipe_fds[1], (gchar *)ai_member,
-                             sizeof(ai_member));
-               close(parm->pipe_fds[1]);
-                parm->pipe_fds[1] = -1;
-#ifdef G_OS_WIN32
-                _endthread();
-#else
-                _exit(1);
-#endif
-        }
-
-        ai_member[0] = AF_INET;
-        ai_member[1] = SOCK_STREAM;
-        ai_member[2] = IPPROTO_TCP;
-        ai_member[3] = sizeof(ad);
-
-        memset(&ad, 0, sizeof(ad));
-        ad.sin_family = AF_INET;
-        ad.sin_port = htons(parm->port);
-
-	if (hp->h_name && strlen(hp->h_name) < 255) {
-		gchar len = strlen(hp->h_name);
-	        fd_write_all(parm->pipe_fds[1], &len,
-                     sizeof(len));
-	        fd_write_all(parm->pipe_fds[1], hp->h_name,
-                     len);			 
-	} else {
-		gchar len = 0;
- 	        fd_write_all(parm->pipe_fds[1], &len,
-                     sizeof(len));
-	}
-        for (addr_list_p = hp->h_addr_list; *addr_list_p != NULL;
-             addr_list_p++) {
-                memcpy(&ad.sin_addr, *addr_list_p, hp->h_length);
-                fd_write_all(parm->pipe_fds[1], (gchar *)ai_member,
-                             sizeof(ai_member));
-                fd_write_all(parm->pipe_fds[1], (gchar *)&ad, sizeof(ad));
-        }
-#endif /* INET6 */
 
         close(parm->pipe_fds[1]);
         parm->pipe_fds[1] = -1;
@@ -1417,7 +1272,7 @@ static gint ssl_read(gnutls_session_t ssl, gchar *buf, gint len)
 			return -1;
 
 		default:
-			debug_print("Unexpected SSL read result %d\n", r);
+			debug_print("Unexpected SSL/TLS read result %d\n", r);
 			errno = EIO;
 			return -1;
 		}
@@ -1569,8 +1424,7 @@ static gint fd_recv(gint fd, gchar *buf, gint len, gint flags)
 
 gint fd_gets(gint fd, gchar *buf, gint len)
 {
-	gchar *newline, *bp = buf;
-	gint n;
+	gchar *bp = buf;
 
 	if (--len < 1)
 		return -1;
@@ -1599,6 +1453,8 @@ Single-byte send() and recv().
 		len--;
 	} while (0 < len);
 #else /*!G_OS_WIN32*/
+	gchar *newline;
+	gint n;
 	do {
 		if ((n = fd_recv(fd, bp, len, MSG_PEEK)) <= 0)
 			return -1;

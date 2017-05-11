@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2001-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2001-2017 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,11 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
- */
-
-/*
- * General functions for accessing address book files.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -60,7 +55,7 @@
 #include "imap.h"
 #include "account.h"
 #include "send_message.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addressbook.h"
 #else
 	#include "addressbook-dbus.h"
@@ -79,14 +74,17 @@ static void toolbar_init(Toolbar * toolbar);
 static gboolean      toolbar_is_duplicate		(gint           action,
 					      	 ToolbarType	source);
 static void   toolbar_parse_item		(XMLFile        *file,
-					      	 ToolbarType	source);
+					      	 ToolbarType	source, gboolean *rewrite);
 
 static gint   toolbar_ret_val_from_text		(const gchar	*text);
 static gchar *toolbar_ret_text_from_val		(gint           val);
 
-static void   toolbar_set_default_main		(void);
-static void   toolbar_set_default_compose	(void);
-static void   toolbar_set_default_msgview	(void);
+typedef struct _DefaultToolbar DefaultToolbar;
+struct _DefaultToolbar {
+	gint action;
+};
+static void toolbar_set_default_generic(ToolbarType toolbar_type,
+						 DefaultToolbar *default_toolbar);
 
 static void	toolbar_style			(ToolbarType 	 type, 
 						 guint 		 action, 
@@ -100,12 +98,22 @@ static void activate_compose_button 		(Toolbar	*toolbar,
 /* toolbar callbacks */
 static void toolbar_reply			(gpointer 	 data, 
 						 guint		 action);
+
 static void toolbar_learn			(gpointer 	 data, 
 						 guint		 action);
-static void toolbar_delete_cb			(GtkWidget	*widget,
-					 	 gpointer        data);
+
+static void toolbar_delete_dup		(gpointer 	 data, 
+						 guint		 action);
+
 static void toolbar_trash_cb			(GtkWidget	*widget,
 					 	 gpointer        data);
+
+static void toolbar_delete_cb			(GtkWidget	*widget,
+					 	 gpointer        data);
+
+static void toolbar_delete_dup_cb   		(GtkWidget   	*widget, 
+
+					 	 gpointer     	 data);
 
 static void toolbar_compose_cb			(GtkWidget	*widget,
 					    	 gpointer	 data);
@@ -137,6 +145,30 @@ static void toolbar_ignore_thread_cb	   	(GtkWidget	*widget,
 					    	 gpointer 	 data);
 
 static void toolbar_watch_thread_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_mark_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_unmark_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_lock_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_ulock_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_all_read_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_all_unread_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_read_cb	   	(GtkWidget	*widget,
+					    	 gpointer 	 data);
+
+static void toolbar_unread_cb	   	(GtkWidget	*widget,
 					    	 gpointer 	 data);
 
 static void toolbar_print_cb			(GtkWidget	*widget,
@@ -202,23 +234,34 @@ struct {
 	{ "A_FORWARD",       	N_("Forward Message")                      }, 
 	{ "A_TRASH",        	N_("Trash Message")   	                   },
 	{ "A_DELETE_REAL",    	N_("Delete Message")                       },
+	{ "A_DELETE_DUP",       N_("Delete duplicate messages") },
 	{ "A_EXECUTE",       	N_("Execute")                              },
 	{ "A_GOTO_PREV",     	N_("Go to Previous Unread Message")        },
 	{ "A_GOTO_NEXT",     	N_("Go to Next Unread Message")            },
+
 	{ "A_IGNORE_THREAD", 	N_("Ignore thread")                        },
 	{ "A_WATCH_THREAD", 	N_("Watch thread")                         },
+	{ "A_MARK", 			N_("Mark Message")                         },
+	{ "A_UNMARK", 			N_("Unmark Message")                       },
+	{ "A_LOCK", 			N_("Lock Message")                         },
+	{ "A_UNLOCK", 			N_("Unlock Message")                       },
+	{ "A_ALL_READ",			N_("Mark all Messages as read")            },
+	{ "A_ALL_UNREAD",		N_("Mark all Messages as unread")          },
+	{ "A_READ", 			N_("Mark Message as read")                 },
+	{ "A_UNREAD", 			N_("Mark Message as unread")               },
+
 	{ "A_PRINT",	     	N_("Print")                                },
 	{ "A_LEARN_SPAM",       N_("Learn Spam or Ham")                    },
 	{ "A_GO_FOLDERS",   	N_("Open folder/Go to folder list")        },
 	{ "A_PREFERENCES",      N_("Preferences")                          },
 
 	{ "A_SEND",          	N_("Send Message")                         },
-	{ "A_SENDL",         	N_("Put into queue folder and send later") },
+	{ "A_SEND_LATER",     	N_("Put into queue folder and send later") },
 	{ "A_DRAFT",         	N_("Save to draft folder")                 },
 	{ "A_INSERT",        	N_("Insert file")                          },   
 	{ "A_ATTACH",        	N_("Attach file")                          },
 	{ "A_SIG",           	N_("Insert signature")                     },
-	{ "A_REP_SIG",          N_("Replace signature")                     },
+	{ "A_REP_SIG",          N_("Replace signature")                    },
 	{ "A_EXTEDITOR",     	N_("Edit with external editor")            },
 	{ "A_LINEWRAP_CURRENT",	N_("Wrap long lines of current paragraph") }, 
 	{ "A_LINEWRAP_ALL",     N_("Wrap all long lines")                  }, 
@@ -232,9 +275,22 @@ struct {
 	{ "A_CANCEL_ALL",       N_("Cancel receiving/sending")             },
 	{ "A_CLOSE",            N_("Close window")                         },
 	{ "A_SEPARATOR",     	N_("Separator")                            },
-	{ "A_CLAWS_PLUGINS",    N_("Claws Mail Plugins")                   },
+	{ "A_CLAWS_PLUGINS",    N_("Claws Mail Plugins")                   }
 };
 
+/* migration table: support reading toolbar configuration files with
+   old action names and converting them to current action names,
+   see toolbar_parse_item(), which makes uses of this alias table.
+*/
+struct {
+	const gchar *old_name;
+	const gchar *current_name;
+} toolbar_migration [] = {
+	{ "A_SYL_ACTIONS",   "A_CLAWS_ACTIONS" },
+	{ "A_SENDL",         "A_SEND_LATER" },
+	{ NULL,              NULL }
+};
+	
 /* struct holds configuration files and a list of
  * currently active toolbar items 
  * TOOLBAR_MAIN, TOOLBAR_COMPOSE and TOOLBAR_MSGVIEW
@@ -313,12 +369,15 @@ GList *toolbar_get_action_items(ToolbarType source)
 	gint i = 0;
 	
 	if (source == TOOLBAR_MAIN) {
-		gint main_items[] = { A_RECEIVE_ALL,   A_RECEIVE_CUR,   A_SEND_QUEUED,
-					A_COMPOSE_EMAIL, A_REPLY_MESSAGE, A_REPLY_SENDER, 
-					A_REPLY_ALL,     A_REPLY_ML,      A_OPEN_MAIL,     A_FORWARD, 
-					A_TRASH,         A_DELETE_REAL,   A_EXECUTE,       A_GOTO_PREV, 
-					A_GOTO_NEXT,     A_IGNORE_THREAD, A_WATCH_THREAD,  A_PRINT,
-					A_ADDRBOOK,      A_LEARN_SPAM,    A_GO_FOLDERS, 
+		gint main_items[] = {
+					A_RECEIVE_ALL,   A_RECEIVE_CUR,   A_SEND_QUEUED,
+					A_COMPOSE_EMAIL, A_REPLY_MESSAGE, A_REPLY_SENDER,
+					A_REPLY_ALL,     A_REPLY_ML,      A_OPEN_MAIL,     A_FORWARD,
+					A_TRASH,         A_DELETE_REAL,   A_DELETE_DUP,    A_EXECUTE,
+                    A_GOTO_PREV,     A_GOTO_NEXT,     A_IGNORE_THREAD, A_WATCH_THREAD,
+                    A_MARK,          A_UNMARK,        A_LOCK,          A_UNLOCK,
+                    A_ALL_READ,      A_ALL_UNREAD,    A_READ,          A_UNREAD,
+                    A_PRINT,         A_ADDRBOOK,      A_LEARN_SPAM,    A_GO_FOLDERS,
 					A_CANCEL_INC,    A_CANCEL_SEND,   A_CANCEL_ALL,    A_PREFERENCES };
 
 		for (i = 0; i < sizeof main_items / sizeof main_items[0]; i++)  {
@@ -326,23 +385,25 @@ GList *toolbar_get_action_items(ToolbarType source)
 		}	
 	}
 	else if (source == TOOLBAR_COMPOSE) {
-		gint comp_items[] =   {	A_SEND,          A_SENDL,        A_DRAFT,
+		gint comp_items[] =   {
+					A_SEND,          A_SEND_LATER,   A_DRAFT,
 					A_INSERT,        A_ATTACH,       A_SIG,
-					A_REP_SIG,	 A_EXTEDITOR,    A_LINEWRAP_CURRENT,     
+					A_REP_SIG,       A_EXTEDITOR,    A_LINEWRAP_CURRENT,
 					A_LINEWRAP_ALL,  A_ADDRBOOK,
 #ifdef USE_ENCHANT
-					A_CHECK_SPELLING, 
+					A_CHECK_SPELLING,
 #endif
-					A_CLOSE };	
+					A_CLOSE };
 
 		for (i = 0; i < sizeof comp_items / sizeof comp_items[0]; i++) 
 			items = g_list_append(items, gettext(toolbar_text[comp_items[i]].descr));
 	}
 	else if (source == TOOLBAR_MSGVIEW) {
-		gint msgv_items[] =   { A_COMPOSE_EMAIL, A_REPLY_MESSAGE, A_REPLY_SENDER,
-				        A_REPLY_ALL,     A_REPLY_ML,      A_FORWARD,
-				        A_TRASH, A_DELETE_REAL,       A_GOTO_PREV,	  A_GOTO_NEXT,
-					A_ADDRBOOK,	 A_LEARN_SPAM, A_CLOSE };	
+		gint msgv_items[] =   {
+					A_COMPOSE_EMAIL, A_REPLY_MESSAGE, A_REPLY_SENDER,
+					A_REPLY_ALL,     A_REPLY_ML,      A_FORWARD,
+					A_TRASH,         A_DELETE_REAL,   A_GOTO_PREV,      A_GOTO_NEXT,
+					A_ADDRBOOK,      A_LEARN_SPAM,    A_CLOSE };
 
 		for (i = 0; i < sizeof msgv_items / sizeof msgv_items[0]; i++) 
 			items = g_list_append(items, gettext(toolbar_text[msgv_items[i]].descr));
@@ -351,12 +412,13 @@ GList *toolbar_get_action_items(ToolbarType source)
 	return items;
 }
 
-static void toolbar_parse_item(XMLFile *file, ToolbarType source)
+static void toolbar_parse_item(XMLFile *file, ToolbarType source, gboolean *rewrite)
 {
 	GList *attr;
 	gchar *name, *value;
 	ToolbarItem *item = NULL;
-	gboolean rewrite = FALSE;
+
+	g_return_if_fail(rewrite != NULL);
 
 	attr = xml_get_current_tag_attr(file);
 	item = g_new0(ToolbarItem, 1);
@@ -370,59 +432,89 @@ static void toolbar_parse_item(XMLFile *file, ToolbarType source)
 			item->text = g_strdup (*value ? gettext(value):"");
 		else if (g_utf8_collate(name, TOOLBAR_ICON_ACTION) == 0)
 			item->index = toolbar_ret_val_from_text(value);
-		if (item->index == -1 && !strcmp(value, "A_DELETE")) {
+
+		if ((item->index == -1) && !strcmp(value, "A_DELETE")) {
 			/* switch button */
 			item->index = A_TRASH;
 			g_free(item->file);
 			item->file = g_strdup("trash_btn");
 			g_free(item->text);
 			item->text = g_strdup(C_("Toolbar", "Trash"));
-			rewrite = TRUE;
+			*rewrite = TRUE;
 		}
-		if (item->index == -1 && !strcmp(value, "A_SYL_ACTIONS")) {
-			/* switch button */
-			item->index = A_CLAWS_ACTIONS;
-			rewrite = TRUE;
+		if (!strcmp(item->file, "mail") && !strcmp(value, "A_DRAFT")) {
+			/* switch icon file */
+			g_free(item->file);
+			item->file = g_strdup("mail_draft");
+			*rewrite = TRUE;
 		}
+		if (item->index == -1) {
+			/* item not found in table: try migrating old action names to current ones */
+			gint i;
+
+			/* replace action name */
+			for (i = 0; toolbar_migration[i].old_name != NULL; i++) {
+				if (g_utf8_collate(value, toolbar_migration[i].old_name) == 0) {
+					item->index = toolbar_ret_val_from_text(toolbar_migration[i].current_name);
+					if (item->index != -1) {
+						*rewrite = TRUE;
+						debug_print("toolbar_parse_item: migrating action label from '%s' to '%s'\n",
+							value, toolbar_migration[i].current_name);
+						break;
+					}
+				}
+			}
+		}
+		if ((item->index == -1) && !rewrite)
+			g_warning("toolbar_parse_item: unrecognized action name '%s'\n", value);
+
 		attr = g_list_next(attr);
 	}
 	if (item->index != -1) {
-		
 		if (!toolbar_is_duplicate(item->index, source)) 
 			toolbar_config[source].item_list = g_slist_append(toolbar_config[source].item_list,
 									 item);
-	}
-	if (rewrite) {
-		toolbar_save_config_file(source);
 	}
 }
 
 const gchar *toolbar_get_short_text(int action) {
 	switch(action) {
-	case A_GO_FOLDERS: 	return _("Folders");
-	case A_OPEN_MAIL: 	return _("Open");
 	case A_RECEIVE_ALL: 	return _("Get Mail");
 	case A_RECEIVE_CUR: 	return _("Get");
 	case A_SEND_QUEUED: 	return _("Send");
 	case A_COMPOSE_EMAIL: 	return C_("Toolbar", "Compose");
 	case A_COMPOSE_NEWS: 	return C_("Toolbar", "Compose");
 	case A_REPLY_MESSAGE: 	return _("Reply");
-	case A_REPLY_ALL: 	return _("All");
 	case A_REPLY_SENDER: 	return C_("Toolbar", "Sender");
+	case A_REPLY_ALL: 	return _("All");
 	case A_REPLY_ML: 	return _("List");
+	case A_OPEN_MAIL: 	return _("Open");
 	case A_FORWARD: 	return _("Forward");
 	case A_TRASH: 		return C_("Toolbar", "Trash");
 	case A_DELETE_REAL:	return _("Delete");
-	case A_LEARN_SPAM: 	return _("Spam");
+	case A_DELETE_DUP: 	return _("Delete duplicates");
+	case A_EXECUTE:		return _("Execute");
 	case A_GOTO_PREV: 	return _("Prev");
 	case A_GOTO_NEXT: 	return _("Next");
+
 	case A_IGNORE_THREAD: 	return _("Ignore thread");
 	case A_WATCH_THREAD: 	return _("Watch thread");
+	case A_MARK: 		return _("Mark");
+	case A_UNMARK: 		return _("Unmark");
+	case A_LOCK: 		return _("Lock");
+	case A_UNLOCK: 		return _("Unlock");
+	case A_ALL_READ: 	return _("All read");
+	case A_ALL_UNREAD: 	return _("All unread");
+	case A_READ: 		return _("Read");
+	case A_UNREAD: 		return _("Unread");
+
 	case A_PRINT:	 	return _("Print");
-	case A_CLOSE: 		return _("Close");
+	case A_LEARN_SPAM: 	return _("Spam");
+	case A_GO_FOLDERS: 	return _("Folders");
 	case A_PREFERENCES:	return _("Preferences");
+
 	case A_SEND: 		return _("Send");
-	case A_SENDL: 		return _("Send later");
+	case A_SEND_LATER:	return _("Send later");
 	case A_DRAFT: 		return _("Draft");
 	case A_INSERT: 		return _("Insert");
 	case A_ATTACH: 		return _("Attach");
@@ -432,44 +524,57 @@ const gchar *toolbar_get_short_text(int action) {
 	case A_LINEWRAP_CURRENT:return _("Wrap para.");
 	case A_LINEWRAP_ALL:	return _("Wrap all");
 	case A_ADDRBOOK: 	return _("Address");
-	case A_CANCEL_INC:	return _("Stop");
-	case A_CANCEL_SEND:	return _("Stop");
-	case A_CANCEL_ALL:	return _("Stop all");
-	case A_EXECUTE:		return _("Execute");
 	#ifdef USE_ENCHANT
 	case A_CHECK_SPELLING:	return _("Check spelling");
 	#endif
+
+	case A_CANCEL_INC:	return _("Stop");
+	case A_CANCEL_SEND:	return _("Stop");
+	case A_CANCEL_ALL:	return _("Stop all");
+	case A_CLOSE: 		return _("Close");
 	default:		return "";
 	}
 }
 
 gint toolbar_get_icon(int action) {
 	switch(action) {
-	case A_GO_FOLDERS: 	return STOCK_PIXMAP_GO_FOLDERS;
-	case A_OPEN_MAIL: 	return STOCK_PIXMAP_OPEN_MAIL;
 	case A_RECEIVE_ALL: 	return STOCK_PIXMAP_MAIL_RECEIVE_ALL;
 	case A_RECEIVE_CUR: 	return STOCK_PIXMAP_MAIL_RECEIVE;
 	case A_SEND_QUEUED: 	return STOCK_PIXMAP_MAIL_SEND_QUEUE;
 	case A_COMPOSE_EMAIL: 	return STOCK_PIXMAP_MAIL_COMPOSE;
 	case A_COMPOSE_NEWS: 	return STOCK_PIXMAP_NEWS_COMPOSE;
 	case A_REPLY_MESSAGE: 	return STOCK_PIXMAP_MAIL_REPLY;
-	case A_REPLY_ALL: 	return STOCK_PIXMAP_MAIL_REPLY_TO_ALL;
 	case A_REPLY_SENDER: 	return STOCK_PIXMAP_MAIL_REPLY_TO_AUTHOR;
+	case A_REPLY_ALL: 	return STOCK_PIXMAP_MAIL_REPLY_TO_ALL;
 	case A_REPLY_ML: 	return STOCK_PIXMAP_MAIL_REPLY_TO_LIST;
+	case A_OPEN_MAIL: 	return STOCK_PIXMAP_OPEN_MAIL;
 	case A_FORWARD: 	return STOCK_PIXMAP_MAIL_FORWARD;
 	case A_TRASH: 		return STOCK_PIXMAP_TRASH;
 	case A_DELETE_REAL:	return STOCK_PIXMAP_DELETE;
-	case A_LEARN_SPAM: 	return STOCK_PIXMAP_SPAM_BTN;
+	case A_DELETE_DUP: 	return STOCK_PIXMAP_DELETE_DUP;
+	case A_EXECUTE:		return STOCK_PIXMAP_EXEC;
 	case A_GOTO_PREV: 	return STOCK_PIXMAP_UP_ARROW;
 	case A_GOTO_NEXT: 	return STOCK_PIXMAP_DOWN_ARROW;
-	case A_IGNORE_THREAD: 	return STOCK_PIXMAP_IGNORETHREAD;
-	case A_WATCH_THREAD: 	return STOCK_PIXMAP_WATCHTHREAD;
-	case A_PRINT:	 	return STOCK_PIXMAP_PRINTER;
-	case A_CLOSE: 		return STOCK_PIXMAP_CLOSE;
+
+	case A_IGNORE_THREAD: 	return STOCK_PIXMAP_MARK_IGNORETHREAD;
+	case A_WATCH_THREAD: 	return STOCK_PIXMAP_MARK_WATCHTHREAD;
+	case A_MARK:   		return STOCK_PIXMAP_MARK_MARK;
+	case A_UNMARK:   	return STOCK_PIXMAP_MARK_UNMARK;
+	case A_LOCK:   		return STOCK_PIXMAP_MARK_LOCKED;
+	case A_UNLOCK:   	return STOCK_PIXMAP_MARK_UNLOCKED;
+	case A_ALL_READ:	return STOCK_PIXMAP_MARK_ALLREAD;
+	case A_ALL_UNREAD:	return STOCK_PIXMAP_MARK_ALLUNREAD;
+	case A_READ:   		return STOCK_PIXMAP_MARK_READ;
+	case A_UNREAD:   	return STOCK_PIXMAP_MARK_UNREAD;
+
+	case A_PRINT:	 	return STOCK_PIXMAP_PRINTER_BTN;
+	case A_LEARN_SPAM: 	return STOCK_PIXMAP_SPAM_BTN;
+	case A_GO_FOLDERS: 	return STOCK_PIXMAP_GO_FOLDERS;
 	case A_PREFERENCES:	return STOCK_PIXMAP_PREFERENCES;
+
 	case A_SEND: 		return STOCK_PIXMAP_MAIL_SEND;
-	case A_SENDL: 		return STOCK_PIXMAP_MAIL_SEND_QUEUE;
-	case A_DRAFT: 		return STOCK_PIXMAP_MAIL;
+	case A_SEND_LATER:	return STOCK_PIXMAP_MAIL_SEND_QUEUE;
+	case A_DRAFT: 		return STOCK_PIXMAP_MAIL_DRAFT;
 	case A_INSERT: 		return STOCK_PIXMAP_INSERT_FILE;
 	case A_ATTACH: 		return STOCK_PIXMAP_MAIL_ATTACH;
 	case A_SIG: 		return STOCK_PIXMAP_MAIL_SIGN;
@@ -478,22 +583,55 @@ gint toolbar_get_icon(int action) {
 	case A_LINEWRAP_CURRENT:return STOCK_PIXMAP_LINEWRAP_CURRENT;
 	case A_LINEWRAP_ALL:	return STOCK_PIXMAP_LINEWRAP_ALL;
 	case A_ADDRBOOK: 	return STOCK_PIXMAP_ADDRESS_BOOK;
-	case A_CANCEL_INC:	return STOCK_PIXMAP_CANCEL;
-	case A_CANCEL_SEND:	return STOCK_PIXMAP_CANCEL;
-	case A_CANCEL_ALL:	return STOCK_PIXMAP_CANCEL;
-	case A_EXECUTE:		return STOCK_PIXMAP_EXEC;
 	#ifdef USE_ENCHANT
 	case A_CHECK_SPELLING:	return STOCK_PIXMAP_CHECK_SPELLING;
 	#endif
+
+	case A_CANCEL_INC:	return STOCK_PIXMAP_CANCEL;
+	case A_CANCEL_SEND:	return STOCK_PIXMAP_CANCEL;
+	case A_CANCEL_ALL:	return STOCK_PIXMAP_CANCEL;
+	case A_CLOSE: 		return STOCK_PIXMAP_CLOSE;
 	default:		return -1;
 	}
 }
 
-static void toolbar_set_default_main(void) 
+static void toolbar_set_default_generic(ToolbarType toolbar_type, DefaultToolbar *default_toolbar)
 {
-	struct {
-		gint action;
-	} default_toolbar[] = {
+	gint i;
+
+	g_return_if_fail(default_toolbar != NULL);
+
+	for (i = 0; default_toolbar[i].action != N_ACTION_VAL; i++) {
+		
+		ToolbarItem *toolbar_item = g_new0(ToolbarItem, 1);
+		
+		if (default_toolbar[i].action != A_SEPARATOR) {
+			gchar *file = NULL;
+			gint icon;
+
+			icon = toolbar_get_icon(default_toolbar[i].action);
+			if (icon > -1) {
+				file = stock_pixmap_get_name((StockPixmap)icon);
+			}
+			toolbar_item->file  = g_strdup(file);
+			toolbar_item->index = default_toolbar[i].action;
+			toolbar_item->text  = g_strdup(toolbar_get_short_text(default_toolbar[i].action));
+		} else {
+			toolbar_item->file  = g_strdup(TOOLBAR_TAG_SEPARATOR);
+			toolbar_item->index = A_SEPARATOR;
+		}
+
+		if (toolbar_item->index != -1) {
+			if (!toolbar_is_duplicate(toolbar_item->index, toolbar_type)) 
+				toolbar_config[toolbar_type].item_list = 
+					g_slist_append(toolbar_config[toolbar_type].item_list, toolbar_item);
+		}	
+	}
+}
+
+void toolbar_set_default(ToolbarType source)
+{
+	DefaultToolbar default_toolbar_main[] = {
 #ifdef GENERIC_UMPC
 		{ A_GO_FOLDERS},
 		{ A_OPEN_MAIL},		
@@ -516,50 +654,16 @@ static void toolbar_set_default_main(void)
 		{ A_LEARN_SPAM},
 #endif
 		{ A_SEPARATOR},
-		{ A_GOTO_NEXT}
+		{ A_GOTO_NEXT},
+		{ N_ACTION_VAL}
 	};
-	
-	gint i;
-	
-	for (i = 0; i < sizeof(default_toolbar) / sizeof(default_toolbar[0]); i++) {
-		
-		ToolbarItem *toolbar_item = g_new0(ToolbarItem, 1);
-		
-		if (default_toolbar[i].action != A_SEPARATOR) {
-			
-			gchar *file = NULL;
-			if (toolbar_get_icon(default_toolbar[i].action) > -1) {
-				file = stock_pixmap_get_name((StockPixmap)toolbar_get_icon(default_toolbar[i].action));
-			}
-			
-			toolbar_item->file  = g_strdup(file);
-			toolbar_item->index = default_toolbar[i].action;
-			toolbar_item->text  = g_strdup(toolbar_get_short_text(default_toolbar[i].action));
-		} else {
-
-			toolbar_item->file  = g_strdup(TOOLBAR_TAG_SEPARATOR);
-			toolbar_item->index = A_SEPARATOR;
-		}
-		
-		if (toolbar_item->index != -1) {
-			if ( !toolbar_is_duplicate(toolbar_item->index, TOOLBAR_MAIN)) 
-				toolbar_config[TOOLBAR_MAIN].item_list = 
-					g_slist_append(toolbar_config[TOOLBAR_MAIN].item_list, toolbar_item);
-		}	
-	}
-}
-
-static void toolbar_set_default_compose(void)
-{
-	struct {
-		gint action;
-	} default_toolbar[] = {
+	DefaultToolbar default_toolbar_compose[] = {
 #ifdef GENERIC_UMPC
 		{ A_CLOSE},
 		{ A_SEPARATOR}, 
 #endif
 		{ A_SEND},
-		{ A_SENDL},
+		{ A_SEND_LATER},
 		{ A_DRAFT},
 		{ A_SEPARATOR}, 
 #ifndef GENERIC_UMPC
@@ -567,43 +671,11 @@ static void toolbar_set_default_compose(void)
 #endif
 		{ A_ATTACH},
 		{ A_SEPARATOR},
-		{ A_ADDRBOOK}
+		{ A_ADDRBOOK},
+		{ N_ACTION_VAL}
 	};
-	
-	gint i;
 
-	for (i = 0; i < sizeof(default_toolbar) / sizeof(default_toolbar[0]); i++) {
-		
-		ToolbarItem *toolbar_item = g_new0(ToolbarItem, 1);
-		
-		if (default_toolbar[i].action != A_SEPARATOR) {
-			
-			gchar *file = NULL;
-			if (toolbar_get_icon(default_toolbar[i].action) > -1) {
-				file = stock_pixmap_get_name((StockPixmap)toolbar_get_icon(default_toolbar[i].action));
-			}
-			toolbar_item->file  = g_strdup(file);
-			toolbar_item->index = default_toolbar[i].action;
-			toolbar_item->text  = g_strdup(toolbar_get_short_text(default_toolbar[i].action));
-		} else {
-
-			toolbar_item->file  = g_strdup(TOOLBAR_TAG_SEPARATOR);
-			toolbar_item->index = A_SEPARATOR;
-		}
-		
-		if (toolbar_item->index != -1) {
-			if ( !toolbar_is_duplicate(toolbar_item->index, TOOLBAR_COMPOSE)) 
-				toolbar_config[TOOLBAR_COMPOSE].item_list = 
-					g_slist_append(toolbar_config[TOOLBAR_COMPOSE].item_list, toolbar_item);
-		}	
-	}
-}
-
-static void toolbar_set_default_msgview(void)
-{
-	struct {
-		gint action;
-	} default_toolbar[] = {
+	DefaultToolbar default_toolbar_msgview[] = {
 #ifdef GENERIC_UMPC
 		{ A_CLOSE},
 		{ A_SEPARATOR}, 
@@ -617,46 +689,16 @@ static void toolbar_set_default_msgview(void)
 #ifndef GENERIC_UMPC
 		{ A_LEARN_SPAM},
 #endif
-		{ A_GOTO_NEXT}
+		{ A_GOTO_NEXT},
+		{ N_ACTION_VAL}
 	};
 	
-	gint i;
-
-	for (i = 0; i < sizeof(default_toolbar) / sizeof(default_toolbar[0]); i++) {
-		
-		ToolbarItem *toolbar_item = g_new0(ToolbarItem, 1);
-		
-		if (default_toolbar[i].action != A_SEPARATOR) {
-			gchar *file = NULL;
-			if (toolbar_get_icon(default_toolbar[i].action) > -1) {
-				file = stock_pixmap_get_name((StockPixmap)toolbar_get_icon(default_toolbar[i].action));
-			}
-			
-			toolbar_item->file  = g_strdup(file);
-			toolbar_item->index = default_toolbar[i].action;
-			toolbar_item->text  = g_strdup(toolbar_get_short_text(default_toolbar[i].action));
-		} else {
-
-			toolbar_item->file  = g_strdup(TOOLBAR_TAG_SEPARATOR);
-			toolbar_item->index = A_SEPARATOR;
-		}
-		
-		if (toolbar_item->index != -1) {
-			if ( !toolbar_is_duplicate(toolbar_item->index, TOOLBAR_MSGVIEW)) 
-				toolbar_config[TOOLBAR_MSGVIEW].item_list = 
-					g_slist_append(toolbar_config[TOOLBAR_MSGVIEW].item_list, toolbar_item);
-		}	
-	}
-}
-
-void toolbar_set_default(ToolbarType source)
-{
 	if (source == TOOLBAR_MAIN)
-		toolbar_set_default_main();
+		toolbar_set_default_generic(TOOLBAR_MAIN, default_toolbar_main);
 	else if  (source == TOOLBAR_COMPOSE)
-		toolbar_set_default_compose();
+		toolbar_set_default_generic(TOOLBAR_COMPOSE, default_toolbar_compose);
 	else if  (source == TOOLBAR_MSGVIEW)
-		toolbar_set_default_msgview();
+		toolbar_set_default_generic(TOOLBAR_MSGVIEW, default_toolbar_msgview);
 }
 
 void toolbar_save_config_file(ToolbarType source)
@@ -704,7 +746,7 @@ void toolbar_save_config_file(ToolbarType source)
 	
 		g_free( fileSpec );
 		if (prefs_file_close (pfile) < 0 ) 
-			g_warning("failed to write toolbar configuration to file\n");
+			g_warning("failed to write toolbar configuration to file");
 		return;
 		
 fail:
@@ -712,7 +754,7 @@ fail:
 		g_free( fileSpec );
 		prefs_file_close_revert (pfile);
 	} else
-		g_warning("failed to open toolbar configuration file for writing\n");
+		g_warning("failed to open toolbar configuration file for writing");
 }
 
 void toolbar_read_config_file(ToolbarType source)
@@ -720,6 +762,7 @@ void toolbar_read_config_file(ToolbarType source)
 	XMLFile *file   = NULL;
 	gchar *fileSpec = NULL;
 	jmp_buf    jumper;
+	gboolean rewrite = FALSE;
 
 	debug_print("read Toolbar Configuration from %s\n", toolbar_config[source].conf_file);
 
@@ -747,7 +790,7 @@ void toolbar_read_config_file(ToolbarType source)
 
 			/* Get next tag (icon, icon_text or icon_action) */
 			if (xml_compare_tag(file, TOOLBAR_TAG_ITEM)) {
-				toolbar_parse_item(file, source);
+				toolbar_parse_item(file, source, &rewrite);
 			} else if (xml_compare_tag(file, TOOLBAR_TAG_SEPARATOR)) {
 				ToolbarItem *item = g_new0(ToolbarItem, 1);
 			
@@ -759,6 +802,10 @@ void toolbar_read_config_file(ToolbarType source)
 
 		}
 		xml_close_file(file);
+		if (rewrite) {
+			debug_print("toolbar_read_config_file: rewriting toolbar\n");
+			toolbar_save_config_file(source);
+		}
 	}
 
 	if ((!file) || (g_slist_length(toolbar_config[source].item_list) == 0)) {
@@ -770,7 +817,7 @@ void toolbar_read_config_file(ToolbarType source)
 		else if (source == TOOLBAR_MSGVIEW) 
 			toolbar_set_default(TOOLBAR_MSGVIEW);
 		else {		
-			g_warning("refusing to write unknown Toolbar Configuration number %d\n", source);
+			g_warning("refusing to write unknown Toolbar Configuration number %d", source);
 			return;
 		}
 
@@ -1161,6 +1208,49 @@ static void toolbar_delete_cb(GtkWidget *widget, gpointer data)
 	}
 }
 
+static void toolbar_delete_dup(gpointer data, guint all)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin = NULL;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow*)toolbar_item->parent;
+		if (all)
+			mainwindow_delete_duplicated_all(mainwin);
+		else
+			mainwindow_delete_duplicated(mainwin);
+		break;
+	case TOOLBAR_COMPOSE:
+	case TOOLBAR_MSGVIEW:
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		return;
+	}
+}
+
+static void toolbar_delete_dup_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin = NULL;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow*)toolbar_item->parent;
+		mainwindow_delete_duplicated(mainwin);
+		break;
+	case TOOLBAR_COMPOSE:
+	case TOOLBAR_MSGVIEW:
+		break;
+	default:
+		return;
+	}
+}
 
 /*
  * Compose new message
@@ -1311,7 +1401,7 @@ static void toolbar_addrbook_cb(GtkWidget *widget, gpointer data)
 	default:
 		return;
 	}
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_open(compose);
 #else
 	GError* error = NULL;
@@ -1471,6 +1561,182 @@ static void toolbar_watch_thread_cb(GtkWidget *widget, gpointer data)
 	}
 }
 
+static void toolbar_mark_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_mark(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_unmark_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_unmark(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_lock_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_msgs_lock(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_unlock_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_msgs_unlock(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_all_read_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_mark_all_read(mainwin->summaryview, TRUE);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_all_unread_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_mark_all_unread(mainwin->summaryview, TRUE);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_read_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_mark_as_read(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
+static void toolbar_unread_cb(GtkWidget *widget, gpointer data)
+{
+	ToolbarItem *toolbar_item = (ToolbarItem*)data;
+	MainWindow *mainwin;
+
+	cm_return_if_fail(toolbar_item != NULL);
+
+	switch (toolbar_item->type) {
+	case TOOLBAR_MAIN:
+		mainwin = (MainWindow *) toolbar_item->parent;
+		summary_mark_as_unread(mainwin->summaryview);
+		break;
+	case TOOLBAR_MSGVIEW:
+		/* TODO: see toolbar_next_unread_cb() if you need
+		 * this in the message view */
+		break;
+	default:
+		debug_print("toolbar event not supported\n");
+		break;
+	}
+}
+
 static void toolbar_cancel_inc_cb(GtkWidget *widget, gpointer data)
 {
 	ToolbarItem *toolbar_item = (ToolbarItem*)data;
@@ -1523,7 +1789,7 @@ static void toolbar_send_cb(GtkWidget *widget, gpointer data)
 
 static void toolbar_send_later_cb(GtkWidget *widget, gpointer data)
 {
-	compose_toolbar_cb(A_SENDL, data);
+	compose_toolbar_cb(A_SEND_LATER, data);
 }
 
 static void toolbar_draft_cb(GtkWidget *widget, gpointer data)
@@ -1695,7 +1961,7 @@ static void toolbar_go_folders_cb(GtkWidget *widget, gpointer data)
 		mainwin = (MainWindow*)toolbar_item->parent;
 		break;
 	default:
-		g_warning("wrong toolbar type\n");
+		g_warning("wrong toolbar type");
 		return;
 	}
 
@@ -1705,7 +1971,7 @@ static void toolbar_go_folders_cb(GtkWidget *widget, gpointer data)
 			folderview_select(mainwin->folderview, item);
 		}
 	} else {
-		gtk_widget_grab_focus(mainwin->folderview->ctree);
+		folderview_grab_focus(mainwin->folderview);
 		mainwindow_exit_folder(mainwin);
 	}
 }
@@ -1736,12 +2002,21 @@ static void toolbar_buttons_cb(GtkWidget   *widget,
 		{ A_GOTO_NEXT,      	toolbar_next_unread_cb		},
 		{ A_IGNORE_THREAD,	toolbar_ignore_thread_cb	},
 		{ A_WATCH_THREAD,	toolbar_watch_thread_cb		},
-		{ A_PRINT,		toolbar_print_cb		},
+		{ A_MARK,			toolbar_mark_cb			},
+		{ A_UNMARK,			toolbar_unmark_cb		},
+		{ A_LOCK,			toolbar_lock_cb			},
+		{ A_UNLOCK,			toolbar_unlock_cb		},
+		{ A_ALL_READ,		toolbar_all_read_cb		},
+		{ A_ALL_UNREAD,		toolbar_all_unread_cb	},
+		{ A_READ,			toolbar_read_cb	},
+		{ A_UNREAD,			toolbar_unread_cb	},
+		{ A_PRINT,			toolbar_print_cb		},
 		{ A_LEARN_SPAM,		toolbar_learn_cb		},
+		{ A_DELETE_DUP,		toolbar_delete_dup_cb		},
 		{ A_GO_FOLDERS,		toolbar_go_folders_cb		},
 
 		{ A_SEND,		toolbar_send_cb       		},
-		{ A_SENDL,		toolbar_send_later_cb 		},
+		{ A_SEND_LATER,	toolbar_send_later_cb 		},
 		{ A_DRAFT,		toolbar_draft_cb      		},
 		{ A_OPEN_MAIL,		toolbar_open_mail_cb		},
 		{ A_CLOSE,		toolbar_close_cb		},
@@ -1866,6 +2141,14 @@ static void toolbar_learn_menu_cb(GtkWidget *widget, gpointer data)
 	toolbar_learn(toolbar_item, GPOINTER_TO_INT(int_value));
 }
 
+static void toolbar_delete_dup_menu_cb(GtkWidget *widget, gpointer data)
+{
+	gpointer int_value = g_object_get_data(G_OBJECT(widget), "int-value");
+	ToolbarItem *toolbar_item = (ToolbarItem *)data;
+	
+	toolbar_delete_dup(toolbar_item, GPOINTER_TO_INT(int_value));
+}
+
 /**
  * Create a new toolbar with specified type
  * if a callback list is passed it will be used before the 
@@ -1917,7 +2200,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 		toolbar_data->item_list = 
 			g_slist_append(toolbar_data->item_list, 
 				       toolbar_item);
-		icon_wid = stock_pixmap_widget(container, stock_pixmap_get_icon(toolbar_item->file));
+		icon_wid = stock_pixmap_widget(stock_pixmap_get_icon(toolbar_item->file));
 			
 		switch (toolbar_item->index) {
 
@@ -1932,7 +2215,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			toolbar_data->getall_btn = item;
 			break;
 		case A_RECEIVE_CUR:
-			TOOLBAR_ITEM(item,icon_wid,toolbar_item->text, _("Receive Mail from current Account"));
+			TOOLBAR_ITEM(item,icon_wid,toolbar_item->text,_("Receive Mail from current Account"));
 			toolbar_data->get_btn = item;
 			break;
 		case A_SEND_QUEUED:
@@ -1960,7 +2243,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			toolbar_data->compose_mail_icon = icon_wid; 
 			g_object_ref(toolbar_data->compose_mail_icon);
 
-			icon_news = stock_pixmap_widget(container, STOCK_PIXMAP_NEWS_COMPOSE);
+			icon_news = stock_pixmap_widget(STOCK_PIXMAP_NEWS_COMPOSE);
 			toolbar_data->compose_news_icon = icon_news; 
 			g_object_ref(toolbar_data->compose_news_icon);
 #else
@@ -1969,7 +2252,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			toolbar_data->compose_mail_btn = item; 
 			toolbar_data->compose_mail_icon = icon_wid; 
 
-			icon_news = stock_pixmap_widget(container, STOCK_PIXMAP_NEWS_COMPOSE);
+			icon_news = stock_pixmap_widget(STOCK_PIXMAP_NEWS_COMPOSE);
 			toolbar_data->compose_news_icon = icon_news; 
 #endif
 			break;
@@ -1981,7 +2264,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			toolbar_data->learn_spam_icon = icon_wid; 
 			g_object_ref(toolbar_data->learn_spam_icon);
 
-			icon_ham = stock_pixmap_widget(container, STOCK_PIXMAP_HAM_BTN);
+			icon_ham = stock_pixmap_widget(STOCK_PIXMAP_HAM_BTN);
 			toolbar_data->learn_ham_icon = icon_ham; 
 			g_object_ref(toolbar_data->learn_ham_icon);
 
@@ -1989,6 +2272,22 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			ADD_MENU_ITEM(_("Learn as _Spam"), toolbar_learn_menu_cb, TRUE);
 			ADD_MENU_ITEM(_("Learn as _Ham"), toolbar_learn_menu_cb, FALSE);
 			gtk_menu_tool_button_set_menu(GTK_MENU_TOOL_BUTTON(toolbar_data->learn_spam_btn), menu);
+			break;
+		case A_DELETE_DUP:
+#ifndef GENERIC_UMPC
+			TOOLBAR_MENUITEM(item,icon_wid,toolbar_item->text,
+				_("Delete duplicates"),
+				_("Delete duplicates options"));
+			toolbar_data->delete_dup_btn = item;
+
+			menu = gtk_menu_new();
+			ADD_MENU_ITEM(_("Delete duplicates in selected folder"), toolbar_delete_dup_menu_cb, FALSE);
+			ADD_MENU_ITEM(_("Delete duplicates in all folders"), toolbar_delete_dup_menu_cb, TRUE);
+			gtk_menu_tool_button_set_menu(GTK_MENU_TOOL_BUTTON(toolbar_data->delete_dup_btn), menu);
+#else
+			TOOLBAR_ITEM(item,icon_wid,toolbar_item->text,_("Delete duplicates"));
+			toolbar_data->delete_dup_btn = item;
+#endif
 			break;
 		case A_REPLY_MESSAGE:
 #ifndef GENERIC_UMPC
@@ -2102,7 +2401,7 @@ Toolbar *toolbar_create(ToolbarType 	 type,
 			TOOLBAR_ITEM(item,icon_wid,toolbar_item->text,_("Send Message"));
 			toolbar_data->send_btn = item;
 			break;
-		case A_SENDL:
+		case A_SEND_LATER:
 			TOOLBAR_ITEM(item,icon_wid,toolbar_item->text,_("Put into queue folder and send later"));
 			toolbar_data->sendl_btn = item;
 			break;
@@ -2372,7 +2671,7 @@ do { \
 	} else {
 		SET_WIDGET_COND(toolbar->next_btn, -1);
 	}
-	
+
 	if (toolbar->trash_btn)
 		SET_WIDGET_COND(toolbar->trash_btn,
 			M_TARGET_EXIST, M_ALLOW_DELETE, M_NOT_NEWS);
@@ -2380,6 +2679,10 @@ do { \
 	if (toolbar->delete_btn)
 		SET_WIDGET_COND(toolbar->delete_btn,
 			M_TARGET_EXIST, M_ALLOW_DELETE);
+
+	if (toolbar->delete_dup_btn)
+		SET_WIDGET_COND(toolbar->delete_dup_btn,
+			M_MSG_EXIST, M_ALLOW_DELETE, M_SUMMARY_ISLIST);
 
 	if (toolbar->exec_btn)
 		SET_WIDGET_COND(toolbar->exec_btn, 
@@ -2510,6 +2813,7 @@ static void toolbar_init(Toolbar * toolbar)
 	toolbar->fwd_btn           = NULL;
 	toolbar->trash_btn         = NULL;
 	toolbar->delete_btn        = NULL;
+	toolbar->delete_dup_btn    = NULL;
 	toolbar->prev_btn          = NULL;
 	toolbar->next_btn          = NULL;
 	toolbar->exec_btn          = NULL;
@@ -2664,7 +2968,7 @@ void compose_mail_cb(gpointer data, guint action, GtkWidget *widget)
 	
 	if (item) {
 		ac = account_find_from_item(item);
-		if (ac && ac->protocol != A_NNTP) {
+		if (ac && ac->protocol != A_NNTP && ac->protocol != A_IMAP4) {
 			compose_new_with_folderitem(ac, item, NULL);		/* CLAWS */
 			return;
 		}

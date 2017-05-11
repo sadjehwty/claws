@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -49,7 +48,7 @@
 #include "html.h"
 #include "enriched.h"
 #include "compose.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addressbook.h"
 	#include "addrindex.h"
 #else
@@ -118,6 +117,20 @@ static GdkColor diff_deleted_color = {
 };
 
 static GdkColor diff_hunk_color = {
+	(gulong)0,
+	(gushort)0,
+	(gushort)0,
+	(gushort)0
+};
+
+static GdkColor tags_bgcolor = {
+	(gulong)0,
+	(gushort)0,
+	(gushort)0,
+	(gushort)0
+};
+
+static GdkColor tags_color = {
 	(gulong)0,
 	(gushort)0,
 	(gushort)0,
@@ -402,26 +415,8 @@ static void textview_create_tags(GtkTextView *text, TextView *textview)
 {
 	GtkTextBuffer *buffer;
 	GtkTextTag *tag, *qtag;
-#if !GTK_CHECK_VERSION(3, 0, 0)
-	static GdkColor yellow, black;
-	static gboolean color_init = FALSE;
-#else
-	static GdkColor yellow = { (guint32)0, (guint16)0xf5, (guint16)0xf6, (guint16)0xbe };
-	static GdkColor black = { (guint32)0, (guint16)0x0, (guint16)0x0, (guint16)0x0 };
-#endif
 	static PangoFontDescription *font_desc, *bold_font_desc;
 	
-#if !GTK_CHECK_VERSION(3, 0, 0)
-	if (!color_init) {
-		gdk_color_parse("#f5f6be", &yellow);
-		gdk_color_parse("#000000", &black);
-		color_init = gdk_colormap_alloc_color(
-			gdk_colormap_get_system(), &yellow, FALSE, TRUE);
-		color_init &= gdk_colormap_alloc_color(
-			gdk_colormap_get_system(), &black, FALSE, TRUE);
-	}
-#endif
-
 	if (!font_desc)
 		font_desc = pango_font_description_from_string
 			(NORMAL_FONT);
@@ -489,8 +484,8 @@ static void textview_create_tags(GtkTextView *text, TextView *textview)
 				NULL);
 	}
 	gtk_text_buffer_create_tag(buffer, "tags",
-			"foreground-gdk", &black,
-			"paragraph-background-gdk", &yellow,
+			"foreground-gdk", &tags_color,
+			"paragraph-background-gdk", &tags_bgcolor,
 			NULL);
 	gtk_text_buffer_create_tag(buffer, "emphasis",
 			"foreground-gdk", &emphasis_color,
@@ -566,6 +561,7 @@ static void textview_update_message_colors(TextView *textview)
 	quote_colors[0] = quote_colors[1] = quote_colors[2] = black;
 	uri_color = emphasis_color = signature_color = diff_added_color =
 		diff_deleted_color = diff_hunk_color = black;
+	tags_bgcolor = tags_color = black;
 
 	if (prefs_common.enable_color) {
 		/* grab the quote colors, converting from an int to a GdkColor */
@@ -613,6 +609,11 @@ static void textview_update_message_colors(TextView *textview)
 	CHANGE_TAG_COLOR("diff-add-file", &diff_added_color, NULL);
 	CHANGE_TAG_COLOR("diff-del-file", &diff_deleted_color, NULL);
 	CHANGE_TAG_COLOR("diff-hunk", &diff_hunk_color, NULL);
+
+	gtkut_convert_int_to_gdk_color(prefs_common.tags_bgcolor,
+					   &tags_bgcolor);
+	gtkut_convert_int_to_gdk_color(prefs_common.tags_color,
+					   &tags_color);
 }
 #undef CHANGE_TAG_COLOR
 
@@ -663,6 +664,7 @@ static void textview_add_part(TextView *textview, MimeInfo *mimeinfo)
 	const gchar *name;
 	gchar *content_type;
 	gint charcount;
+
 	START_TIMING("");
 
 	cm_return_if_fail(mimeinfo != NULL);
@@ -757,7 +759,7 @@ static void textview_add_part(TextView *textview, MimeInfo *mimeinfo)
 				return;
 			}
 			if (error != NULL) {
-				g_warning("%s\n", error->message);
+				g_warning("%s", error->message);
 				g_error_free(error);
 			}
 			if (!pixbuf) {
@@ -813,7 +815,17 @@ static void textview_add_part(TextView *textview, MimeInfo *mimeinfo)
 		if (prefs_common.display_header && (charcount > 0))
 			gtk_text_buffer_insert(buffer, &iter, "\n", 1);
 
+		if (!gtk_text_buffer_get_mark(buffer, "body_start")) {
+			gtk_text_buffer_get_end_iter(buffer, &iter);
+			gtk_text_buffer_create_mark(buffer, "body_start", &iter, TRUE);
+		}
+
 		textview_write_body(textview, mimeinfo);
+
+		if (!gtk_text_buffer_get_mark(buffer, "body_end")) {
+			gtk_text_buffer_get_end_iter(buffer, &iter);
+			gtk_text_buffer_create_mark(buffer, "body_end", &iter, TRUE);
+		}
 	}
 	END_TIMING();
 }
@@ -836,40 +848,40 @@ static void recursive_add_parts(TextView *textview, GNode *node)
                 return;
         }
         if (g_ascii_strcasecmp(mimeinfo->subtype, "alternative") == 0) {
-                GNode * prefered_body;
-                int prefered_score;
-                
+                GNode * preferred_body;
+                int preferred_score;
+
                 /*
                   text/plain : score 3
                   text/ *    : score 2
                   other      : score 1
                 */
-                prefered_body = NULL;
-                prefered_score = 0;
-                
+                preferred_body = NULL;
+                preferred_score = 0;
+
                 for (iter = g_node_first_child(node) ; iter != NULL ;
                      iter = g_node_next_sibling(iter)) {
                         int score;
                         MimeInfo * submime;
-                        
+
                         score = 1;
                         submime = (MimeInfo *) iter->data;
                         if (submime->type == MIMETYPE_TEXT)
                                 score = 2;
-                        
+ 
                         if (submime->subtype != NULL) {
                                 if (g_ascii_strcasecmp(submime->subtype, "plain") == 0)
                                         score = 3;
                         }
-                        
-                        if (score > prefered_score) {
-                                prefered_score = score;
-                                prefered_body = iter;
+
+                        if (score > preferred_score) {
+                                preferred_score = score;
+                                preferred_body = iter;
                         }
                 }
-                
-                if (prefered_body != NULL) {
-                        recursive_add_parts(textview, prefered_body);
+
+                if (preferred_body != NULL) {
+                        recursive_add_parts(textview, preferred_body);
                 }
         }
         else {
@@ -884,8 +896,9 @@ static void recursive_add_parts(TextView *textview, GNode *node)
 static void textview_add_parts(TextView *textview, MimeInfo *mimeinfo)
 {
 	cm_return_if_fail(mimeinfo != NULL);
-        
-        recursive_add_parts(textview, mimeinfo->node);
+	cm_return_if_fail(mimeinfo->node != NULL);
+
+	recursive_add_parts(textview, mimeinfo->node);
 }
 
 void textview_show_error(TextView *textview)
@@ -1030,7 +1043,10 @@ static void textview_write_body(TextView *textview, MimeInfo *mimeinfo)
 	FILE *tmpfp;
 	gchar buf[BUFFSIZE];
 	CodeConverter *conv;
-	const gchar *charset, *p, *cmd;
+	const gchar *charset;
+#ifndef G_OS_WIN32
+	const gchar *p, *cmd;
+#endif
 	GSList *cur;
 	gboolean continue_write = TRUE;
 	size_t wrote = 0, i = 0;
@@ -1068,8 +1084,10 @@ static void textview_write_body(TextView *textview, MimeInfo *mimeinfo)
 		filename = procmime_get_tmp_file_name(mimeinfo);
 		if (procmime_get_part(filename, mimeinfo) == 0) {
 			tmpfp = g_fopen(filename, "rb");
-			textview_show_html(textview, tmpfp, conv);
-			fclose(tmpfp);
+			if (tmpfp) {
+				textview_show_html(textview, tmpfp, conv);
+				fclose(tmpfp);
+			}
 			claws_unlink(filename);
 		}
 		g_free(filename);
@@ -1123,6 +1141,7 @@ static void textview_write_body(TextView *textview, MimeInfo *mimeinfo)
 			close(pfd[0]);
 			rc = dup(pfd[1]);
 			rc = execvp(argv[0], argv);
+			perror("execvp");
 			close(pfd[1]);
 			g_print(_("The command to view attachment "
 			        "as text failed:\n"
@@ -1148,7 +1167,9 @@ static void textview_write_body(TextView *textview, MimeInfo *mimeinfo)
 		g_unlink(fname);
 #endif
 	} else {
+#ifndef G_OS_WIN32
 textview_default:
+#endif
 		if (!g_ascii_strcasecmp(mimeinfo->subtype, "x-patch")
 				|| !g_ascii_strcasecmp(mimeinfo->subtype, "x-diff"))
 			textview->is_diff = TRUE;
@@ -1281,7 +1302,7 @@ static void textview_show_ertf(TextView *textview, FILE *fp,
 		last->bp = (bp_); last->ep = (ep_); last->pti = (pti_); \
 		last->next = NULL; \
 	} else { \
-		g_warning("alloc error scanning URIs\n"); \
+		g_warning("alloc error scanning URIs"); \
 		gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, \
 							 linebuf, -1, \
 							 fg_tag, NULL); \
@@ -1294,7 +1315,7 @@ static void textview_show_ertf(TextView *textview, FILE *fp,
 		last->bp = (bp_); last->ep = (ep_); last->pti = (pti_); \
 		last->next = NULL; \
 	} else { \
-		g_warning("alloc error scanning URIs\n"); \
+		g_warning("alloc error scanning URIs"); \
 	}
 
 /* textview_make_clickable_parts() - colorizes clickable parts */
@@ -1747,6 +1768,10 @@ void textview_clear(TextView *textview)
 
 	buffer = gtk_text_view_get_buffer(text);
 	gtk_text_buffer_set_text(buffer, "", -1);
+	if (gtk_text_buffer_get_mark(buffer, "body_start"))
+		gtk_text_buffer_delete_mark_by_name(buffer, "body_start");
+	if (gtk_text_buffer_get_mark(buffer, "body_end"))
+		gtk_text_buffer_delete_mark_by_name(buffer, "body_end");
 
 	TEXTVIEW_STATUSBAR_POP(textview);
 	textview_uri_list_remove_all(textview->uri_list);
@@ -2018,7 +2043,7 @@ void textview_show_icon(TextView *textview, const gchar *stock_id)
 
 static void textview_save_contact_pic(TextView *textview)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	MsgInfo *msginfo = textview->messageview->msginfo;
 	gchar *filename = NULL;
 	GError *error = NULL;
@@ -2039,7 +2064,7 @@ static void textview_save_contact_pic(TextView *textview)
 	if (!is_file_exist(filename)) {
 		gdk_pixbuf_save(picture, filename, "png", &error, NULL);
 		if (error) {
-			g_warning(_("Failed to save image: \n%s"),
+			g_warning("Failed to save image: %s",
 					error->message);
 			g_error_free(error);
 		}
@@ -2052,7 +2077,7 @@ static void textview_save_contact_pic(TextView *textview)
 
 static void textview_show_contact_pic(TextView *textview)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	MsgInfo *msginfo = textview->messageview->msginfo;
 	GtkTextView *text = GTK_TEXT_VIEW(textview->text);
 	int x = 0;
@@ -2090,7 +2115,7 @@ static void textview_show_contact_pic(TextView *textview)
 		picture = gdk_pixbuf_new_from_file(filename, &error);
 
 	if (error) {
-		debug_print("Failed to import image: \n%s",
+		debug_print("Failed to import image: %s\n",
 				error->message);
 		g_error_free(error);
 		goto bail;
@@ -2757,9 +2782,11 @@ static gboolean textview_uri_button_pressed(GtkTextTag *tag, GObject *obj,
 			} 
 			return TRUE;
 		} else if (qlink && bevent->button == 1) {
-			if (prefs_common.hide_quoted)
+			if (prefs_common.hide_quoted) {
 				textview_toggle_quote(textview, NULL, uri, FALSE);
-			return TRUE;
+				return TRUE;
+			} else
+				return FALSE;
 		} else if (!g_ascii_strncasecmp(uri->uri, "mailto:", 7)) {
 			if (bevent->button == 3) {
 				g_object_set_data(
@@ -2871,15 +2898,14 @@ gboolean textview_uri_security_check(TextView *textview, ClickableText *uri)
 		gchar *msg;
 		AlertValue aval;
 
-		msg = g_markup_printf_escaped(_("The real URL is different from "
-						"the displayed URL.\n"
-						"\n"
-						"<b>Displayed URL:</b> %s\n"
-						"\n"
-						"<b>Real URL:</b> %s\n"
-						"\n"
-						"Open it anyway?"),
-				       	       visible_str,uri->uri);
+		msg = g_markup_printf_escaped("%s\n\n"
+						"<b>%s</b> %s\n\n"
+						"<b>%s</b> %s\n\n"
+						"%s",
+						_("The real URL is different from the displayed URL."),
+						_("Displayed URL:"), visible_str,
+						_("Real URL:"), uri->uri,
+						_("Open it anyway?"));
 		aval = alertpanel_full(_("Phishing attempt warning"), msg,
 				       GTK_STOCK_CANCEL, _("_Open URL"), NULL, FALSE,
 				       NULL, ALERT_WARNING, G_ALERTDEFAULT);
@@ -2942,7 +2968,7 @@ static void open_image_cb (GtkAction *action, TextView *textview)
 	gchar *cmd = NULL;
 	gchar buf[1024];
 	const gchar *p;
-	gchar *filename = NULL;
+	gchar *filename = NULL, *filepath = NULL;
 	gchar *tmp_filename = NULL;
 
 	if (uri == NULL)
@@ -2961,8 +2987,11 @@ static void open_image_cb (GtkAction *action, TextView *textview)
 
 	subst_for_filename(filename);
 
+	filepath = g_strconcat(get_mime_tmp_dir(), G_DIR_SEPARATOR_S,
+			       filename, NULL);
+
 	tmp_filename = g_filename_from_uri(uri->uri, NULL, NULL);
-	copy_file(tmp_filename, filename, FALSE);
+	copy_file(tmp_filename, filepath, FALSE);
 	g_free(tmp_filename);
 
 	cmd = mailcap_get_command_for_type("image/jpeg", filename);
@@ -2981,14 +3010,17 @@ static void open_image_cb (GtkAction *action, TextView *textview)
 	}
 	if (cmd && (p = strchr(cmd, '%')) && *(p + 1) == 's' &&
 	    !strchr(p + 2, '%'))
-		g_snprintf(buf, sizeof(buf), cmd, filename);
+		g_snprintf(buf, sizeof(buf), cmd, filepath);
 	else {
 		g_warning("Image viewer command-line is invalid: '%s'", cmd);
+		g_free(filepath);
+		g_free(filename);
 		return;
 	}
 
-	execute_command_line(buf, TRUE);
+	execute_command_line(buf, TRUE, NULL);
 
+	g_free(filepath);
 	g_free(filename);
 	g_free(cmd);
 
@@ -3026,7 +3058,8 @@ static void save_file_cb (GtkAction *action, TextView *textview)
 		filepath = g_strconcat(prefs_common.attach_save_dir,
 				       G_DIR_SEPARATOR_S, filename, NULL);
 	else
-		filepath = g_strdup(filename);
+		filepath = g_strconcat(get_home_dir(), G_DIR_SEPARATOR_S,
+				       filename, NULL);
 
 	g_free(filename);
 
@@ -3128,7 +3161,7 @@ static void add_uri_to_addrbook_cb (GtkAction *action, TextView *textview)
 		avatars_avatarrender_free(avatarr);
 	}
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_add_contact( fromname, fromaddress, NULL, picture);
 #else
 	if (addressadd_selection(fromname, fromaddress, NULL, picture)) {

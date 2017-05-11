@@ -114,10 +114,10 @@ void folderview_select			(FolderView	*folderview,
 					 FolderItem	*item);
 void folderview_unselect		(FolderView	*folderview);
 void folderview_select_next_with_flag	(FolderView	*folderview,
-					 MsgPermFlags    flag,
-					 gboolean 	 force_open);
+					 MsgPermFlags    flag);
 
 FolderItem *folderview_get_selected_item(FolderView	*folderview);
+FolderItem *folderview_get_opened_item(FolderView	*folderview);
 
 void folderview_rescan_tree		(Folder		*folder,
 					 gboolean	 rebuild);
@@ -145,6 +145,13 @@ void folderview_finish_dnd		(const gchar 		*data,
 					 GdkDragContext 	*drag_context,
 			   		 guint 			 time, 
 					 FolderItem 		*item);
-void folderview_close_opened		(FolderView 		*folderview);
+void folderview_close_opened		(FolderView 		*folderview,
+					 gboolean		 dirty);
+void folderview_remove_item(FolderView *folderview,
+			    FolderItem *item);
+
+void folderview_freeze(FolderView *folderview);
+void folderview_thaw(FolderView *folderview);
+void folderview_grab_focus(FolderView *folderview);
 
 #endif /* __FOLDERVIEW_H__ */

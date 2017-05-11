@@ -226,7 +226,7 @@ gboolean mh_scan_required(Folder *folder, FolderItem *item)
 	if ((s.st_mtime > item->mtime) &&
 		(s.st_mtime - 3600 != item->mtime)) {
 		debug_print("MH scan required, folder updated: %s (%ld > %ld)\n",
-			    path?path:"(null)",
+			    path,
 			    (long int) s.st_mtime,
 			    (long int) item->mtime);
 		g_free(path);
@@ -234,7 +234,7 @@ gboolean mh_scan_required(Folder *folder, FolderItem *item)
 	}
 
 	debug_print("MH scan not required: %s (%ld <= %ld)\n",
-		    path?path:"(null)",
+		    path,
 		    (long int) s.st_mtime,
 		    (long int) item->mtime);
 	g_free(path);
@@ -243,7 +243,7 @@ gboolean mh_scan_required(Folder *folder, FolderItem *item)
 
 static void mh_get_last_num(Folder *folder, FolderItem *item)
 {
-	gchar *path;
+	gchar *path, *fullpath;
 	GDir *dp;
 	const gchar *d;
 	GError *error = NULL;
@@ -256,29 +256,29 @@ static void mh_get_last_num(Folder *folder, FolderItem *item)
 
 	path = folder_item_get_path(item);
 	cm_return_if_fail(path != NULL);
-	if (change_dir(path) < 0) {
-		g_free(path);
-		return;
-	}
-	g_free(path);
 
-	if ((dp = g_dir_open(".", 0, &error)) == NULL) {
-		g_message("Couldn't open current directory: %s (%d).\n",
-				error->message, error->code);
+	if ((dp = g_dir_open(path, 0, &error)) == NULL) {
+		g_warning("Couldn't open directory '%s': %s (%d)",
+				path, error->message, error->code);
 		g_error_free(error);
+		g_free(path);
 		return;
 	}
 
 	while ((d = g_dir_read_name(dp)) != NULL) {
+		fullpath = g_strconcat(path, G_DIR_SEPARATOR_S, d, NULL);
 		if ((num = to_number(d)) > 0 &&
-		    g_file_test(d, G_FILE_TEST_IS_REGULAR)) {
+		    g_file_test(fullpath, G_FILE_TEST_IS_REGULAR)) {
 			if (max < num)
 				max = num;
 		}
+		g_free(fullpath);
+
 		if (num % 2000 == 0)
 			GTK_EVENTS_FLUSH();
 	}
 	g_dir_close(dp);
+	g_free(path);
 
 	debug_print("Last number in dir %s = %d\n", item->path?item->path:"(null)", max);
 	item->last_num = max;
@@ -301,18 +301,15 @@ gint mh_get_num_list(Folder *folder, FolderItem *item, GSList **list, gboolean *
 
 	path = folder_item_get_path(item);
 	cm_return_val_if_fail(path != NULL, -1);
-	if (change_dir(path) < 0) {
+
+	if ((dp = g_dir_open(path, 0, &error)) == NULL) {
+		g_message("Couldn't open current directory: %s (%d).\n",
+				error->message, error->code);
+		g_error_free(error);
 		g_free(path);
 		return -1;
 	}
 	g_free(path);
-
-	if ((dp = g_dir_open(".", 0, &error)) == NULL) {
-		g_message("Couldn't open current directory: %s (%d).\n",
-				error->message, error->code);
-		g_error_free(error);
-		return -1;
-	}
 
 	while ((d = g_dir_read_name(dp)) != NULL) {
 		if ((num = to_number(d)) > 0) {
@@ -441,7 +438,7 @@ static gint mh_add_msgs(Folder *folder, FolderItem *dest, GSList *file_list,
 		if (link(fileinfo->file, destfile) < 0) {
 #endif
 			if (copy_file(fileinfo->file, destfile, TRUE) < 0) {
-				g_warning(_("can't copy message %s to %s\n"),
+				g_warning("can't copy message %s to %s",
 					  fileinfo->file, destfile);
 				g_free(destfile);
 				return -1;
@@ -496,7 +493,7 @@ static gint mh_copy_msgs(Folder *folder, FolderItem *dest, MsgInfoList *msglist,
 	cm_return_val_if_fail(msginfo != NULL, -1);
 
 	if (msginfo->folder == dest) {
-		g_warning("the src folder is identical to the dest.\n");
+		g_warning("the src folder is identical to the dest.");
 		return -1;
 	}
 
@@ -590,7 +587,7 @@ static gint mh_copy_msgs(Folder *folder, FolderItem *dest, MsgInfoList *msglist,
 		}
 		if (relation) {
 			if (g_hash_table_lookup(relation, msginfo) != NULL)
-				g_warning("already in : %p", msginfo);
+				g_warning("already in: %p", msginfo);
 			
 			g_hash_table_insert(relation, msginfo, GINT_TO_POINTER(dest->last_num+1));
 		}
@@ -734,21 +731,29 @@ static gboolean mh_is_msg_changed(Folder *folder, FolderItem *item,
 				  MsgInfo *msginfo)
 {
 	GStatBuf s;
+	gchar *path;
+	gchar *parent_path;
 
-	if (g_stat(itos(msginfo->msgnum), &s) < 0 ||
+	parent_path = folder_item_get_path(item);
+	path = g_strdup_printf("%s%c%d", parent_path,
+			G_DIR_SEPARATOR, msginfo->msgnum);
+	g_free(parent_path);
+	if (g_stat((path), &s) < 0 ||
 	    msginfo->size  != s.st_size || (
 		(msginfo->mtime - s.st_mtime != 0) &&
 		(msginfo->mtime - s.st_mtime != 3600) &&
-		(msginfo->mtime - s.st_mtime != -3600)))
+		(msginfo->mtime - s.st_mtime != -3600))) {
+		g_free(path);
 		return TRUE;
+	}
 
+	g_free(path);
 	return FALSE;
 }
 
 static gint mh_scan_tree(Folder *folder)
 {
 	FolderItem *item;
-	gchar *rootpath;
 
 	cm_return_val_if_fail(folder != NULL, -1);
 
@@ -758,13 +763,6 @@ static gint mh_scan_tree(Folder *folder)
 		folder->node = item->node = g_node_new(item);
 	} else
 		item = FOLDER_ITEM(folder->node->data);
-
-	rootpath = folder_item_get_path(item);
-	if (change_dir(rootpath) < 0) {
-		g_free(rootpath);
-		return -1;
-	}
-	g_free(rootpath);
 
 	mh_create_tree(folder);
 	mh_remove_missing_folder_items(folder);
@@ -777,25 +775,37 @@ static gint mh_scan_tree(Folder *folder)
 { \
 	if (!is_dir_exist(dir)) { \
 		if (is_file_exist(dir)) { \
-			g_warning("File `%s' already exists.\n" \
+			g_warning("File '%s' already exists. " \
 				    "Can't create folder.", dir); \
 			return -1; \
 		} \
 		if (make_dir_hier(dir) < 0) \
 			return -1; \
+		debug_print("Created dir '%s'\n", dir); \
 	} \
 }
 
 static gint mh_create_tree(Folder *folder)
 {
-	gchar *rootpath, *f;
+	gchar *rootpath, *f, *path;
 
 	cm_return_val_if_fail(folder != NULL, -1);
 
-	CHDIR_RETURN_VAL_IF_FAIL(get_mail_base_dir(), -1);
 	rootpath = LOCAL_FOLDER(folder)->rootpath;
+#ifdef G_OS_UNIX
+	if (*rootpath == '/') {
+#elif defined G_OS_WIN32
+	if (g_ascii_isalpha(*rootpath) && !strncmp(rootpath + 1, ":\\", 2)) {
+#endif
+		/* Folder path is absolute. */
+		rootpath = g_strdup(rootpath);
+	} else {
+		/* Folder path is relative, using mail base dir. */
+		rootpath = g_strconcat(get_mail_base_dir(), G_DIR_SEPARATOR_S,
+				rootpath, NULL);
+	}
+
 	MAKE_DIR_IF_NOT_EXIST(rootpath);
-	CHDIR_RETURN_VAL_IF_FAIL(rootpath, -1);
 
 	/* Create special directories as needed */
 	if (folder->inbox != NULL &&
@@ -803,36 +813,47 @@ static gint mh_create_tree(Folder *folder)
 		f = folder->inbox->path;
 	else
 		f = INBOX_DIR;
-	MAKE_DIR_IF_NOT_EXIST(f);
+	path = g_strconcat(rootpath, G_DIR_SEPARATOR_S, f, NULL);
+	MAKE_DIR_IF_NOT_EXIST(path);
+	g_free(path);
 
 	if (folder->outbox != NULL &&
 			folder->outbox->path != NULL)
 		f = folder->outbox->path;
 	else
 		f = OUTBOX_DIR;
-	MAKE_DIR_IF_NOT_EXIST(f);
+	path = g_strconcat(rootpath, G_DIR_SEPARATOR_S, f, NULL);
+	MAKE_DIR_IF_NOT_EXIST(path);
+	g_free(path);
 
 	if (folder->draft != NULL &&
 			folder->draft->path != NULL)
 		f = folder->draft->path;
 	else
 		f = DRAFT_DIR;
-	MAKE_DIR_IF_NOT_EXIST(f);
+	path = g_strconcat(rootpath, G_DIR_SEPARATOR_S, f, NULL);
+	MAKE_DIR_IF_NOT_EXIST(path);
+	g_free(path);
 
 	if (folder->queue != NULL &&
 			folder->queue->path != NULL)
 		f = folder->queue->path;
 	else
 		f = QUEUE_DIR;
-	MAKE_DIR_IF_NOT_EXIST(f);
+	path = g_strconcat(rootpath, G_DIR_SEPARATOR_S, f, NULL);
+	MAKE_DIR_IF_NOT_EXIST(path);
+	g_free(path);
 
 	if (folder->trash != NULL &&
 			folder->trash->path != NULL)
 		f = folder->trash->path;
 	else
 		f = TRASH_DIR;
-	MAKE_DIR_IF_NOT_EXIST(f);
+	path = g_strconcat(rootpath, G_DIR_SEPARATOR_S, f, NULL);
+	MAKE_DIR_IF_NOT_EXIST(path);
+	g_free(path);
 
+	g_free(rootpath);
 	return 0;
 }
 
@@ -930,7 +951,7 @@ static FolderItem *mh_create_folder(Folder *folder, FolderItem *parent,
 		MsgInfo *info = folder_item_get_msginfo(parent, to_number(name));
 		if (info != NULL) {
 			gboolean ok = mh_renumber_msg(info);
-			procmsg_msginfo_free(info);
+			procmsg_msginfo_free(&info);
 			if (!ok) {
 				g_free(fullpath);
 				return NULL;
@@ -1032,7 +1053,7 @@ static gint mh_remove_folder(Folder *folder, FolderItem *item)
 
 	path = folder_item_get_path(item);
 	if ((ret = remove_dir_recursive(path)) < 0) {
-		g_warning("can't remove directory `%s'\n", path);
+		g_warning("can't remove directory '%s'", path);
 		g_free(path);
 		return ret;
 	}
@@ -1105,7 +1126,7 @@ static void mh_scan_tree_recursive(FolderItem *item)
 	Folder *folder;
 	GDir *dir;
 	const gchar *dir_name;
- 	gchar *real_path, *entry, *utf8entry, *utf8name;
+	gchar *entry, *utf8entry, *utf8name, *path;
 	gint n_msg = 0;
 	GError *error = NULL;
 
@@ -1114,16 +1135,16 @@ static void mh_scan_tree_recursive(FolderItem *item)
 
 	folder = item->folder;
 
-	real_path = item->path ? mh_filename_from_utf8(item->path) : g_strdup(".");
-	dir = g_dir_open(real_path, 0, &error);
+	path = folder_item_get_path(item);
+	debug_print("mh_scan_tree_recursive() opening '%s'\n", path);
+	dir = g_dir_open(path, 0, &error);
 	if (!dir) {
-		g_warning("failed to open directory '%s': %s (%d)\n",
-				real_path, error->message, error->code);
+		g_warning("failed to open directory '%s': %s (%d)",
+				path, error->message, error->code);
 		g_error_free(error);
-		g_free(real_path);
+		g_free(path);
 		return;
 	}
-	g_free(real_path);
 
 	debug_print("scanning %s ...\n",
 		    item->path ? item->path
@@ -1134,13 +1155,14 @@ static void mh_scan_tree_recursive(FolderItem *item)
 	while ((dir_name = g_dir_read_name(dir)) != NULL) {
 		if (dir_name[0] == '.') continue;
 
+		entry = g_strconcat(path, G_DIR_SEPARATOR_S, dir_name, NULL);
+
 		utf8name = mh_filename_to_utf8(dir_name);
 		if (item->path)
 			utf8entry = g_strconcat(item->path, G_DIR_SEPARATOR_S,
 						utf8name, NULL);
 		else
 			utf8entry = g_strdup(utf8name);
-		entry = mh_filename_from_utf8(utf8entry);
 
 		if (g_file_test(entry, G_FILE_TEST_IS_DIR)) {
 			FolderItem *new_item = NULL;
@@ -1149,7 +1171,7 @@ static void mh_scan_tree_recursive(FolderItem *item)
 			node = item->node;
 			for (node = node->children; node != NULL; node = node->next) {
 				FolderItem *cur_item = FOLDER_ITEM(node->data);
-				gchar *curpath = mh_filename_from_utf8(cur_item->path);
+				gchar *curpath = folder_item_get_path(cur_item);
 				if (!strcmp2(curpath, entry)) {
 					new_item = cur_item;
 					g_free(curpath);
@@ -1196,6 +1218,7 @@ static void mh_scan_tree_recursive(FolderItem *item)
 	}
 
 	g_dir_close(dir);
+	g_free(path);
 
 	mh_set_mtime(folder, item);
 }
@@ -1212,7 +1235,7 @@ static gboolean mh_rename_folder_func(GNode *node, gpointer data)
 
 	oldpathlen = strlen(oldpath);
 	if (strncmp(oldpath, item->path, oldpathlen) != 0) {
-		g_warning("path doesn't match: %s, %s\n", oldpath, item->path);
+		g_warning("path doesn't match: %s, %s", oldpath, item->path);
 		return TRUE;
 	}
 
@@ -1234,7 +1257,7 @@ static gchar *mh_filename_from_utf8(const gchar *path)
 	gchar *real_path = g_filename_from_utf8(path, -1, NULL, NULL, NULL);
 
 	if (!real_path) {
-		g_warning("mh_filename_from_utf8: failed to convert character set\n");
+		g_warning("mh_filename_from_utf8: failed to convert character set");
 		real_path = g_strdup(path);
 	}
 
@@ -1245,7 +1268,7 @@ static gchar *mh_filename_to_utf8(const gchar *path)
 {
 	gchar *utf8path = g_filename_to_utf8(path, -1, NULL, NULL, NULL);
 	if (!utf8path) {
-		g_warning("mh_filename_to_utf8: failed to convert character set\n");
+		g_warning("mh_filename_to_utf8: failed to convert character set");
 		utf8path = g_strdup(path);
 	}
 

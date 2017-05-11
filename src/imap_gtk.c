@@ -176,7 +176,6 @@ static void set_sensitivity(GtkUIManager *ui_manager, FolderItem *item)
 static void new_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	FolderItem *new_item;
 	gchar *new_folder;
@@ -184,9 +183,8 @@ static void new_folder_cb(GtkAction *action, gpointer data)
 	gchar *p;
 	gchar separator = '/';
 	
-	if (!folderview->selected) return;
+	if ((item = folderview_get_selected_item(folderview)) == NULL) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 	cm_return_if_fail(item->folder->account != NULL);
@@ -315,7 +313,12 @@ static void move_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != imap_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE,
+			ngettext(
+				"Select folder to move selected message to",
+				"Select folder to move selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 	
@@ -331,7 +334,12 @@ static void copy_folder_cb(GtkAction *action, gpointer data)
 	if (!from_folder || from_folder->folder->klass != imap_get_class())
 		return;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, TRUE,
+			ngettext(
+				"Select folder to copy selected message to",
+				"Select folder to copy selected messages to",
+				summary_get_selection_count(folderview->summaryview))
+	);
 	if (!to_folder)
 		return;
 	
@@ -341,15 +349,14 @@ static void copy_folder_cb(GtkAction *action, gpointer data)
 static void delete_folder_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item;
+	FolderItem *item, *opened;
 	gchar *message, *name;
 	AlertValue avalue;
 	gchar *old_id;
 
-	if (!folderview->selected) return;
+	if ((item = folderview_get_selected_item(folderview)) == NULL) return;
+	opened = folderview_get_opened_item(folderview);
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->path != NULL);
 	cm_return_if_fail(item->folder != NULL);
@@ -368,12 +375,10 @@ static void delete_folder_cb(GtkAction *action, gpointer data)
 
 	old_id = folder_item_get_identifier(item);
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (item == opened ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	if (item->folder->klass->remove_folder(item->folder, item) < 0) {
@@ -483,17 +488,13 @@ static gboolean imap_gtk_subscribe_func(GNode *node, gpointer data)
 
 static void subscribe_cb_full(FolderView *folderview, guint action)
 {
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	gchar *message, *name;
 	AlertValue avalue;
 	GtkWidget *rec_chk;
 	gboolean recurse = FALSE;
 
-	if (!folderview->selected) return;
-
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
-	cm_return_if_fail(item != NULL);
+	if ((item = folderview_get_selected_item(folderview)) == NULL) return;
 	cm_return_if_fail(item->folder != NULL);
 
 	name = trim_string(item->name, 32);
@@ -513,8 +514,8 @@ static void subscribe_cb_full(FolderView *folderview, guint action)
 				G_CALLBACK(chk_update_val), &recurse);
 
 		avalue = alertpanel_full(_("Subscriptions"), message,
-		 			 GTK_STOCK_CANCEL, _("+_Search"), NULL, FALSE,
-					 rec_chk, ALERT_QUESTION, G_ALERTDEFAULT);
+		 			 GTK_STOCK_CANCEL, g_strconcat("+", _("_Search"), NULL),
+					 NULL, FALSE, rec_chk, ALERT_QUESTION, G_ALERTDEFAULT);
 		g_free(message);
 		if (avalue != G_ALERTALTERNATE) return;
 		
@@ -572,19 +573,19 @@ static void subscribe_cb_full(FolderView *folderview, guint action)
 			G_CALLBACK(chk_update_val), &recurse);
 
 	avalue = alertpanel_full(_("Subscriptions"), message,
-		 		 GTK_STOCK_CANCEL, action?_("+_Subscribe"):_("+_Unsubscribe"), NULL, FALSE,
+		 		 GTK_STOCK_CANCEL, action?g_strconcat("+", _("_Subscribe"), NULL):
+		 		 g_strconcat("+", _("_Unsubscribe"), NULL), NULL, FALSE,
 				 rec_chk, ALERT_QUESTION, G_ALERTDEFAULT);
 	g_free(message);
 	if (avalue != G_ALERTALTERNATE) return;
 	
-	
+	FolderItem *opened = folderview_get_opened_item(folderview);
+	FolderItem *selected = folderview_get_selected_item(folderview);
 	if (!action) {
-		if (folderview->opened == folderview->selected ||
-		    gtk_cmctree_is_ancestor(ctree,
-					  folderview->selected,
-					  folderview->opened)) {
+		if (opened == selected ||
+				folder_is_child_of(selected, opened)) {
 			summary_clear_all(folderview->summaryview);
-			folderview->opened = NULL;
+			folderview_close_opened(folderview, TRUE);
 		}
 	}
 
@@ -612,20 +613,18 @@ static void unsubscribe_cb(GtkAction *action, gpointer data)
 static void subscribed_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	FolderItem *item = folderview_get_selected_item(folderview);
+	FolderItem *opened = folderview_get_opened_item(folderview);
 	
 	if (!item || !item->folder || !item->folder->account)
 		return;
 	if (item->folder->account->imap_subsonly == gtk_toggle_action_get_active (GTK_TOGGLE_ACTION (action)))
 		return;
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (opened == item ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	item->folder->account->imap_subsonly = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION (action));
@@ -635,11 +634,9 @@ static void subscribed_cb(GtkAction *action, gpointer data)
 static void download_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 
-	if (!folderview->selected) return;
-
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	if ((item = folderview_get_selected_item(folderview)) == NULL)
+		return;
 	imap_gtk_synchronise(item, 0);
 }

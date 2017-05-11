@@ -65,6 +65,7 @@ struct _FolderItemSearch
 static GdkPixbuf *folder_pixbuf = NULL;
 static GdkPixbuf *folderopen_pixbuf = NULL;
 static GdkPixbuf *foldernoselect_pixbuf = NULL;
+static GdkPixbuf *foldernoselectopen_pixbuf = NULL;
 
 static GtkWidget *window;
 static GtkWidget *treeview;
@@ -82,7 +83,7 @@ static GtkTreeStore *tree_store;
 static gboolean cancelled;
 static gboolean finished;
 
-static void foldersel_create		(void);
+static void foldersel_create		(const gchar *title);
 static void foldersel_init		(void);
 
 static void foldersel_append_item	(GtkTreeStore	*store,
@@ -132,13 +133,14 @@ static gboolean tree_view_folder_item_func	(GtkTreeModel	  *model,
 						 FolderItemSearch *data);
 
 FolderItem *foldersel_folder_sel(Folder *cur_folder, FolderSelectionType type,
-				 const gchar *default_folder, gboolean can_sel_mailbox)
+				 const gchar *default_folder, gboolean can_sel_mailbox,
+				 const gchar *title)
 {
 	selected_item = NULL;
 	root_selectable = can_sel_mailbox;
 
 	if (!window) {
-		foldersel_create();
+		foldersel_create(title);
 		foldersel_init();
 	}
 
@@ -233,18 +235,19 @@ static void foldersel_size_allocate_cb(GtkWidget *widget,
 	prefs_common.folderselwin_height = allocation->height;
 }
 
-static void foldersel_create(void)
+static void foldersel_create(const gchar *title)
 {
 	GtkWidget *vbox;
 	GtkWidget *scrolledwin;
 	GtkWidget *confirm_area;
+	GtkWidget *label;
 	GtkTreeViewColumn *column;
 	GtkCellRenderer *renderer;
 	GtkTreeSelection *selection;
 	static GdkGeometry geometry;
 
 	window = gtkut_window_new(GTK_WINDOW_TOPLEVEL, "foldersel");
-	gtk_window_set_title(GTK_WINDOW(window), _("Select folder"));
+	gtk_window_set_title(GTK_WINDOW(window),_("Select folder"));
 	gtk_container_set_border_width(GTK_CONTAINER(window), 4);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
@@ -260,6 +263,12 @@ static void foldersel_create(void)
 
 	vbox = gtk_vbox_new(FALSE, 4);
 	gtk_container_add(GTK_CONTAINER(window), vbox);
+
+	if (title != NULL) {
+		label = gtk_label_new(title);
+		gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+		gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 0);
+	}
 
 	scrolledwin = gtk_scrolled_window_new(NULL, NULL);
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolledwin),
@@ -314,6 +323,7 @@ static void foldersel_create(void)
 
 	/* create text renderer */
 	renderer = gtk_cell_renderer_text_new();
+	gtk_cell_renderer_set_padding(renderer, 0, 0);
 	gtk_tree_view_column_pack_start(column, renderer, TRUE);
 	gtk_tree_view_column_set_attributes
 		(column, renderer,
@@ -362,12 +372,10 @@ static void foldersel_create(void)
 
 static void foldersel_init(void)
 {
-	stock_pixbuf_gdk(treeview, STOCK_PIXMAP_DIR_CLOSE,
-			 &folder_pixbuf);
-	stock_pixbuf_gdk(treeview, STOCK_PIXMAP_DIR_OPEN,
-			 &folderopen_pixbuf);
-	stock_pixbuf_gdk(treeview, STOCK_PIXMAP_DIR_NOSELECT,
-			 &foldernoselect_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE, &folder_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN, &folderopen_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_CLOSE, &foldernoselect_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_OPEN, &foldernoselectopen_pixbuf);
 }
 
 void foldersel_reflect_prefs_pixmap_theme(void)
@@ -378,6 +386,8 @@ void foldersel_reflect_prefs_pixmap_theme(void)
 		g_object_unref(folderopen_pixbuf);
 	if (foldernoselect_pixbuf)
 		g_object_unref(foldernoselect_pixbuf);
+	if (foldernoselectopen_pixbuf)
+		g_object_unref(foldernoselectopen_pixbuf);
 	foldersel_init();
 }
 
@@ -432,7 +442,7 @@ static void foldersel_append_item(GtkTreeStore *store, FolderItem *item,
 
 	pixbuf = item->no_select ? foldernoselect_pixbuf : folder_pixbuf;
 	pixbuf_open =
-		item->no_select ? foldernoselect_pixbuf : folderopen_pixbuf;
+		item->no_select ? foldernoselectopen_pixbuf : folderopen_pixbuf;
 
 	if (folder_has_parent_of_type(item, F_DRAFT) ||
 	    folder_has_parent_of_type(item, F_OUTBOX) ||
@@ -654,8 +664,42 @@ static gint delete_event(GtkWidget *widget, GdkEventAny *event, gpointer data)
 
 static gboolean key_pressed(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
-	if (event && event->keyval == GDK_KEY_Escape)
+	if (!event)
+		return FALSE;
+
+	if (event->keyval == GDK_KEY_Escape) {
 		foldersel_cancel(NULL, NULL);
+		return TRUE;
+	}
+
+	GtkTreePath *path = NULL;
+	gtk_tree_view_get_cursor(GTK_TREE_VIEW(treeview), &path, NULL);
+	if (path == NULL)
+		return FALSE;
+
+	switch (event->keyval) {
+		case GDK_KEY_Left:
+			if (gtk_tree_view_row_expanded(GTK_TREE_VIEW(treeview), path)) {
+				gtk_tree_view_collapse_row(GTK_TREE_VIEW(treeview), path);
+			} else {
+				gtk_tree_path_up(path);
+				gtk_tree_view_set_cursor(GTK_TREE_VIEW(treeview), path, NULL, FALSE);
+			}
+			return TRUE;
+			break;
+		case GDK_KEY_Right:
+			if (!gtk_tree_view_row_expanded(GTK_TREE_VIEW(treeview), path)) {
+				gtk_tree_view_expand_row(GTK_TREE_VIEW(treeview), path, FALSE);
+			} else {
+				gtk_tree_path_down(path);
+				gtk_tree_view_set_cursor(GTK_TREE_VIEW(treeview), path, NULL, FALSE);
+			}
+			return TRUE;
+			break;
+	}
+
+	gtk_tree_path_free(path);
+
 	return FALSE;
 }
 

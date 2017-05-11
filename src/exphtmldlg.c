@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2002-2014 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2002-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -162,7 +161,7 @@ static gboolean exp_html_move_file( void ) {
 	AlertValue aval;
 
 	sFile = gtk_editable_get_chars( GTK_EDITABLE(exphtml_dlg.entryHtml), 0, -1 );
-	g_strchug( sFile ); g_strchomp( sFile );
+	g_strstrip( sFile );
 	gtk_entry_set_text( GTK_ENTRY(exphtml_dlg.entryHtml), sFile );
 	exporthtml_parse_filespec( _exportCtl_, sFile );
 	g_free( sFile );
@@ -537,7 +536,7 @@ static void export_html_page_finish( gint pageNum, gchar *pageLbl ) {
 
 	/* First row */
 	top = 0;
-	label = gtk_label_new( _( "Address Book :" ) );
+	label = gtk_label_new( _( "Address Book:" ) );
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, top, (top + 1), GTK_FILL, 0, 0, 0);
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 
@@ -547,7 +546,7 @@ static void export_html_page_finish( gint pageNum, gchar *pageLbl ) {
 
 	/* Second row */
 	top++;
-	label = gtk_label_new( _( "File Name :" ) );
+	label = gtk_label_new( _( "File Name:" ) );
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, top, (top + 1), GTK_FILL, 0, 0, 0);
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 

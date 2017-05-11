@@ -191,7 +191,7 @@ void privacy_msginfo_get_signed_state(MsgInfo *msginfo, gchar **system)
  * If the MimeInfo is not signed an error code will be returned.
  *
  * \return Error code indicating the result of the check,
- *         < 0 if an error occured
+ *         < 0 if an error occurred
  */
 gint privacy_mimeinfo_check_signature(MimeInfo *mimeinfo)
 {
@@ -307,7 +307,7 @@ static gint decrypt(MimeInfo *mimeinfo, PrivacySystem *system)
 	parentinfo = procmime_mimeinfo_parent(mimeinfo);
 	childnumber = g_node_child_index(parentinfo->node, mimeinfo);
 	
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	g_node_insert(parentinfo->node, childnumber, decryptedinfo->node);
 

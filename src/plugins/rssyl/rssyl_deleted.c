@@ -99,20 +99,21 @@ GSList *rssyl_deleted_update(RFolderItem *ritem)
 
 	if (!g_file_test(deleted_file, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_REGULAR)) {
 		debug_print("RSSyl: '%s' doesn't exist, ignoring\n", deleted_file);
+		g_free(deleted_file);
 		return NULL;
 	}
 
 	g_file_get_contents(deleted_file, &contents, NULL, &error);
 
 	if (error) {
-		g_warning("GError: '%s'\n", error->message);
+		g_warning("GError: '%s'", error->message);
 		g_error_free(error);
 	}
 
 	if (contents != NULL) {
 		lines = strsplit_no_copy(contents, '\n');
 	} else {
-		g_warning("Couldn't read '%s', ignoring\n", deleted_file);
+		g_warning("Couldn't read '%s', ignoring", deleted_file);
 		g_free(deleted_file);
 		return NULL;
 	}
@@ -159,10 +160,11 @@ static void _store_one_deleted_item(gpointer data, gpointer user_data)
 	err |= (fprintf(f,
 			"ID: %s\n"
 			"TITLE: %s\n"
-			"DPUB: %ld\n"
-			"DMOD: %ld\n",
+			"DPUB: %lld\n"
+			"DMOD: %lld\n",
 			ditem->id, ditem->title,
-			ditem->date_published, ditem->date_modified) < 0);
+			(long long)ditem->date_published,
+			(long long)ditem->date_modified) < 0);
 
 	if (err)
 		debug_print("RSSyl: Error during writing deletion file.\n");
@@ -203,6 +205,7 @@ void rssyl_deleted_store(RFolderItem *ritem)
 
 	path = _deleted_file_path(ritem);
 	rssyl_deleted_store_internal(ritem->deleted_items, path);
+	g_free(path);
 }
 
 
@@ -232,6 +235,9 @@ void rssyl_deleted_add(RFolderItem *ritem, gchar *path)
 	g_free(deleted_file);
 
 	rssyl_deleted_free(deleted_items);
+
+	RFeedCtx *ctx = (RFeedCtx *)fitem->data;
+	g_free(ctx->path);
 	feed_item_free(fitem);
 }
 

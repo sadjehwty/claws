@@ -58,6 +58,7 @@
 #include "manual.h"
 #include "timing.h"
 #include "log.h"
+#include "gtkcmctree.h"
 
 #define COL_FOLDER_WIDTH	150
 #define COL_NUM_WIDTH		32
@@ -92,7 +93,10 @@ static GdkPixbuf *queueopenxpm;
 static GdkPixbuf *queueopenhrmxpm;
 static GdkPixbuf *draftsxpm;
 static GdkPixbuf *draftsopenxpm;
-static GdkPixbuf *noselectxpm;
+static GdkPixbuf *foldersubsxpm;
+static GdkPixbuf *foldersubsopenxpm;
+static GdkPixbuf *foldernoselectxpm;
+static GdkPixbuf *foldernoselectopenxpm;
 
 static GdkPixbuf *m_inboxxpm;
 static GdkPixbuf *m_inboxhrmxpm;
@@ -116,6 +120,8 @@ static GdkPixbuf *m_queueopenxpm;
 static GdkPixbuf *m_queueopenhrmxpm;
 static GdkPixbuf *m_draftsxpm;
 static GdkPixbuf *m_draftsopenxpm;
+static GdkPixbuf *m_foldersubsxpm;
+static GdkPixbuf *m_foldernoselectxpm;
 
 static GdkPixbuf *newxpm;
 static GdkPixbuf *unreadxpm;
@@ -163,13 +169,18 @@ static void folderview_col_resized	(GtkCMCList	*clist,
 					 gint		 width,
 					 FolderView	*folderview);
 
-static void mark_all_read_handler	(GtkAction	*action,
+static void mark_all_read_unread_handler	(GtkAction	*action,
 					 gpointer	 data,
-					 gboolean	 recursive);
+					 gboolean	 recursive,
+					 gboolean	 read);
 
 static void mark_all_read_cb            (GtkAction 	*action,
 					 gpointer	 data);
+static void mark_all_unread_cb            (GtkAction 	*action,
+					 gpointer	 data);
 static void mark_all_read_recursive_cb  (GtkAction 	*action,
+					 gpointer	 data);
+static void mark_all_unread_recursive_cb  (GtkAction 	*action,
 					 gpointer	 data);
 
 static void folderview_empty_trash_cb	(GtkAction 	*action,
@@ -232,16 +243,18 @@ GHashTable *folderview_popups;
 
 static GtkActionEntry folderview_common_popup_entries[] = 
 {
-	{"FolderViewPopup",			NULL, "FolderViewPopup" },
-	{"FolderViewPopup/MarkAllRead",		NULL, N_("Mark all re_ad"), NULL, NULL, G_CALLBACK(mark_all_read_cb) },
-	{"FolderViewPopup/MarkAllReadRec",	NULL, N_("Mark all read recursi_vely"), NULL, NULL, G_CALLBACK(mark_all_read_recursive_cb) },
-	{"FolderViewPopup/---",			NULL, "---" },
-	{"FolderViewPopup/RunProcessing",	NULL, N_("R_un processing rules"), NULL, NULL, G_CALLBACK(folderview_run_processing_cb) },
-	{"FolderViewPopup/SearchFolder",	NULL, N_("_Search folder..."), NULL, NULL, G_CALLBACK(folderview_search_cb) },
-	{"FolderViewPopup/Properties",		NULL, N_("_Properties..."), NULL, NULL, G_CALLBACK(folderview_property_cb) },
-	{"FolderViewPopup/Processing",		NULL, N_("Process_ing..."), NULL, NULL, G_CALLBACK(folderview_processing_cb) },
-	{"FolderViewPopup/EmptyTrash",		NULL, N_("Empty _trash..."), NULL, NULL, G_CALLBACK(folderview_empty_trash_cb) },
-	{"FolderViewPopup/SendQueue",		NULL, N_("Send _queue..."), NULL, NULL, G_CALLBACK(folderview_send_queue_cb) },
+	{"FolderViewPopup",                  NULL, "FolderViewPopup", NULL, NULL , NULL},
+	{"FolderViewPopup/MarkAllRead",      NULL, N_("Mark all re_ad"), NULL, NULL, G_CALLBACK(mark_all_read_cb) },
+	{"FolderViewPopup/MarkAllUnread",    NULL, N_("Mark all u_nread"), NULL, NULL, G_CALLBACK(mark_all_unread_cb) },
+	{"FolderViewPopup/MarkAllReadRec",   NULL, N_("Mark all read recursi_vely"), NULL, NULL, G_CALLBACK(mark_all_read_recursive_cb) },
+	{"FolderViewPopup/MarkAllUnreadRec", NULL, N_("Mark all unread recursi_vely"), NULL, NULL, G_CALLBACK(mark_all_unread_recursive_cb) },
+	{"FolderViewPopup/---",              NULL, "---", NULL, NULL , NULL},
+	{"FolderViewPopup/RunProcessing",    NULL, N_("R_un processing rules"), NULL, NULL, G_CALLBACK(folderview_run_processing_cb) },
+	{"FolderViewPopup/SearchFolder",     NULL, N_("_Search folder..."), NULL, NULL, G_CALLBACK(folderview_search_cb) },
+	{"FolderViewPopup/Properties",       NULL, N_("_Properties..."), NULL, NULL, G_CALLBACK(folderview_property_cb) },
+	{"FolderViewPopup/Processing",       NULL, N_("Process_ing..."), NULL, NULL, G_CALLBACK(folderview_processing_cb) },
+	{"FolderViewPopup/EmptyTrash",       NULL, N_("Empty _trash..."), NULL, NULL, G_CALLBACK(folderview_empty_trash_cb) },
+	{"FolderViewPopup/SendQueue",        NULL, N_("Send _queue..."), NULL, NULL, G_CALLBACK(folderview_send_queue_cb) },
 	
 };
 
@@ -335,12 +348,9 @@ static void folderview_column_set_titles(FolderView *folderview)
 	
 	/* CLAWS: titles for "New" and "Unread" show new & unread pixmaps
 	 * instead text (text overflows making them unreadable and ugly) */
-        stock_pixbuf_gdk(ctree, STOCK_PIXMAP_NEW,
-			 &newxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_UNREAD,
-			 &unreadxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_READ,
-			 &readxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_NEW, &newxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_UNREAD, &unreadxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_READ, &readxpm);
 	
 	label_folder = gtk_label_new(_("Folder"));
 	label_new = gtk_image_new_from_pixbuf(newxpm);
@@ -552,9 +562,9 @@ void folderview_set_column_order(FolderView *folderview)
 	}
 
 	if (folderview->selected)
-		sel_item = gtk_cmctree_node_get_row_data(GTK_CMCTREE(ctree), folderview->selected);
+		sel_item = folderview_get_selected_item(folderview);
 	if (folderview->opened)
-		op_item = gtk_cmctree_node_get_row_data(GTK_CMCTREE(ctree), folderview->opened);
+		op_item = folderview_get_opened_item(folderview);
 
 	debug_print("recreating tree...\n");
 	gtk_widget_destroy(folderview->ctree);
@@ -629,52 +639,57 @@ void folderview_init(FolderView *folderview)
 	GdkColor gdk_color;
 	PangoFontDescription *normal_font;
 
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_CLOSE, &inboxxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_CLOSE_HRM, &inboxhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_OPEN, &inboxopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_OPEN_HRM, &inboxopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_CLOSE, &outboxxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_CLOSE_HRM, &outboxhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_OPEN, &outboxopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_OPEN_HRM, &outboxopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_CLOSE, &folderxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_CLOSE_HRM, &folderhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_OPEN, &folderopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_OPEN_HRM, &folderopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_OPEN, &trashopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_OPEN_HRM, &trashopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_CLOSE, &trashxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_CLOSE_HRM, &trashhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_CLOSE, &queuexpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_CLOSE_HRM, &queuehrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_OPEN, &queueopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_OPEN_HRM, &queueopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DRAFTS_CLOSE, &draftsxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DRAFTS_OPEN, &draftsopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_NOSELECT, &noselectxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_CLOSE, &inboxxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_CLOSE_HRM, &inboxhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_OPEN, &inboxopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_OPEN_HRM, &inboxopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_CLOSE, &outboxxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_CLOSE_HRM, &outboxhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_OPEN, &outboxopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_OPEN_HRM, &outboxopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE, &folderxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE_HRM, &folderhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN, &folderopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN_HRM, &folderopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_OPEN, &trashopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_OPEN_HRM, &trashopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_CLOSE, &trashxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_CLOSE_HRM, &trashhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_CLOSE, &queuexpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_CLOSE_HRM, &queuehrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_OPEN, &queueopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_OPEN_HRM, &queueopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DRAFTS_CLOSE, &draftsxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DRAFTS_OPEN, &draftsopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_SUBS_OPEN, &foldersubsopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_SUBS_CLOSE, &foldersubsxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_OPEN, &foldernoselectopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_CLOSE, &foldernoselectxpm);
 
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_CLOSE_MARK, &m_inboxxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_CLOSE_HRM_MARK, &m_inboxhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_OPEN_MARK, &m_inboxopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_INBOX_OPEN_HRM_MARK, &m_inboxopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_CLOSE_MARK, &m_outboxxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_CLOSE_HRM_MARK, &m_outboxhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_OPEN_MARK, &m_outboxopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_OUTBOX_OPEN_HRM_MARK, &m_outboxopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_CLOSE_MARK, &m_folderxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_CLOSE_HRM_MARK, &m_folderhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_OPEN_MARK, &m_folderopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DIR_OPEN_HRM_MARK, &m_folderopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_OPEN_MARK, &m_trashopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_OPEN_HRM_MARK, &m_trashopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_CLOSE_MARK, &m_trashxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_TRASH_CLOSE_HRM_MARK, &m_trashhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_CLOSE_MARK, &m_queuexpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_CLOSE_HRM_MARK, &m_queuehrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_OPEN_MARK, &m_queueopenxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_QUEUE_OPEN_HRM_MARK, &m_queueopenhrmxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DRAFTS_CLOSE_MARK, &m_draftsxpm);
-	stock_pixbuf_gdk(ctree, STOCK_PIXMAP_DRAFTS_OPEN_MARK, &m_draftsopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_CLOSE_MARK, &m_inboxxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_CLOSE_HRM_MARK, &m_inboxhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_OPEN_MARK, &m_inboxopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_INBOX_OPEN_HRM_MARK, &m_inboxopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_CLOSE_MARK, &m_outboxxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_CLOSE_HRM_MARK, &m_outboxhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_OPEN_MARK, &m_outboxopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_OUTBOX_OPEN_HRM_MARK, &m_outboxopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE_MARK, &m_folderxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_CLOSE_HRM_MARK, &m_folderhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN_MARK, &m_folderopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN_HRM_MARK, &m_folderopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_OPEN_MARK, &m_trashopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_OPEN_HRM_MARK, &m_trashopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_CLOSE_MARK, &m_trashxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_TRASH_CLOSE_HRM_MARK, &m_trashhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_CLOSE_MARK, &m_queuexpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_CLOSE_HRM_MARK, &m_queuehrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_OPEN_MARK, &m_queueopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_QUEUE_OPEN_HRM_MARK, &m_queueopenhrmxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DRAFTS_CLOSE_MARK, &m_draftsxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DRAFTS_OPEN_MARK, &m_draftsopenxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_SUBS_CLOSE_MARK, &m_foldersubsxpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_NOSELECT_CLOSE_MARK, &m_foldernoselectxpm);
 
 	normal_font = pango_font_description_from_string(NORMAL_FONT);
 	if (normal_font) {
@@ -769,9 +784,9 @@ void folderview_set(FolderView *folderview)
 	main_window_cursor_wait(mainwin);
 
 	if (folderview->selected)
-		sel_item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+		sel_item = folderview_get_selected_item(folderview);
 	if (folderview->opened)
-		op_item = gtk_cmctree_node_get_row_data(ctree, folderview->opened);
+		op_item = folderview_get_opened_item(folderview);
 
 	folderview->selected = NULL;
 	folderview->opened = NULL;
@@ -817,33 +832,53 @@ void folderview_select(FolderView *folderview, FolderItem *item)
 
 static void mark_all_read_cb(GtkAction *action, gpointer data)
 {
-	mark_all_read_handler(action, data, FALSE);
+	mark_all_read_unread_handler(action, data, FALSE, TRUE);
+}
+
+static void mark_all_unread_cb(GtkAction *action, gpointer data)
+{
+	mark_all_read_unread_handler(action, data, FALSE, FALSE);
 }
 
 static void mark_all_read_recursive_cb(GtkAction *action, gpointer data)
 {
-	mark_all_read_handler(action, data, TRUE);
+	mark_all_read_unread_handler(action, data, TRUE, TRUE);
 }
 
-static void mark_all_read_handler(GtkAction *action, gpointer data, gboolean recursive)
+static void mark_all_unread_recursive_cb(GtkAction *action, gpointer data)
+{
+	mark_all_read_unread_handler(action, data, TRUE, FALSE);
+}
+
+static void mark_all_read_unread_handler(GtkAction *action, gpointer data,
+						gboolean recursive, gboolean read)
 {
 	FolderView *folderview = (FolderView *)data;
 	FolderItem *item;
 	AlertValue val;
 	gchar *message;
+	gchar *title;
 	
 	item = folderview_get_selected_item(folderview);
 	if (item == NULL)
 		return;
 
-	message = recursive? _("Do you really want to mark all mails in this "
-			       "folder and its sub-folders as read?") :
-			     _("Do you really want to mark all mails in this "
-			       "folder as read?");
-	if (folderview->summaryview->folder_item != item &&
-	    prefs_common.ask_mark_all_read) {
-		val = alertpanel_full(_("Mark all as read"),
-			  message, GTK_STOCK_NO, GTK_STOCK_YES, NULL,
+	if (read) {
+		title = _("Mark all as read");
+		message = recursive? _("Do you really want to mark all mails in this "
+							"folder and its sub-folders as read?") :
+							_("Do you really want to mark all mails in this "
+							"folder as read?");
+	} else {
+		title = _("Mark all as unread");
+		message = recursive? _("Do you really want to mark all mails in this "
+							"folder and its sub-folders as unread?") :
+							_("Do you really want to mark all mails in this "
+							"folder as unread?");
+	}
+	if (prefs_common.ask_mark_all_read) {
+		val = alertpanel_full(title, message,
+			  GTK_STOCK_NO, GTK_STOCK_YES, NULL,
 			  TRUE, NULL, ALERT_QUESTION, G_ALERTDEFAULT);
 
 		if ((val & ~G_ALERTDISABLE) != G_ALERTALTERNATE)
@@ -858,11 +893,17 @@ static void mark_all_read_handler(GtkAction *action, gpointer data, gboolean rec
 	else
 		summary_freeze(folderview->summaryview);
 		
-	if (recursive)
-		folderutils_mark_all_read_recursive(item);
-	else
-		folderutils_mark_all_read(item);
-	
+	if (read) {
+		if (recursive)
+			folderutils_mark_all_read_recursive(item);
+		else
+			folderutils_mark_all_read(item);
+	} else {
+		if (recursive)
+			folderutils_mark_all_unread_recursive(item);
+		else
+			folderutils_mark_all_unread(item);
+	}
 	if (folderview->summaryview->folder_item != item && !recursive)
 		summary_unlock(folderview->summaryview);
 	else
@@ -890,7 +931,8 @@ static void folderview_select_node(FolderView *folderview, GtkCMCTreeNode *node)
 	if ((folderview->summaryview->folder_item &&
 	    folderview->summaryview->folder_item->total_msgs > 0) ||
 	     prefs_common.layout_mode == SMALL_LAYOUT)
-		summary_grab_focus(folderview->summaryview);
+		summary_select_node(folderview->summaryview,
+				    folderview->summaryview->selected, OPEN_SELECTED_ON_FOLDER_OPEN);
 	else
 		gtk_widget_grab_focus(folderview->ctree);
 }
@@ -934,6 +976,10 @@ static GtkCMCTreeNode *folderview_find_next_with_flag(GtkCMCTree *ctree,
 			if(item->marked_msgs > 0)
 				return node;
 			break;
+		default:
+			if(item->total_msgs > 0)
+				return node;
+			break;
 		}
 	}
 
@@ -941,13 +987,11 @@ static GtkCMCTreeNode *folderview_find_next_with_flag(GtkCMCTree *ctree,
 }
 
 void folderview_select_next_with_flag(FolderView *folderview,
-				      MsgPermFlags flag,
-				      gboolean force_open)
+				      MsgPermFlags flag)
 {
 	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	GtkCMCTreeNode *node = NULL;
 	EntryAction last_summary_select_prio = prefs_common.summary_select_prio[0];
-	gboolean last_open = prefs_common.always_show_msg;
 	
 	switch (flag) {
 	case MSG_UNREAD:
@@ -959,8 +1003,10 @@ void folderview_select_next_with_flag(FolderView *folderview,
 	case MSG_MARKED:
 		prefs_common.summary_select_prio[0] = ACTION_MARKED;
 		break;
+	default:
+		prefs_common.summary_select_prio[0] = ACTION_FIRST_LIST;
+		break;
 	}
-	prefs_common.always_show_msg = force_open ? OPENMSG_ALWAYS : last_open;
 
 	node = folderview_find_next_with_flag(ctree, folderview->opened, flag);
 	if (node != NULL) {
@@ -980,15 +1026,28 @@ void folderview_select_next_with_flag(FolderView *folderview,
 
 out:
 	prefs_common.summary_select_prio[0] = last_summary_select_prio;
-	prefs_common.always_show_msg = last_open;
 }
 
 FolderItem *folderview_get_selected_item(FolderView *folderview)
 {
+	g_return_val_if_fail(folderview != NULL, NULL);
+	g_return_val_if_fail(folderview->ctree != NULL, NULL);
+
 	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 
 	if (!folderview->selected) return NULL;
 	return gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+}
+
+FolderItem *folderview_get_opened_item(FolderView *folderview)
+{
+	g_return_val_if_fail(folderview != NULL, NULL);
+	g_return_val_if_fail(folderview->ctree != NULL, NULL);
+
+	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
+
+	if (!folderview->opened) return NULL;
+	return gtk_cmctree_node_get_row_data(ctree, folderview->opened);
 }
 
 static void folderview_set_folders(FolderView *folderview)
@@ -1004,9 +1063,8 @@ static void folderview_set_folders(FolderView *folderview)
 static gchar *get_scan_str(FolderItem *item)
 {
 	if (item->path)
-		return g_strdup_printf(_("Scanning folder %s%c%s..."),
-				      item->folder->name, G_DIR_SEPARATOR,
-				      item->path);
+		return g_strdup_printf(_("Scanning folder %s/%s..."),
+				      item->folder->name, item->path);
 	else
 		return g_strdup_printf(_("Scanning folder %s..."),
 				      item->folder->name);	
@@ -1330,6 +1388,48 @@ static gboolean folderview_have_unread_children(FolderView *folderview,
 	return folderview_have_unread_children_sub(folderview, item, FALSE);
 }
 
+static gboolean folderview_have_read_children_sub(FolderView *folderview,
+						    FolderItem *item, 
+						    gboolean in_sub)
+{
+	GNode *node = NULL;
+	
+	if (!item || !item->folder || !item->folder->node) {
+		return FALSE;
+	}			
+
+	node = item->folder->node;
+	
+	node = g_node_find(node, G_PRE_ORDER, G_TRAVERSE_ALL, item);
+	node = node->children;
+
+	if (in_sub &&
+	    (((item->total_msgs > 0) &&
+		(item->unread_msgs != (item->total_msgs - item->ignored_msgs))))) {
+		return TRUE;
+	}
+
+	while (node != NULL) {
+		if (node && node->data) {
+			FolderItem *next_item = (FolderItem*) node->data;
+			node = node->next;
+			if (folderview_have_read_children_sub(folderview, 
+							        next_item, 
+								TRUE)) {
+				return TRUE;
+			}
+		}
+	}
+
+	return FALSE;
+}
+
+static gboolean folderview_have_read_children(FolderView *folderview,
+						FolderItem *item)
+{
+	return folderview_have_read_children_sub(folderview, item, FALSE);
+}
+
 static gboolean folderview_have_matching_children_sub(FolderView *folderview,
 						      FolderItem *item,
 						      gboolean in_sub)
@@ -1483,17 +1583,21 @@ static void folderview_update_node(FolderView *folderview, GtkCMCTreeNode *node)
 		openxpm = mark?m_draftsopenxpm:draftsopenxpm;
 		break;
 	default:
-		if (item->hide_read_msgs || item->hide_read_threads) {
+		if (!item->path &&
+		    FOLDER_TYPE(item->folder) == F_IMAP &&
+		    item->folder->account->imap_subsonly) {
+			xpm = mark?m_foldersubsxpm:foldersubsxpm;
+			openxpm = foldersubsopenxpm;
+		} else if (item->no_select) {
+			xpm = mark?m_foldernoselectxpm:foldernoselectxpm;
+			openxpm = foldernoselectopenxpm;
+		} else if (item->hide_read_msgs || item->hide_read_threads) {
 			xpm = mark?m_folderhrmxpm:folderhrmxpm;
 			openxpm = mark?m_folderopenhrmxpm:folderopenhrmxpm;
 		} else {
 			xpm = mark?m_folderxpm:folderxpm;
 			openxpm = mark?m_folderopenxpm:folderopenxpm;
 		}
-	}
-	
-	if (item->no_select) {
-		xpm = openxpm = noselectxpm;
 	}
 
 	name = folder_item_get_name(item);
@@ -1510,7 +1614,7 @@ static void folderview_update_node(FolderView *folderview, GtkCMCTreeNode *node)
 
 	if (item->search_match) {
 		if (!searchicon) {
-			stock_pixbuf_gdk(folderview->ctree, STOCK_PIXMAP_QUICKSEARCH,
+			stock_pixbuf_gdk(STOCK_PIXMAP_QUICKSEARCH,
 			 &searchicon);
 		}
 		xpm = openxpm = searchicon;
@@ -1746,7 +1850,7 @@ static void set_special_folder(GtkCMCTree *ctree, FolderItem *item,
 
 		node = gtk_cmctree_find_by_row_data(ctree, root, item);
 		if (!node)
-			g_warning("%s not found.\n", item->path);
+			g_warning("%s not found.", item->path);
 		else {
 			parent = GTK_CMCTREE_ROW(node)->parent;
 			if (*prev && parent == GTK_CMCTREE_ROW(*prev)->parent)
@@ -1845,7 +1949,9 @@ static void folderview_set_sens_and_popup_menu(FolderView *folderview, gint row,
 		fpopup->add_menuitems(ui_manager, item);
 
 	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "MarkAllRead", "FolderViewPopup/MarkAllRead", GTK_UI_MANAGER_MENUITEM)
+	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "MarkAllUnread", "FolderViewPopup/MarkAllUnread", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "MarkAllReadRec", "FolderViewPopup/MarkAllReadRec", GTK_UI_MANAGER_MENUITEM)
+	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "MarkAllUnreadRec", "FolderViewPopup/MarkAllUnreadRec", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "Separator1", "FolderViewPopup/---", GTK_UI_MANAGER_SEPARATOR)
 	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "RunProcessing", "FolderViewPopup/RunProcessing", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(ui_manager, "/Popup/FolderViewPopup", "SearchFolder", "FolderViewPopup/SearchFolder", GTK_UI_MANAGER_MENUITEM)
@@ -1875,9 +1981,12 @@ static void folderview_set_sens_and_popup_menu(FolderView *folderview, gint row,
 #define SET_SENS(name, sens) \
 	cm_menu_set_sensitive_full(ui_manager, "Popup/"name, sens)
 
-	SET_SENS("FolderViewPopup/MarkAllRead", item->unread_msgs >= 1);
+	SET_SENS("FolderViewPopup/MarkAllRead", item->unread_msgs > 0);
+	SET_SENS("FolderViewPopup/MarkAllUnread", (item->total_msgs > 0) &&
+		(item->unread_msgs != (item->total_msgs - item->ignored_msgs)));
 	SET_SENS("FolderViewPopup/MarkAllReadRec", folderview_have_unread_children(folderview,item));
-	SET_SENS("FolderViewPopup/SearchFolder", item->total_msgs >= 1 && 
+	SET_SENS("FolderViewPopup/MarkAllUnreadRec", folderview_have_read_children(folderview,item));
+	SET_SENS("FolderViewPopup/SearchFolder", item->total_msgs > 0 && 
 		 folderview->selected == folderview->opened);
 	SET_SENS("FolderViewPopup/Properties", TRUE);
 
@@ -1995,6 +2104,9 @@ static gboolean folderview_button_released(GtkWidget *ctree, GdkEventButton *eve
 static gboolean folderview_key_pressed(GtkWidget *widget, GdkEventKey *event,
 				       FolderView *folderview)
 {
+	GtkCMCTreeNode *node;
+	FolderItem *item;
+
 	if (!event) return FALSE;
 
 	if (quicksearch_has_focus(folderview->summaryview->quicksearch))
@@ -2002,13 +2114,14 @@ static gboolean folderview_key_pressed(GtkWidget *widget, GdkEventKey *event,
 
 	switch (event->keyval) {
 	case GDK_KEY_Right:
-#ifndef GENERIC_UMPC
-	case GDK_KEY_Return:
-	case GDK_KEY_KP_Enter:
-#endif
 		if (folderview->selected) {
-			folderview_select_node(folderview,
-					       folderview->selected);
+			if (GTK_CMCTREE_ROW(folderview->selected)->children != NULL
+					&& !GTK_CMCTREE_ROW(folderview->selected)->expanded)
+				gtk_cmctree_expand(GTK_CMCTREE(folderview->ctree),
+						folderview->selected);
+			else
+				folderview_select_node(folderview,
+						       folderview->selected);
 		}
 		break;
 #ifdef GENERIC_UMPC
@@ -2019,6 +2132,12 @@ static gboolean folderview_key_pressed(GtkWidget *widget, GdkEventKey *event,
 				folderview->selected);
 		}
 		break;	
+#else
+	case GDK_KEY_Return:
+	case GDK_KEY_KP_Enter:
+		if (folderview->selected)
+			folderview_select_node(folderview, folderview->selected);
+		break;
 #endif
 	case GDK_KEY_space:
 		BREAK_ON_MODIFIER_KEY();
@@ -2026,11 +2145,44 @@ static gboolean folderview_key_pressed(GtkWidget *widget, GdkEventKey *event,
 			if (folderview->opened == folderview->selected &&
 			    (!folderview->summaryview->folder_item ||
 			     folderview->summaryview->folder_item->total_msgs == 0))
-				folderview_select_next_with_flag(folderview, MSG_UNREAD, TRUE);
+				folderview_select_next_with_flag(folderview, MSG_UNREAD);
 			else
 				folderview_select_node(folderview,
 						       folderview->selected);
 		}
+		break;
+	case GDK_KEY_Left:
+		if (folderview->selected) {
+			if (GTK_CMCTREE_ROW(folderview->selected)->expanded) {
+				gtk_cmctree_collapse(GTK_CMCTREE(folderview->ctree),
+						folderview->selected);
+			} else {
+				if ((item = gtk_cmctree_node_get_row_data(GTK_CMCTREE(folderview->ctree),
+						folderview->selected))) {
+					if ((node = gtk_cmctree_find_by_row_data(GTK_CMCTREE(folderview->ctree),
+							NULL, folder_item_parent(item)))) {
+						gtk_sctree_select(GTK_SCTREE(folderview->ctree), node);
+						if (!gtk_cmctree_node_is_visible(GTK_CMCTREE(folderview->ctree), node))
+							gtk_cmctree_node_moveto(GTK_CMCTREE(folderview->ctree),
+									node, -1, 0, 0);
+					}
+				}
+			}
+		}
+		break;
+	case GDK_KEY_Home:
+	case GDK_KEY_End:
+		if (event->keyval == GDK_KEY_Home)
+			node = gtk_cmctree_node_nth(GTK_CMCTREE(folderview->ctree), 0);
+		else
+			node = gtk_cmctree_last(GTK_CMCTREE(folderview->ctree),
+					gtk_cmctree_node_nth(GTK_CMCTREE(folderview->ctree), 0));
+
+		gtk_sctree_select(GTK_SCTREE(folderview->ctree), node);
+
+		if (!gtk_cmctree_node_is_visible(GTK_CMCTREE(folderview->ctree), node))
+			gtk_cmctree_node_moveto(GTK_CMCTREE(folderview->ctree),
+					node, -1, 0, 0);
 		break;
 	default:
 		break;
@@ -2062,12 +2214,16 @@ static gboolean postpone_select(void *data)
 	return FALSE;
 }
 
-void folderview_close_opened(FolderView *folderview)
+void folderview_close_opened(FolderView *folderview, gboolean dirty)
 {
 	if (folderview->opened) {
-		FolderItem *olditem;
-		
-		olditem = gtk_cmctree_node_get_row_data(GTK_CMCTREE(folderview->ctree), 
+		if (dirty) {
+			folderview->opened = NULL;
+			return;
+		}
+
+		FolderItem *olditem =
+			gtk_cmctree_node_get_row_data(GTK_CMCTREE(folderview->ctree), 
 						      folderview->opened);
 		if (olditem) {
 			gchar *buf = g_strdup_printf(_("Closing folder %s..."), 
@@ -2140,7 +2296,7 @@ static void folderview_selected(GtkCMCTree *ctree, GtkCMCTreeNode *row,
 	/* Save cache for old folder */
 	/* We don't want to lose all caches if sylpheed crashed */
 	/* resets folderview->opened to NULL */
-	folderview_close_opened(folderview);
+	folderview_close_opened(folderview, FALSE);
 	
 	/* CLAWS: set compose button type: news folder items 
 	 * always have a news folder as parent */
@@ -2307,7 +2463,6 @@ static void folderview_create_folder_node(FolderView *folderview, FolderItem *it
 static void folderview_empty_trash_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	GSList *mlist = NULL;
 	GSList *cur = NULL;
@@ -2315,7 +2470,7 @@ static void folderview_empty_trash_cb(GtkAction *action, gpointer data)
 	PrefsAccount *ac;
 
 	if (!folderview->selected) return;
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -2328,7 +2483,7 @@ static void folderview_empty_trash_cb(GtkAction *action, gpointer data)
 	if (prefs_common.ask_on_clean) {
 		if (alertpanel(_("Empty trash"),
 			       _("Delete all messages in trash?"),
-			       GTK_STOCK_CANCEL, _("+_Empty trash"), NULL) != G_ALERTALTERNATE)
+			       GTK_STOCK_CANCEL, g_strconcat("+", _("_Empty trash"), NULL), NULL) != G_ALERTALTERNATE)
 			return;
 	}
 	
@@ -2351,14 +2506,13 @@ static void folderview_empty_trash_cb(GtkAction *action, gpointer data)
 static void folderview_send_queue_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	FolderItem *special_queue = NULL;
 	PrefsAccount *ac;
 	gchar *errstr = NULL;
 
 	if (!folderview->selected) return;
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -2413,12 +2567,11 @@ static void folderview_search_cb(GtkAction *action, gpointer data)
 static void folderview_run_processing_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -2430,12 +2583,11 @@ static void folderview_run_processing_cb(GtkAction *action, gpointer data)
 static void folderview_property_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -2572,13 +2724,12 @@ static gint folderview_clist_compare(GtkCMCList *clist,
 static void folderview_processing_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item;
 	gchar *id, *title;
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	cm_return_if_fail(item != NULL);
 	cm_return_if_fail(item->folder != NULL);
 
@@ -2639,6 +2790,9 @@ void folderview_reflect_prefs(void)
 			last_derive != prefs_common.derive_from_normal_font)
 		update_font = TRUE;
 
+	if (!update_font)
+		return;
+
 	g_free(last_smallfont);
 	last_smallfont = g_strdup(SMALL_FONT);
 	g_free(last_normalfont);
@@ -2647,12 +2801,21 @@ void folderview_reflect_prefs(void)
 	last_boldfont = g_strdup(BOLD_FONT);
 	last_derive = prefs_common.derive_from_normal_font;
 
-	if (update_font) {		
-		normal_style = normal_color_style = bold_style = 
-			bold_color_style = bold_tgtfold_style = NULL;
-
-		folderview_init(folderview);
+#define STYLE_FREE(s)			\
+	if (s != NULL) {		\
+		g_object_unref(s);	\
+		s = NULL;		\
 	}
+
+	STYLE_FREE(normal_style);
+	STYLE_FREE(normal_color_style);
+	STYLE_FREE(bold_style);
+	STYLE_FREE(bold_color_style);
+	STYLE_FREE(bold_tgtfold_style);
+
+#undef STYLE_FREE
+
+	folderview_init(folderview);
 	gtk_cmclist_freeze(GTK_CMCLIST(folderview->ctree));
 	folderview_column_set_titles(folderview);
 	folderview_set_all();
@@ -2760,7 +2923,7 @@ static void folderview_drag_data_get(GtkWidget        *widget,
 					       source, strlen(source));
 		}
 	} else {
-		g_warning("unknown info %d\n", info);
+		g_warning("unknown info %d", info);
 	}
 }
 
@@ -3128,4 +3291,37 @@ void folderview_unregister_popup(FolderViewPopup *fpopup)
 		g_hash_table_remove(folderview->popups, fpopup->klass);
 	}	
 	g_hash_table_remove(folderview_popups, fpopup->klass);
+}
+
+void folderview_remove_item(FolderView *folderview, FolderItem *item)
+{
+	g_return_if_fail(folderview != NULL);
+	g_return_if_fail(item != NULL);
+
+	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
+	g_return_if_fail(ctree != NULL);
+
+	GtkCMCTreeNode *node =
+		gtk_cmctree_find_by_row_data(ctree, NULL, item);
+	g_return_if_fail(node != NULL);
+
+	gtk_cmctree_remove_node(ctree, node);
+}
+
+void folderview_freeze(FolderView *folderview)
+{
+	if (folderview)
+		gtk_cmclist_freeze(GTK_CMCLIST(folderview->ctree));
+}
+
+void folderview_thaw(FolderView *folderview)
+{
+	if (folderview)
+		gtk_cmclist_thaw(GTK_CMCLIST(folderview->ctree));
+}
+
+void folderview_grab_focus(FolderView *folderview)
+{
+	 if (folderview)
+		 gtk_widget_grab_focus(folderview->ctree);
 }

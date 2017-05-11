@@ -5,7 +5,9 @@ account_get_default
 alertpanel
 alertpanel_error
 alertpanel_full
+alertpanel_notice
 check_plugin_version
+claws_do_idle
 claws_unlink
 conv_codeset_strdup
 conv_get_locale_charset_str_no_utf8
@@ -14,6 +16,7 @@ copy_file_part
 debug_print_real
 debug_srcname
 extract_address
+filesel_select_file_open
 hooks_register_hook
 hooks_unregister_hook
 get_rc_dir
@@ -42,6 +45,7 @@ gtk_cmclist_set_row_data_full
 gtk_cmclist_set_selection_mode
 gtk_cmclist_set_sort_type
 gtk_cmclist_sort
+gtkut_get_browse_file_btn
 gtkut_get_options_frame
 gtkut_stock_button_set_create
 gtkut_widget_set_can_default
@@ -49,6 +53,8 @@ gtkut_window_new
 input_dialog
 label_window_create
 label_window_destroy
+main_window_cursor_normal
+main_window_cursor_wait
 mainwindow_get_mainwindow
 manage_window_destroy
 manage_window_focus_in
@@ -57,6 +63,7 @@ manage_window_set_transient
 manage_window_unmap
 mimeview_register_viewer_factory
 mimeview_unregister_viewer_factory
+pref_set_entry_from_pref
 prefs_account_get_privacy_prefs
 prefs_account_register_page
 prefs_account_set_privacy_prefs
@@ -81,6 +88,8 @@ procmime_get_tmp_file_name
 procmime_get_part
 textview_clear
 textview_create
+textview_cursor_normal
+textview_cursor_wait
 textview_destroy
 textview_init
 textview_set_font

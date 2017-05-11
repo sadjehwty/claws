@@ -240,7 +240,7 @@ static void dw_summary_selected(GtkCMCTree *ctree, GtkCMCTreeNode *row,
 				localtime_r(&t_start, &tm_start);
 				if (tm_start.tm_hour > 2)
 					gtk_adjustment_set_value(v_adj, 
-						(v_adj->upper-v_adj->page_size)/(24/(tm_start.tm_hour-2)));
+						((v_adj->upper-v_adj->page_size)/((gdouble)24/(gdouble)(tm_start.tm_hour-2))));
 				else
 					gtk_adjustment_set_value(v_adj, 0);
 				gtk_adjustment_changed(v_adj);
@@ -264,7 +264,7 @@ static void day_view_new_meeting_cb(day_win *dw, gpointer data_i, gpointer data_
             || ((tm_date.tm_year%400) == 0)))
         monthdays[1] = 29;
 
-    if (offset_d > monthdays[mon]) {
+    if (offset_d > (int)monthdays[mon]) {
     	while (tm_date.tm_mday > 1)
 		orage_move_day(&tm_date, 1);
 	offset_d -= monthdays[mon];
@@ -674,20 +674,21 @@ static void build_day_view_colours(day_win *dw)
     gdk_colormap_alloc_color(pic1_cmap, &dw->bg2, FALSE, TRUE);
 
     if (!gdk_color_parse("white", &dw->line_color)) {
+        g_warning("color parse failed: white");
         dw->line_color.red =  239 * (65535/255);
         dw->line_color.green = 235 * (65535/255);
         dw->line_color.blue = 230 * (65535/255);
     }
 
     if (!gdk_color_parse("blue", &dw->fg_sunday)) {
-        g_warning("color parse failed: red\n");
+        g_warning("color parse failed: blue");
         dw->fg_sunday.red = 10 * (65535/255);
         dw->fg_sunday.green = 10 * (65535/255);
         dw->fg_sunday.blue = 255 * (65535/255);
     }
 
     if (!gdk_color_parse("gold", &dw->bg_today)) {
-        g_warning("color parse failed: gold\n");
+        g_warning("color parse failed: gold");
         dw->bg_today.red = 255 * (65535/255);
         dw->bg_today.green = 215 * (65535/255);
         dw->bg_today.blue = 115 * (65535/255);
@@ -813,7 +814,7 @@ static void build_day_view_table(day_win *dw)
         gtk_table_attach(GTK_TABLE(dw->dtable_h), button, i, i+1, 0, 1
                 , (GTK_FILL), (0), 0, 0);
 
-        if (++tm_date.tm_mday == (monthdays[tm_date.tm_mon]+1)) {
+        if (++tm_date.tm_mday == (int)(monthdays[tm_date.tm_mon]+1)) {
             if (++tm_date.tm_mon == 12) {
                 ++tm_date.tm_year;
                 tm_date.tm_mon = 0;

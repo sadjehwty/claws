@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2001-2012 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2001-2017 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __CUSTOM_TOOLBAR_H__
@@ -69,6 +68,7 @@ struct _Toolbar {
 	
 	GtkWidget *trash_btn;
 	GtkWidget *delete_btn;
+	GtkWidget *delete_dup_btn;
 	GtkWidget *prev_btn;
 	GtkWidget *next_btn;
 	GtkWidget *exec_btn;
@@ -150,8 +150,8 @@ struct _ToolbarItem {
 
 
 
-/* enum holds available actions for both 
-   Compose Toolbar and Main Toolbar 
+/* enum holds available actions for both
+   Compose Toolbar and Main Toolbar
 */
 enum {
 	/* main toolbar */
@@ -168,11 +168,22 @@ enum {
 	A_FORWARD,
 	A_TRASH,
 	A_DELETE_REAL,
+	A_DELETE_DUP,
 	A_EXECUTE,
 	A_GOTO_PREV,
 	A_GOTO_NEXT,
+
 	A_IGNORE_THREAD,
 	A_WATCH_THREAD,
+	A_MARK,
+	A_UNMARK,
+	A_LOCK,
+	A_UNLOCK,
+	A_ALL_READ,
+	A_ALL_UNREAD,
+	A_READ,
+	A_UNREAD,
+
 	A_PRINT,
 	A_LEARN_SPAM,
 	A_GO_FOLDERS,
@@ -180,7 +191,7 @@ enum {
 
 	/* compose toolbar */
 	A_SEND,
-	A_SENDL,
+	A_SEND_LATER,
 	A_DRAFT,
 	A_INSERT,
 	A_ATTACH,

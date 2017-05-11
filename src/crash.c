@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -370,7 +369,7 @@ static void crash_debug(unsigned long crash_pid,
 			perror("dup");
 		close(choutput[0]);
 		if (-1 == execvp("gdb", argp)) 
-			g_print("error execvp\n");
+			perror("execvp");
 	} else {
 		char buf[100];
 		int r;
@@ -486,7 +485,7 @@ static const gchar *get_operating_system(void)
  */
 static gboolean is_crash_dialog_allowed(void)
 {
-	return !getenv("CLAWS_NO_CRASH");
+	return !g_getenv("CLAWS_NO_CRASH");
 }
 
 /*!
@@ -542,12 +541,13 @@ static void crash_handler(int sig)
 		args[4] = NULL;
 
 		if (chdir(claws_get_startup_dir()) != 0)
-			perror("chdir");
+			FILE_OP_ERROR(claws_get_startup_dir(), "chdir");
 		if (setgid(getgid()) != 0)
 			perror("setgid");
 		if (setuid(getuid()) != 0 )
 			perror("setuid");
 		execvp(argv0, args);
+		perror("execvp");
 	} else {
 		waitpid(pid, NULL, 0);
 		crash_cleanup_exit();

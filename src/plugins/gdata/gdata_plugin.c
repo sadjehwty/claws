@@ -37,6 +37,7 @@
 #include "main.h"
 #include "mainwindow.h"
 #include "addr_compl.h"
+#include "passwordstore.h"
 
 #include "cm_gdata_contacts.h"
 #include "cm_gdata_prefs.h"
@@ -72,7 +73,7 @@ static void cm_gdata_save_config(void)
 
   if (prefs_write_param(cm_gdata_param, pfile->fp) < 0) {
     debug_print("failed!\n");
-    g_warning(_("\nGData Plugin: Failed to write plugin configuration to file\n"));
+    g_warning("GData Plugin: Failed to write plugin configuration to file");
     prefs_file_close_revert(pfile);
     return;
   }
@@ -97,7 +98,7 @@ gint plugin_init(gchar **error)
   gchar *rcpath;
 
   /* Version check */
-  if(!check_plugin_version(MAKE_NUMERIC_VERSION(3,7,1,55),
+  if(!check_plugin_version(MAKE_NUMERIC_VERSION(3,13,2,39),
 			   VERSION_NUMERIC, _("GData"), error))
     return -1;
 
@@ -120,6 +121,14 @@ gint plugin_init(gchar **error)
   rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, COMMON_RC, NULL);
   prefs_read_config(cm_gdata_param, "GDataPlugin", rcpath, NULL);
   g_free(rcpath);
+
+	/* If the refresh token is still stored in config, save it to
+	 * password store. */
+	if(cm_gdata_config.oauth2_refresh_token != NULL) {
+		passwd_store_set(PWS_PLUGIN, "GData", GDATA_TOKEN_PWD_STRING,
+				cm_gdata_config.oauth2_refresh_token, TRUE);
+		passwd_store_write_config();
+	}
 
   cm_gdata_prefs_init();
 

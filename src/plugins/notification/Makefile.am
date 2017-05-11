@@ -81,8 +81,7 @@ notification_la_SOURCES = \
 	notification_hotkeys.c notification_hotkeys.h \
 	notification_prefs.c notification_prefs.h \
 	notification_foldercheck.c notification_foldercheck.h \
-	notification_pixbuf.c notification_pixbuf.h \
-	raw_claws_mail_logo_64x64.h
+	notification_pixbuf.c notification_pixbuf.h
 
 notification_la_LDFLAGS = \
 	$(plugin_res_ldflag) $(no_undefined) $(export_symbols) \
@@ -94,7 +93,7 @@ notification_la_DEPENDENCIES = $(plugin_deps) \
 notification_la_LIBADD = $(plugin_ldadd) $(cygwin_export_lib) \
         $(GTK_LIBS)  \
 	$(libnotify_LIBS) \
-	$(libindicate_LIBS) \
+	$(unity_LIBS) \
 	$(libcanberra_gtk_LIBS) \
 	$(hotkey_lib_path)
 
@@ -104,7 +103,7 @@ notification_la_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
 	$(GTK_CFLAGS) \
 	$(libnotify_CFLAGS) \
-	$(libindicate_CFLAGS) \
+	$(unity_CFLAGS) \
 	$(libcanberra_gtk_CFLAGS)
 
 clean-local:

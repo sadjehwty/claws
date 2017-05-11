@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2014 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -71,13 +70,12 @@
 #include "account.h"
 #include "tags.h"
 #include "main.h"
+#include "passwordstore.h"
 
 typedef struct _IMAPFolder	IMAPFolder;
 typedef struct _IMAPSession	IMAPSession;
 typedef struct _IMAPNameSpace	IMAPNameSpace;
 typedef struct _IMAPFolderItem	IMAPFolderItem;
-
-#include "prefs_account.h"
 
 #define IMAP_FOLDER(obj)	((IMAPFolder *)obj)
 #define IMAP_FOLDER_ITEM(obj)	((IMAPFolderItem *)obj)
@@ -400,7 +398,7 @@ static gint imap_cmd_store	(IMAPSession	*session,
 				 IMAPFlags flags,
 				 GSList *tags,
 				 int do_add);
-static gint imap_cmd_expunge	(IMAPSession	*session, gboolean force);
+static gint imap_cmd_expunge	(IMAPSession	*session);
 
 static void imap_path_separator_subst		(gchar		*str,
 						 gchar		 separator);
@@ -427,7 +425,6 @@ static gint imap_get_flags			(Folder 	*folder,
 						 FolderItem 	*item,
                     				 MsgInfoList 	*msglist,
 						 GHashTable 	*msgflags);
-static gchar *imap_folder_get_path		(Folder		*folder);
 static gchar *imap_item_get_path		(Folder		*folder,
 						 FolderItem	*item);
 static MsgInfo *imap_parse_msg(const gchar *file, FolderItem *item);
@@ -460,7 +457,7 @@ FolderClass *imap_get_class(void)
 	if (imap_class.idstr == NULL) {
 		imap_class.type = F_IMAP;
 		imap_class.idstr = "imap";
-		imap_class.uistr = "IMAP4";
+		imap_class.uistr = "IMAP";
 		imap_class.supports_server_search = TRUE;
 
 		/* Folder functions */
@@ -505,9 +502,6 @@ FolderClass *imap_get_class(void)
 		imap_class.synchronise = imap_synchronise;
 		imap_class.remove_cached_msg = imap_remove_cached_msg;
 		imap_class.commit_tags = imap_commit_tags;
-#ifdef USE_PTREAD
-		pthread_mutex_init(&imap_mutex, NULL);
-#endif
 	}
 	
 	return &imap_class;
@@ -579,7 +573,7 @@ static void imap_disc_session_destroy(IMAPSession *session)
 	
 	if (rfolder == NULL)
 		return;
-	log_warning(LOG_PROTOCOL, _("IMAP4 connection broken\n"));
+	log_warning(LOG_PROTOCOL, _("IMAP connection broken\n"));
 	SESSION(session)->state = SESSION_DISCONNECTED;
 	SESSION(session)->sock = NULL;
 }
@@ -618,134 +612,134 @@ static void imap_handle_error(Session *session, const gchar *server, int libetpa
 	case MAILIMAP_NO_ERROR:
 		return;
 	case MAILIMAP_NO_ERROR_AUTHENTICATED:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: authenticated\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("authenticated"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_NO_ERROR_NON_AUTHENTICATED:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: not authenticated\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("not authenticated"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_BAD_STATE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: bad state\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("bad state"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_STREAM:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: stream error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("stream error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_PARSE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: parse error "
-					    "(very probably non-RFC compliance from the server)\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("parse error "
+					    "(very probably non-RFC compliance from the server)"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_CONNECTION_REFUSED:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: connection refused\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("connection refused"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_MEMORY:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: memory error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("memory error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_FATAL:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: fatal error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("fatal error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_PROTOCOL:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: protocol error"
-					    "(very probably non-RFC compliance from the server)\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("protocol error "
+					    "(very probably non-RFC compliance from the server)"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_DONT_ACCEPT_CONNECTION:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: connection not accepted\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("connection not accepted"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_APPEND:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: APPEND error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("APPEND error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_NOOP:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: NOOP error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("NOOP error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_LOGOUT:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: LOGOUT error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("LOGOUT error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_CAPABILITY:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: CAPABILITY error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("CAPABILITY error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_CHECK:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: CHECK error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("CHECK error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_CLOSE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: CLOSE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("CLOSE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_EXPUNGE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: EXPUNGE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("EXPUNGE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_COPY:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: COPY error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("COPY error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_UID_COPY:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: UID COPY error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("UID COPY error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_CREATE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: CREATE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("CREATE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_DELETE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: DELETE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("DELETE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_EXAMINE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: EXAMINE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("EXAMINE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_FETCH:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: FETCH error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("FETCH error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_UID_FETCH:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: UID FETCH error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("UID FETCH error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_LIST:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: LIST error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("LIST error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_LOGIN:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: LOGIN error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("LOGIN error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_LSUB:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: LSUB error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("LSUB error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_RENAME:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: RENAME error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("RENAME error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_SEARCH:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: SEARCH error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("SEARCH error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_UID_SEARCH:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: UID SEARCH error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("UID SEARCH error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_SELECT:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: SELECT error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("SELECT error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_STATUS:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: STATUS error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("STATUS error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_STORE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: STORE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("STORE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_UID_STORE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: UID STORE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("UID STORE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_SUBSCRIBE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: SUBSCRIBE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("SUBSCRIBE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_UNSUBSCRIBE:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: UNSUBSCRIBE error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("UNSUBSCRIBE error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_STARTTLS:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: STARTTLS error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("STARTTLS error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_INVAL:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: INVAL error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("INVAL error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_EXTENSION:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: EXTENSION error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("EXTENSION error"), "\n", NULL), session_server);
 		break;
 	case MAILIMAP_ERROR_SASL:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: SASL error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("SASL error"), "\n", NULL), session_server);
 		break;
 #ifdef USE_GNUTLS
 	case MAILIMAP_ERROR_SSL:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: SSL error\n"), session_server);
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("SSL/TLS error"), "\n", NULL), session_server);
 		break;
 #endif
 	default:
-		log_warning(LOG_PROTOCOL, _("IMAP error on %s: Unknown error [%d]\n"),
+		log_warning(LOG_PROTOCOL, g_strconcat(_("IMAP error on %s:"), " ", _("Unknown error [%d]"), "\n", NULL),
 			session_server, libetpan_errcode);
 		break;
 	}
@@ -901,8 +895,14 @@ static gint imap_auth(IMAPSession *session, const gchar *user, const gchar *pass
 	case IMAP_AUTH_SCRAM_SHA1:
 		ok = imap_cmd_login(session, user, pass, "SCRAM-SHA-1");
 		break;
+	case IMAP_AUTH_PLAIN:
+		ok = imap_cmd_login(session, user, pass, "PLAIN");
+		break;
 	case IMAP_AUTH_LOGIN:
 		ok = imap_cmd_login(session, user, pass, "LOGIN");
+		break;
+	case IMAP_AUTH_PLAINTEXT:
+		ok = imap_cmd_login(session, user, pass, "plaintext");
 		break;
 	case IMAP_AUTH_GSSAPI:
 		ok = imap_cmd_login(session, user, pass, "GSSAPI");
@@ -913,12 +913,14 @@ static gint imap_auth(IMAPSession *session, const gchar *user, const gchar *pass
 				"\t CRAM-MD5 %d\n"
 				"\t DIGEST-MD5 %d\n"
 				"\t SCRAM-SHA-1 %d\n"
+				"\t PLAIN %d\n"
 				"\t LOGIN %d\n"
 				"\t GSSAPI %d\n", 
 			imap_has_capability(session, "ANONYMOUS"),
 			imap_has_capability(session, "CRAM-MD5"),
 			imap_has_capability(session, "DIGEST-MD5"),
 			imap_has_capability(session, "SCRAM-SHA-1"),
+			imap_has_capability(session, "PLAIN"),
 			imap_has_capability(session, "LOGIN"),
 			imap_has_capability(session, "GSSAPI"));
 		if (imap_has_capability(session, "CRAM-MD5"))
@@ -927,10 +929,14 @@ static gint imap_auth(IMAPSession *session, const gchar *user, const gchar *pass
 			ok = imap_cmd_login(session, user, pass, "DIGEST-MD5");
 		if (ok == MAILIMAP_ERROR_LOGIN && imap_has_capability(session, "SCRAM-SHA-1"))
 			ok = imap_cmd_login(session, user, pass, "SCRAM-SHA-1");
+		if (ok == MAILIMAP_ERROR_LOGIN && imap_has_capability(session, "PLAIN"))
+			ok = imap_cmd_login(session, user, pass, "PLAIN");
+		if (ok == MAILIMAP_ERROR_LOGIN && imap_has_capability(session, "LOGIN"))
+			ok = imap_cmd_login(session, user, pass, "LOGIN");
 		if (ok == MAILIMAP_ERROR_LOGIN && imap_has_capability(session, "GSSAPI"))
 			ok = imap_cmd_login(session, user, pass, "GSSAPI");
-		if (ok == MAILIMAP_ERROR_LOGIN) /* we always try LOGIN before giving up */
-			ok = imap_cmd_login(session, user, pass, "LOGIN");
+		if (ok == MAILIMAP_ERROR_LOGIN) /* we always try plaintext login before giving up */
+			ok = imap_cmd_login(session, user, pass, "plaintext");
 	}
 
 	if (ok == MAILIMAP_NO_ERROR)
@@ -952,6 +958,18 @@ static gint imap_auth(IMAPSession *session, const gchar *user, const gchar *pass
 			ext_info = _("\n\nSCRAM-SHA-1 logins only work if libetpan has been "
 				     "compiled with SASL support and the "
 				     "SCRAM SASL plugin is installed.");
+		}
+
+		if (type == IMAP_AUTH_PLAIN) {
+			ext_info = _("\n\nPLAIN logins only work if libetpan has been "
+				     "compiled with SASL support and the "
+				     "PLAIN SASL plugin is installed.");
+		}
+
+		if (type == IMAP_AUTH_LOGIN) {
+			ext_info = _("\n\nLOGIN logins only work if libetpan has been "
+				     "compiled with SASL support and the "
+				     "LOGIN SASL plugin is installed.");
 		}
 
 		if (time(NULL) - last_login_err > 10) {
@@ -985,10 +1003,10 @@ static IMAPSession *imap_reconnect_if_possible(Folder *folder, IMAPSession *sess
 		session = NULL;
 	} else {
 		rfolder->session = NULL;
-		log_warning(LOG_PROTOCOL, _("IMAP4 connection to %s has been"
+		log_warning(LOG_PROTOCOL, _("IMAP connection to %s has been"
 			    " disconnected. Reconnecting...\n"),
 			    folder->account->recv_server);
-		statusbar_print_all(_("IMAP4 connection to %s has been"
+		statusbar_print_all(_("IMAP connection to %s has been"
 			    " disconnected. Reconnecting...\n"),
 			    folder->account->recv_server);
 		SESSION(session)->state = SESSION_DISCONNECTED;
@@ -1130,8 +1148,8 @@ static IMAPSession *imap_session_new(Folder * folder,
 	if (account->ssl_imap != SSL_NONE) {
 		if (alertpanel_full(_("Insecure connection"),
 			_("This connection is configured to be secured "
-			  "using SSL, but SSL is not available in this "
-			  "build of Claws Mail. \n\n"
+			  "using SSL/TLS, but SSL/TLS is not available "
+			  "in this build of Claws Mail. \n\n"
 			  "Do you want to continue connecting to this "
 			  "server? The communication would not be "
 			  "secure."),
@@ -1145,7 +1163,7 @@ static IMAPSession *imap_session_new(Folder * folder,
 #endif
 
 	imap_init(folder);
-	buf = g_strdup_printf(_("Account '%s': Connecting to IMAP4 server: %s:%d..."),
+	buf = g_strdup_printf(_("Account '%s': Connecting to IMAP server: %s:%d..."),
 				folder->account->account_name, folder->account->recv_server,
 				port);
 	statuswindow_print_all("%s", buf);
@@ -1192,16 +1210,16 @@ static IMAPSession *imap_session_new(Folder * folder,
 	else {
 #ifdef USE_GNUTLS
 		if (r == MAILIMAP_ERROR_SSL)
-			log_error(LOG_PROTOCOL, _("SSL handshake failed\n"));
+			log_error(LOG_PROTOCOL, _("SSL/TLS handshake failed\n"));
 		else
 #endif
 			imap_handle_error(NULL, account->recv_server, r);
 
 		if(!prefs_common.no_recv_err_panel) {
-			alertpanel_error_log(_("Can't connect to IMAP4 server: %s:%d"),
+			alertpanel_error_log(_("Can't connect to IMAP server: %s:%d"),
 					 account->recv_server, port);
 		} else {
-			log_error(LOG_PROTOCOL, _("Can't connect to IMAP4 server: %s:%d\n"),
+			log_error(LOG_PROTOCOL, _("Can't connect to IMAP server: %s:%d\n"),
 					 account->recv_server, port);
 		} 
 		
@@ -1235,7 +1253,7 @@ static IMAPSession *imap_session_new(Folder * folder,
 
 		ok = imap_cmd_starttls(session);
 		if (ok != MAILIMAP_NO_ERROR) {
-			log_warning(LOG_PROTOCOL, _("Can't start TLS session.\n"));
+			log_warning(LOG_PROTOCOL, _("Can't start STARTTLS session.\n"));
 			if (!is_fatal(ok)) {
 				SESSION(session)->sock = NULL;
 				imap_safe_destroy(session);
@@ -1260,18 +1278,17 @@ static IMAPSession *imap_session_new(Folder * folder,
 static gint imap_session_authenticate(IMAPSession *session, 
 				      PrefsAccount *account)
 {
-	gchar *pass, *acc_pass;
+	gchar *pass, *acc_pass = NULL;
 	gboolean failed = FALSE;
 	gint ok = MAILIMAP_NO_ERROR;
 	g_return_val_if_fail(account->userid != NULL, MAILIMAP_ERROR_BAD_STATE);
 
-	if (password_get(account->userid, account->recv_server, "imap",
-			 SESSION(session)->port, &pass)) {
-		Xstrdup_a(acc_pass, pass, {g_free(pass); return MAILIMAP_NO_ERROR;});
-		g_free(pass);
-	} else {
-		acc_pass = account->passwd;
+	if (!password_get(account->userid, account->recv_server, "imap",
+			 SESSION(session)->port, &acc_pass)) {
+		acc_pass = passwd_store_get_account(account->account_id,
+				PWS_ACCOUNT_RECV);
 	}
+
 try_again:
 	pass = acc_pass;
 	if (!pass && account->imap_auth_type != IMAP_AUTH_ANON && account->imap_auth_type != IMAP_AUTH_GSSAPI) {
@@ -1279,8 +1296,9 @@ try_again:
 		tmp_pass = input_dialog_query_password_keep(account->recv_server, 
 							    account->userid,
 							    &(account->session_passwd));
-		if (!tmp_pass)
+		if (!tmp_pass) {
 			return MAILIMAP_NO_ERROR;
+		}
 		Xstrdup_a(pass, tmp_pass, {g_free(tmp_pass); return MAILIMAP_NO_ERROR;});
 		g_free(tmp_pass);
 	} else if (account->imap_auth_type == IMAP_AUTH_ANON || account->imap_auth_type == IMAP_AUTH_GSSAPI) {
@@ -1289,7 +1307,11 @@ try_again:
 	if ((ok = imap_auth(session, account->userid, pass, account->imap_auth_type)) != MAILIMAP_NO_ERROR) {
 		
 		if (!failed && !is_fatal(ok)) {
-			acc_pass = NULL;
+			if (acc_pass != NULL) {
+				memset(acc_pass, 0, strlen(acc_pass));
+				g_free(acc_pass);
+				acc_pass = NULL;
+			}
 			failed = TRUE;
 			if (account->session_passwd != NULL) {
 				g_free(account->session_passwd);
@@ -1302,11 +1324,21 @@ try_again:
 				mainwindow_show_error();
 			} else
 				alertpanel_error_log(_("Couldn't login to IMAP server %s."), account->recv_server);
-		}		
+		}
+
+		if (acc_pass != NULL) {
+			memset(acc_pass, 0, strlen(acc_pass));
+			g_free(acc_pass);
+			acc_pass = NULL;
+		}
 
 		return ok;
 	} 
 
+	if (acc_pass) {
+		memset(acc_pass, 0, strlen(acc_pass));
+		g_free(acc_pass);
+	}
 	statuswindow_pop_all();
 	session->authenticated = TRUE;
 	return MAILIMAP_NO_ERROR;
@@ -1547,7 +1579,7 @@ static gchar *imap_fetch_msg_full(Folder *folder, FolderItem *item, gint uid,
 							have_size, cached->size);
 					procmsg_msginfo_set_flags(cached, MSG_FULLY_CACHED, 0);
 				}
-				procmsg_msginfo_free(cached);
+				procmsg_msginfo_free(&cached);
 				return filename;
 			} else if (!cached && time(NULL) - get_file_mtime(filename) < 60) {
 				debug_print("message not cached and file recent, considering file complete\n");
@@ -1555,18 +1587,18 @@ static gchar *imap_fetch_msg_full(Folder *folder, FolderItem *item, gint uid,
 				if (ok == 0)
 					return filename;
 			} else {
-				procmsg_msginfo_free(cached);
+				procmsg_msginfo_free(&cached);
 			}
 		}
 		if (cached && MSG_IS_FULLY_CACHED(cached->flags)) {
-			procmsg_msginfo_free(cached);
+			procmsg_msginfo_free(&cached);
 			return filename;
 		}
 	} else {
 		MsgInfo *cached = msgcache_get_msg(item->cache,uid);
 		if (cached) {
 			procmsg_msginfo_unset_flags(cached, MSG_FULLY_CACHED, 0);
-			procmsg_msginfo_free(cached);
+			procmsg_msginfo_free(&cached);
 		}
 	}
 
@@ -1584,7 +1616,7 @@ static gchar *imap_fetch_msg_full(Folder *folder, FolderItem *item, gint uid,
 	ok = imap_select(session, IMAP_FOLDER(folder), item,
 			 NULL, NULL, NULL, NULL, NULL, FALSE);
 	if (ok != MAILIMAP_NO_ERROR) {
-		g_warning("can't select mailbox %s\n", item->path);
+		g_warning("can't select mailbox %s", item->path);
 		g_free(filename);
 		return NULL;
 	}
@@ -1595,7 +1627,7 @@ static gchar *imap_fetch_msg_full(Folder *folder, FolderItem *item, gint uid,
 	ok = imap_cmd_fetch(session, (guint32)uid, filename, headers, body);
 
 	if (ok != MAILIMAP_NO_ERROR) {
-		g_warning("can't fetch message %d\n", uid);
+		g_warning("can't fetch message %d", uid);
 		g_free(filename);
 		return NULL;
 	}
@@ -1609,13 +1641,13 @@ static gchar *imap_fetch_msg_full(Folder *folder, FolderItem *item, gint uid,
 		MsgInfo *cached = msgcache_get_msg(item->cache,uid);
 		if (cached) {
 			procmsg_msginfo_set_flags(cached, MSG_FULLY_CACHED, 0);
-			procmsg_msginfo_free(cached);
+			procmsg_msginfo_free(&cached);
 		}
 	} else if (ok == -1) {
 		MsgInfo *cached = msgcache_get_msg(item->cache,uid);
 		if (cached) {
 			procmsg_msginfo_unset_flags(cached, MSG_FULLY_CACHED, 0);
-			procmsg_msginfo_free(cached);
+			procmsg_msginfo_free(&cached);
 		}
 	}
 	return filename;
@@ -1631,7 +1663,7 @@ static gboolean imap_is_msg_fully_cached(Folder *folder, FolderItem *item, gint 
 		return FALSE;
 
 	if (MSG_IS_FULLY_CACHED(cached->flags)) {
-		procmsg_msginfo_free(cached);
+		procmsg_msginfo_free(&cached);
 		return TRUE;
 	}
 
@@ -1651,11 +1683,11 @@ static gboolean imap_is_msg_fully_cached(Folder *folder, FolderItem *item, gint 
 	if (cached && size >= cached->size) {
 		cached->total_size = cached->size;
 		procmsg_msginfo_set_flags(cached, MSG_FULLY_CACHED, 0);
-		procmsg_msginfo_free(cached);
+		procmsg_msginfo_free(&cached);
 		return TRUE;
 	}
 	if (cached)
-		procmsg_msginfo_free(cached);
+		procmsg_msginfo_free(&cached);
 	return FALSE;	
 }
 
@@ -1759,7 +1791,7 @@ static gint imap_add_msgs(Folder *folder, FolderItem *dest, GSList *file_list,
 				     &new_uid);
 
 		if (ok != MAILIMAP_NO_ERROR) {
-			g_warning("can't append message %s\n", real_file);
+			g_warning("can't append message %s", real_file);
 			g_free(real_file);
 			g_free(destdir);
 			statusbar_progress_all(0,0,0);
@@ -1879,7 +1911,7 @@ static gint imap_do_copy_msgs(Folder *folder, FolderItem *dest,
 	msginfo = (MsgInfo *)msglist->data;
 	src = msginfo->folder;
 	if (!same_dest_ok && src == dest) {
-		g_warning("the src folder is identical to the dest.\n");
+		g_warning("the src folder is identical to the dest.");
 		return -1;
 	}
 
@@ -2007,8 +2039,11 @@ static gint imap_do_copy_msgs(Folder *folder, FolderItem *dest,
 				if (!is_dir_exist(cache_path))
 					make_dir_hier(cache_path);
 				if (is_file_exist(real_file) && is_dir_exist(cache_path)) {
-					copy_file(real_file, cache_file, TRUE);
-					debug_print("copied to cache: %s\n", cache_file);
+					if (copy_file(real_file, cache_file, TRUE) < 0)
+						debug_print("couldn't cache to %s: %s\n", cache_file,
+							    strerror(errno));
+					else
+						debug_print("copied to cache: %s\n", cache_file);
 				}
 				g_free(real_file);
 				g_free(cache_file);
@@ -2075,6 +2110,7 @@ static gboolean imap_matcher_type_is_local(gint matchertype)
 	case MATCHCRITERIA_TO_OR_CC:
 	case MATCHCRITERIA_SUBJECT:
 	case MATCHCRITERIA_REFERENCES:
+	case MATCHCRITERIA_MESSAGEID:
 	case MATCHCRITERIA_INREPLYTO:
 	case MATCHCRITERIA_AGE_GREATER:
 	case MATCHCRITERIA_AGE_LOWER:
@@ -2121,6 +2157,7 @@ static IMAPSearchKey* search_make_key(MatcherProp* match, gboolean* is_all)
 		case MATCHCRITERIA_NOT_MESSAGE: invert = TRUE; matchertype = MATCHCRITERIA_MESSAGE; break;
 		case MATCHCRITERIA_NOT_BODY_PART: invert = TRUE; matchertype = MATCHCRITERIA_BODY_PART; break;
 		case MATCHCRITERIA_NOT_TO_AND_NOT_CC: invert = TRUE; matchertype = MATCHCRITERIA_TO_OR_CC; break;
+		case MATCHCRITERIA_NOT_MESSAGEID: invert = TRUE; matchertype = MATCHCRITERIA_MESSAGEID; break;
 		case MATCHCRITERIA_NOT_INREPLYTO: invert = TRUE; matchertype = MATCHCRITERIA_INREPLYTO; break;
 		}
 
@@ -2145,6 +2182,10 @@ static IMAPSearchKey* search_make_key(MatcherProp* match, gboolean* is_all)
 
 		case MATCHCRITERIA_SPAM:
 			result = imap_search_new(IMAP_SEARCH_CRITERIA_TAG, NULL, RTAG_JUNK, 0);
+			break;
+
+		case MATCHCRITERIA_MESSAGEID:
+			result = imap_search_new(IMAP_SEARCH_CRITERIA_HEADER, "Message-ID", match->expr, 0);
 			break;
 
 		case MATCHCRITERIA_INREPLYTO:
@@ -2513,7 +2554,7 @@ static gint imap_do_remove_msgs(Folder *folder, FolderItem *dest,
 			return ok;
 		}
 	} /* else we just need to expunge */
-	ok = imap_cmd_expunge(session, folder->account->imap_use_trash);
+	ok = imap_cmd_expunge(session);
 	if (ok != MAILIMAP_NO_ERROR) {
 		log_warning(LOG_PROTOCOL, _("can't expunge\n"));
 		g_free(destdir);
@@ -2994,35 +3035,18 @@ static FolderItem *imap_create_special_folder(Folder *folder,
 	new_item = imap_create_folder(folder, item, name);
 
 	if (!new_item) {
-		g_warning("Can't create '%s'\n", name);
+		g_warning("Can't create '%s'", name);
 		if (!folder->inbox) return NULL;
 
 		new_item = imap_create_folder(folder, folder->inbox, name);
 		if (!new_item)
-			g_warning("Can't create '%s' under INBOX\n", name);
+			g_warning("Can't create '%s' under INBOX", name);
 		else
 			new_item->stype = stype;
 	} else
 		new_item->stype = stype;
 
 	return new_item;
-}
-
-static gchar *imap_folder_get_path(Folder *folder)
-{
-	gchar *folder_path;
-
-	g_return_val_if_fail(folder != NULL, NULL);
-        g_return_val_if_fail(folder->account != NULL, NULL);
-
-        folder_path = g_strconcat(get_imap_cache_dir(),
-                                  G_DIR_SEPARATOR_S,
-                                  folder->account->recv_server,
-                                  G_DIR_SEPARATOR_S,
-                                  folder->account->userid,
-                                  NULL);
-
-	return folder_path;
 }
 
 #ifdef G_OS_WIN32
@@ -3034,7 +3058,7 @@ static gchar *imap_encode_unsafe_chars(const gchar *str)
 		return NULL;
 	ret = g_malloc(3*strlen(str)+1);
 	o_ret = ret;
-	for (i = str; *i; i++) {
+	for (i = (gchar *)str; *i; i++) {
 		switch(*i) {
 			case ':':
 			case '|':
@@ -3061,8 +3085,9 @@ static gchar *imap_item_get_path(Folder *folder, FolderItem *item)
 	gchar *item_path = NULL;
 	
 	g_return_val_if_fail(folder != NULL, NULL);
+	g_return_val_if_fail(folder->account != NULL, NULL);
 	g_return_val_if_fail(item != NULL, NULL);
-	folder_path = imap_folder_get_path(folder);
+	folder_path = prefs_account_cache_dir(folder->account, FALSE);
 
 	g_return_val_if_fail(folder_path != NULL, NULL);
 
@@ -3281,8 +3306,8 @@ static gint imap_rename_folder(Folder *folder, FolderItem *item,
 
 	if (strchr(name, imap_get_path_separator(session, IMAP_FOLDER(folder), item->path, &ok)) != NULL ||
 		is_fatal(ok)) {
-		g_warning(_("New folder name must not contain the namespace "
-			    "path separator"));
+		g_warning("New folder name must not contain the namespace "
+			    "path separator");
 		return -1;
 	}
 
@@ -3309,9 +3334,9 @@ static gint imap_rename_folder(Folder *folder, FolderItem *item,
 		g_free(real_oldpath);
 		return -1;
 	}
-	if (strchr(item->path, G_DIR_SEPARATOR)) {
+	if (strchr(item->path, '/')) {
 		dirpath = g_path_get_dirname(item->path);
-		newpath = g_strconcat(dirpath, G_DIR_SEPARATOR_S, name, NULL);
+		newpath = g_strconcat(dirpath, "/", name, NULL);
 		g_free(dirpath);
 	} else
 		newpath = g_strdup(name);
@@ -3442,7 +3467,7 @@ static gint imap_remove_folder_real(Folder *folder, FolderItem *item)
 	g_free(path);
 	cache_dir = folder_item_get_path(item);
 	if (is_dir_exist(cache_dir) && remove_dir_recursive(cache_dir) < 0)
-		g_warning("can't remove directory '%s'\n", cache_dir);
+		g_warning("can't remove directory '%s'", cache_dir);
 	g_free(cache_dir);
 	folder_item_remove(item);
 	return 0;
@@ -3677,7 +3702,7 @@ static void imap_delete_all_cached_messages(FolderItem *item)
 		remove_all_numbered_files(dir);
 	g_free(dir);
 
-	debug_print("done.\n");
+	debug_print("Deleting all cached messages done.\n");
 }
 
 gchar imap_get_path_separator_for_item(FolderItem *item)
@@ -3696,7 +3721,7 @@ gchar imap_get_path_separator_for_item(FolderItem *item)
 
 	imap_folder = IMAP_FOLDER(folder);
 
-	debug_print("getting session...");
+	debug_print("getting session...\n");
 	session = imap_session_get(FOLDER(folder));
 	result = imap_get_path_separator(session, imap_folder, item->path, &ok);
 	return result;
@@ -4029,7 +4054,7 @@ static gint imap_status(IMAPSession *session, IMAPFolder *folder,
 	mailimap_mailbox_data_status_free(data_status);
 	
 	if (got_values != mask) {
-		g_warning("status: incomplete values received (%d)\n", got_values);
+		g_warning("status: incomplete values received (%d)", got_values);
 	}
 	return MAILIMAP_NO_ERROR;
 }
@@ -4049,14 +4074,14 @@ static gint imap_cmd_login(IMAPSession *session,
 	int r;
 	gint ok;
 
-	if (!strcmp(type, "LOGIN") && imap_has_capability(session, "LOGINDISABLED")) {
+	if (!strcmp(type, "plaintext") && imap_has_capability(session, "LOGINDISABLED")) {
 		gint ok = MAILIMAP_ERROR_BAD_STATE;
 		if (imap_has_capability(session, "STARTTLS")) {
 #ifdef USE_GNUTLS
-			log_warning(LOG_PROTOCOL, _("Server requires TLS to log in.\n"));
+			log_warning(LOG_PROTOCOL, _("Server requires STARTTLS to log in.\n"));
 			ok = imap_cmd_starttls(session);
 			if (ok != MAILIMAP_NO_ERROR) {
-				log_warning(LOG_PROTOCOL, _("Can't start TLS session.\n"));
+				log_warning(LOG_PROTOCOL, _("Can't start STARTTLS session.\n"));
 				return ok;
 			} else {
 				/* refresh capas */
@@ -4069,8 +4094,8 @@ static gint imap_cmd_login(IMAPSession *session,
 			}
 #else		
 			log_error(LOG_PROTOCOL, _("Connection to %s failed: "
-					"server requires TLS, but Claws Mail "
-					"has been compiled without TLS "
+					"server requires STARTTLS, but Claws Mail "
+					"has been compiled without STARTTLS "
 					"support.\n"),
 					SESSION(session)->server);
 			return MAILIMAP_ERROR_LOGIN;
@@ -4081,18 +4106,18 @@ static gint imap_cmd_login(IMAPSession *session,
 		}
 	}
 
-	log_print(LOG_PROTOCOL, "IMAP4> Logging %s to %s using %s\n", 
+	log_print(LOG_PROTOCOL, "IMAP> Logging %s to %s using %s\n", 
 			user,
 			SESSION(session)->server,
 			type);
 	r = imap_threaded_login(session->folder, user, pass, type);
 	if (r != MAILIMAP_NO_ERROR) {
 		imap_handle_error(SESSION(session), NULL, r);
-		log_print(LOG_PROTOCOL, "IMAP4< Error logging in to %s\n",
+		log_print(LOG_PROTOCOL, "IMAP< Error logging in to %s\n",
 				SESSION(session)->server);
 		ok = r;
 	} else {
-		log_print(LOG_PROTOCOL, "IMAP4< Login to %s successful\n",
+		log_print(LOG_PROTOCOL, "IMAP< Login to %s successful\n",
 				SESSION(session)->server);
 		ok = MAILIMAP_NO_ERROR;
 	}
@@ -4145,7 +4170,7 @@ static gint imap_cmd_starttls(IMAPSession *session)
 		SESSION(session)->server, SESSION(session)->port);
 	if (r != MAILIMAP_NO_ERROR) {
 		imap_handle_error(SESSION(session), NULL, r);
-		debug_print("starttls err %d\n", r);
+		debug_print("STARTTLS err %d\n", r);
 		return r;
 	}
 	return MAILIMAP_NO_ERROR;
@@ -4382,13 +4407,10 @@ static gint imap_cmd_store(IMAPSession *session,
 	return MAILIMAP_NO_ERROR;
 }
 
-static gint imap_cmd_expunge(IMAPSession *session, gboolean do_expunge)
+static gint imap_cmd_expunge(IMAPSession *session)
 {
 	int r;
 	
-	if (!do_expunge)
-		return MAILIMAP_NO_ERROR;
-
 	if (prefs_common.work_offline && 
 	    !inc_offline_should_override(FALSE,
 		_("Claws Mail needs network access in order "
@@ -4411,7 +4433,7 @@ gint imap_expunge(Folder *folder, FolderItem *item)
 	if (session == NULL)
 		return -1;
 	
-	return imap_cmd_expunge(session, TRUE);
+	return imap_cmd_expunge(session);
 }
 
 static void imap_path_separator_subst(gchar *str, gchar separator)
@@ -4445,16 +4467,16 @@ static gboolean imap_rename_folder_func(GNode *node, gpointer data)
 	gint ok = MAILIMAP_NO_ERROR;
 	oldpathlen = strlen(oldpath);
 	if (strncmp(oldpath, item->path, oldpathlen) != 0) {
-		g_warning("path doesn't match: %s, %s\n", oldpath, item->path);
+		g_warning("path doesn't match: %s, %s", oldpath, item->path);
 		return TRUE;
 	}
 
 	base = item->path + oldpathlen;
-	while (*base == G_DIR_SEPARATOR) base++;
+	while (*base == '/') base++;
 	if (*base == '\0')
 		new_itempath = g_strdup(newpath);
 	else
-		new_itempath = g_strconcat(newpath, G_DIR_SEPARATOR_S, base,
+		new_itempath = g_strconcat(newpath, "/", base,
 					   NULL);
 
 	real_oldpath = imap_get_real_path(session, IMAP_FOLDER(item->folder), item->path, &ok);
@@ -4532,8 +4554,6 @@ static gint get_list_of_uids(IMAPSession *session, Folder *folder, IMAPFolderIte
 	}
 	g_slist_free(uidlist);
 
-	unlock_session(session); /* locked from imap_get_num_list */
-
 	return nummsgs;
 
 }
@@ -4588,11 +4608,10 @@ gint imap_get_num_list(Folder *folder, FolderItem *_item, GSList **msgnum_list, 
 	session = imap_session_get(folder);
 	g_return_val_if_fail(session != NULL, -1);
 
-	lock_session(session); /* unlocked by get_list_of_uids */
+	lock_session(session);
 	if (FOLDER_ITEM(item)->path) 
-		statusbar_print_all(_("Scanning folder %s%c%s..."),
+		statusbar_print_all(_("Scanning folder %s/%s..."),
 				      FOLDER_ITEM(item)->folder->name, 
-				      G_DIR_SEPARATOR,
 				      FOLDER_ITEM(item)->path);
 	else
 		statusbar_print_all(_("Scanning folder %s..."),
@@ -4613,6 +4632,9 @@ gint imap_get_num_list(Folder *folder, FolderItem *_item, GSList **msgnum_list, 
 	}
 
 	nummsgs = get_list_of_uids(session, folder, item, &uidlist);
+
+	unlock_session(session);
+
 	/* session could be broken now, in case of fatal error */
 
 	debug_print("get_num_list: got %d msgs\n", nummsgs);
@@ -5007,7 +5029,7 @@ static gint imap_remove_msg(Folder *folder, FolderItem *item, gint uid)
 		return ok;
 	}
 
-	ok = imap_cmd_expunge(session, folder->account->imap_use_trash);
+	ok = imap_cmd_expunge(session);
 
 	if (ok != MAILIMAP_NO_ERROR) {
 		log_warning(LOG_PROTOCOL, _("can't expunge\n"));
@@ -5392,7 +5414,7 @@ static gint imap_get_flags(Folder *folder, FolderItem *item,
 		data->full_search = TRUE;
 	
 	for (cur = tmp; cur; cur = cur->next)
-		procmsg_msginfo_free((MsgInfo *)cur->data);
+		procmsg_msginfo_free((MsgInfo **)&(cur->data));
 	
 	g_slist_free(tmp);
 
@@ -5432,7 +5454,7 @@ static gboolean process_flags(gpointer key, gpointer value, gpointer user_data)
 		ok = imap_set_message_flags(session, IMAP_FOLDER_ITEM(item),
 			data->msglist, flags_value, NULL, flags_set);
 	} else {
-		g_warning("can't select mailbox %s\n", item->path);
+		g_warning("can't select mailbox %s", item->path);
 	}
 
 	if (!is_fatal(ok))
@@ -5475,7 +5497,7 @@ static gboolean process_tags(gpointer key, gpointer value, gpointer user_data)
 		ok = imap_set_message_flags(session, IMAP_FOLDER_ITEM(item),
 			data->msglist, 0, &list, tags_set);
 	} else {
-		g_warning("can't select mailbox %s\n", item->path);
+		g_warning("can't select mailbox %s", item->path);
 	}
 
 	if (!is_fatal(ok))
@@ -6041,7 +6063,7 @@ static Folder	*imap_folder_new	(const gchar	*name,
 			_("You have one or more IMAP accounts "
 			  "defined. However this version of "
 			  "Claws Mail has been built without "
-			  "IMAP support; your IMAP account(s) are "
+			  "IMAP support; your IMAP accounts are "
 			  "disabled.\n\n"
 			  "You probably need to "
 			  "install libetpan and recompile "
@@ -6076,7 +6098,7 @@ FolderClass *imap_get_class(void)
 	if (imap_class.idstr == NULL) {
 		imap_class.type = F_IMAP;
 		imap_class.idstr = "imap";
-		imap_class.uistr = "IMAP4";
+		imap_class.uistr = "IMAP";
 
 		imap_class.new_folder = imap_folder_new;
 		imap_class.create_tree = imap_create_tree;

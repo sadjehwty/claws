@@ -13,10 +13,10 @@ SUBDIRS = \
 	bsfilter \
 	clamd \
 	demo \
+	dillo \
 	fancy \
 	fetchinfo \
 	gdata \
-	geolocation \
 	libravatar \
 	mailmbox \
 	managesieve \

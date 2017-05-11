@@ -2,7 +2,7 @@
 
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2008 Michael Rasmussen and the Claws Mail Team
+ * Copyright (C) 1999-2017 Michael Rasmussen and the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,11 +25,28 @@
 #include <glib.h>
 #include "folder.h"
 
+#include <archive.h>
+
 typedef enum _COMPRESS_METHOD COMPRESS_METHOD;
 enum _COMPRESS_METHOD {
-		ZIP,
+		GZIP,
 		BZIP2,
         COMPRESS,
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+		LZMA,
+		XZ,
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+		LZIP,
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+		LRZIP,
+		LZOP,
+		GRZIP,
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+		LZ4,
+#endif
         NO_COMPRESS
 };
 
@@ -42,16 +59,12 @@ enum _ARCHIVE_FORMAT {
 		CPIO
 };
 
-enum FILE_FLAGS { NO_FLAGS, ARCHIVE_EXTRACT_PERM, ARCHIVE_EXTRACT_TIME,
-				ARCHIVE_EXTRACT_ACL, ARCHIVE_EXTRACT_FFLAGS };
-
 typedef struct _MsgTrash MsgTrash;
 struct _MsgTrash {
     FolderItem* item;
     /* List of MsgInfos* */
     GSList* msgs;
 };
-
 
 MsgTrash* new_msg_trash(FolderItem* item);
 void archive_free_archived_files();
@@ -62,6 +75,7 @@ void archive_free_file_list(gboolean md5, gboolean rename);
 const gchar* archive_create(const char* archive_name, GSList* files,
 				COMPRESS_METHOD method, ARCHIVE_FORMAT format);
 gboolean before_date(time_t msg_mtime, const gchar* before);
+void archiver_set_tooltip(GtkWidget* widget, gchar* text);
 
 #ifdef _TEST
 void archive_set_permissions(int perm);
@@ -70,4 +84,3 @@ void archive_scan_folder(const char* dir);
 #endif
 
 #endif
-

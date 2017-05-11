@@ -85,6 +85,8 @@ src/mh_gtk.c
 src/mimeview.c
 src/news.c
 src/news_gtk.c
+src/password.c
+src/password_gtk.c
 src/plugins/acpi_notifier/acpi_notifier.c
 src/plugins/address_keeper/address_keeper.c
 src/plugins/address_keeper/address_keeper.h
@@ -110,7 +112,6 @@ src/plugins/fetchinfo/fetchinfo_plugin_gtk.c
 src/plugins/gdata/cm_gdata_contacts.c
 src/plugins/gdata/cm_gdata_prefs.c
 src/plugins/gdata/gdata_plugin.c
-src/plugins/geolocation/geolocation_plugin.c
 src/plugins/libravatar/libravatar.c
 src/plugins/libravatar/libravatar_prefs.c
 src/plugins/mailmbox/mailmbox_folder.c
@@ -196,6 +197,7 @@ src/prefs_image_viewer.c
 src/prefs_logging.c
 src/prefs_matcher.c
 src/prefs_message.c
+src/prefs_migration.c
 src/prefs_msg_colors.c
 src/prefs_other.c
 src/prefs_quote.c

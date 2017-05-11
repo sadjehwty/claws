@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2001-2012 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2001-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -434,10 +433,10 @@ static gboolean imp_ldif_file_move() {
 	gboolean errFlag = FALSE;
 
 	sFile = gtk_editable_get_chars( GTK_EDITABLE(impldif_dlg.entryFile), 0, -1 );
-	g_strchug( sFile ); g_strchomp( sFile );
+	g_strstrip( sFile );
 
 	sName = gtk_editable_get_chars( GTK_EDITABLE(impldif_dlg.entryName), 0, -1 );
-	g_strchug( sName ); g_strchomp( sName );
+	g_strstrip( sName );
 
 	g_free( impldif_dlg.nameBook );
 	g_free( impldif_dlg.fileName );
@@ -889,7 +888,7 @@ static void imp_ldif_page_finish( gint pageNum, gchar *pageLbl ) {
 
 	/* First row */
 	top = 0;
-	label = gtk_label_new( _( "Address Book :" ) );
+	label = gtk_label_new( _( "Address Book:" ) );
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, top, (top + 1), GTK_FILL, 0, 0, 0);
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 
@@ -899,7 +898,7 @@ static void imp_ldif_page_finish( gint pageNum, gchar *pageLbl ) {
 
 	/* Second row */
 	top++;
-	label = gtk_label_new( _( "File Name :" ) );
+	label = gtk_label_new( _( "File Name:" ) );
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, top, (top + 1), GTK_FILL, 0, 0, 0);
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 
@@ -909,7 +908,7 @@ static void imp_ldif_page_finish( gint pageNum, gchar *pageLbl ) {
 
 	/* Third row */
 	top++;
-	label = gtk_label_new( _("Records Imported :") );
+	label = gtk_label_new( _("Records Imported:") );
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, top, (top + 1), GTK_FILL, 0, 0, 0);
 	gtk_misc_set_alignment(GTK_MISC(label), 1, 0.5);
 
@@ -1056,8 +1055,7 @@ AddressBookFile *addressbook_imp_ldif( AddressIndex *addrIndex ) {
 	gtk_notebook_set_current_page( GTK_NOTEBOOK(impldif_dlg.notebook), PAGE_FILE_INFO );
 	gtk_widget_set_sensitive( impldif_dlg.btnPrev, FALSE );
 	gtk_widget_set_sensitive( impldif_dlg.btnNext, TRUE );
-	stock_pixbuf_gdk( impldif_dlg.window, STOCK_PIXMAP_MARK,
-			  &markxpm );
+	stock_pixbuf_gdk(STOCK_PIXMAP_MARK, &markxpm );
 	imp_ldif_message();
 	gtk_widget_grab_focus(impldif_dlg.entryFile);
 

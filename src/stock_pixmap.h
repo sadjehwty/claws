@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __STOCK_PIXMAP_H__
@@ -76,7 +75,7 @@ typedef enum
 	STOCK_PIXMAP_LINEWRAP_CURRENT,
 	STOCK_PIXMAP_LINEWRAP_ALL,
 	STOCK_PIXMAP_LOCKED,
-	STOCK_PIXMAP_MAIL,
+	STOCK_PIXMAP_MAIL_DRAFT,
 	STOCK_PIXMAP_MAIL_ATTACH,
 	STOCK_PIXMAP_MAIL_COMPOSE,
 	STOCK_PIXMAP_MAIL_FORWARD,
@@ -148,6 +147,7 @@ typedef enum
 	STOCK_PIXMAP_MIME_PS,
 	STOCK_PIXMAP_MIME_TEXT_CALENDAR,
 	STOCK_PIXMAP_MIME_PGP_SIG,
+	STOCK_PIXMAP_PRINTER_BTN,
 	STOCK_PIXMAP_PRINTER,
 	STOCK_PIXMAP_PRIVACY_SIGNED,
 	STOCK_PIXMAP_PRIVACY_PASSED,
@@ -162,13 +162,20 @@ typedef enum
 	STOCK_PIXMAP_PRIVACY_EMBLEM_WARN,
 	STOCK_PIXMAP_MIME_MESSAGE,
 	STOCK_PIXMAP_CLAWS_MAIL_ICON,
+	STOCK_PIXMAP_CLAWS_MAIL_ICON_64,
 	STOCK_PIXMAP_READ,
 	STOCK_PIXMAP_DELETE,
+	STOCK_PIXMAP_DELETE_DUP,
 	STOCK_PIXMAP_CANCEL,
 	STOCK_PIXMAP_TRASH,
 	STOCK_PIXMAP_MAIL_COMPOSE_LOGO,
 	STOCK_PIXMAP_CLAWS_MAIL_LOGO,
-	STOCK_PIXMAP_DIR_NOSELECT, 
+	STOCK_PIXMAP_DIR_NOSELECT_CLOSE, 
+	STOCK_PIXMAP_DIR_NOSELECT_CLOSE_MARK, 
+	STOCK_PIXMAP_DIR_NOSELECT_OPEN, 
+	STOCK_PIXMAP_DIR_SUBS_CLOSE_MARK, 
+	STOCK_PIXMAP_DIR_SUBS_CLOSE, 
+	STOCK_PIXMAP_DIR_SUBS_OPEN, 
 	STOCK_PIXMAP_SPAM,
 	STOCK_PIXMAP_SPAM_BTN,
 	STOCK_PIXMAP_HAM_BTN,
@@ -186,6 +193,29 @@ typedef enum
 	STOCK_PIXMAP_TRAY_UNREADMAIL,
 	STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL_OFFLINE,
 	STOCK_PIXMAP_TRAY_UNREADMARKEDMAIL,
+	STOCK_PIXMAP_DOC_INDEX,
+	STOCK_PIXMAP_DOC_INDEX_CLOSE,
+	STOCK_PIXMAP_DOC_INFO,
+	STOCK_PIXMAP_FIRST_ARROW,
+	STOCK_PIXMAP_LAST_ARROW,
+	STOCK_PIXMAP_LEFT_ARROW,
+	STOCK_PIXMAP_RIGHT_ARROW,
+	STOCK_PIXMAP_ROTATE_LEFT,
+	STOCK_PIXMAP_ROTATE_RIGHT,
+	STOCK_PIXMAP_ZOOM_FIT,
+	STOCK_PIXMAP_ZOOM_IN,
+	STOCK_PIXMAP_ZOOM_OUT,
+	STOCK_PIXMAP_ZOOM_WIDTH,
+	STOCK_PIXMAP_MARK_IGNORETHREAD,
+	STOCK_PIXMAP_MARK_WATCHTHREAD,
+	STOCK_PIXMAP_MARK_MARK,
+	STOCK_PIXMAP_MARK_UNMARK,
+	STOCK_PIXMAP_MARK_LOCKED,
+	STOCK_PIXMAP_MARK_UNLOCKED,
+	STOCK_PIXMAP_MARK_ALLREAD,
+	STOCK_PIXMAP_MARK_ALLUNREAD,
+	STOCK_PIXMAP_MARK_READ,
+	STOCK_PIXMAP_MARK_UNREAD,
 	STOCK_PIXMAP_EMPTY,              /* last entry */
 	N_STOCK_PIXMAPS
 } StockPixmap;
@@ -203,21 +233,20 @@ typedef enum {
 	OVERLAY_BOTTOM_RIGHT
 } OverlayPosition;
 
-GtkWidget *stock_pixmap_widget	(GtkWidget	 *window,
-				 StockPixmap	  icon);
-gint stock_pixbuf_gdk		(GtkWidget *window, StockPixmap icon, 
-				 GdkPixbuf **pixbuf);
+GtkWidget *stock_pixmap_widget	(StockPixmap	  icon);
+gint stock_pixbuf_gdk		(StockPixmap icon, GdkPixbuf **pixbuf);
 
 GList *stock_pixmap_themes_list_new	(void);
 void stock_pixmap_themes_list_free	(GList *list);
+void stock_pixmap_invalidate_all_icons	(void);
 gchar *stock_pixmap_get_name         (StockPixmap icon);
 StockPixmap stock_pixmap_get_icon    (gchar *file);
-GtkWidget *stock_pixmap_widget_with_overlay (GtkWidget		*window,
-					     StockPixmap	 icon,
+GtkWidget *stock_pixmap_widget_with_overlay (StockPixmap	 icon,
 					     StockPixmap	 overlay,
 					     OverlayPosition	 pos,
 					     gint		 border_x,
 					     gint		 border_y);
 gchar *stock_pixmap_get_system_theme_dir_for_theme(const gchar *theme);
+const char **stock_pixmap_theme_extensions(void);
 
 #endif /* __STOCK_PIXMAP_H__ */

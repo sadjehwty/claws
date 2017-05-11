@@ -32,6 +32,8 @@
 #include "gtk/combobox.h"
 #include "alertpanel.h"
 #include "passcrypt.h"
+#include "password.h"
+#include "passwordstore.h"
 #include "utils.h"
 #include "prefs.h"
 #include "prefs_gtk.h"
@@ -113,6 +115,7 @@ static void sieve_prefs_account_create_widget_func(PrefsPage *_page,
 	struct SieveAccountPage *page = (struct SieveAccountPage *) _page;
 	PrefsAccount *account = (PrefsAccount *) data;
 	SieveAccountConfig *config;
+	gchar *pass;
 
 	GtkWidget *page_vbox, *sieve_vbox;
 	GtkWidget *hbox;
@@ -188,11 +191,11 @@ static void sieve_prefs_account_create_widget_func(PrefsPage *_page,
 	gtk_box_pack_start (GTK_BOX (page_vbox), tls_vbox, FALSE, FALSE, 0);
 
 	RADIO_ADD(tls_radio_no, tls_group, hbox, tls_vbox,
-			_("No TLS"));
+			_("No encryption"));
 	RADIO_ADD(tls_radio_maybe, tls_group, hbox, tls_vbox,
-			_("Use TLS when available"));
+			_("Use STARTTLS when available"));
 	RADIO_ADD(tls_radio_yes, tls_group, hbox, tls_vbox,
-			_("Require TLS"));
+			_("Require STARTTLS"));
 
 	/* Authentication */
 
@@ -288,8 +291,12 @@ static void sieve_prefs_account_create_widget_func(PrefsPage *_page,
 		gtk_entry_set_text(GTK_ENTRY(host_entry), config->host);
 	if (config->userid != NULL)
 		gtk_entry_set_text(GTK_ENTRY(uid_entry), config->userid);
-	if (config->passwd != NULL)
-		gtk_entry_set_text(GTK_ENTRY(pass_entry), config->passwd);
+	if ((pass = passwd_store_get_account(account->account_id,
+				     "sieve")) != NULL) {
+		gtk_entry_set_text(GTK_ENTRY(pass_entry), pass);
+		memset(pass, 0, strlen(pass));
+		g_free(pass);
+	}
 
 	combobox_select_by_data(GTK_COMBO_BOX(auth_menu), config->auth_type);
 
@@ -363,9 +370,14 @@ static gint sieve_prefs_account_apply(struct SieveAccountPage *page)
 			SIEVE_TLS_MAYBE :
 			SIEVE_TLS_YES;
 
+	g_free(config->host);
+	g_free(config->userid);
+
 	config->host = gtk_editable_get_chars(GTK_EDITABLE(page->host_entry), 0, -1);
 	config->userid = gtk_editable_get_chars(GTK_EDITABLE(page->uid_entry), 0, -1);
-	config->passwd = gtk_editable_get_chars(GTK_EDITABLE(page->pass_entry), 0, -1);
+	passwd_store_set_account(page->account->account_id, "sieve",
+			gtk_editable_get_chars(GTK_EDITABLE(page->pass_entry), 0, -1),
+			FALSE);
 	config->auth_type = combobox_get_active_data(GTK_COMBO_BOX(page->auth_menu));
 
 	sieve_prefs_account_set_config(page->account, config);
@@ -444,7 +456,7 @@ void sieve_prefs_done(void)
 		return;
 
 	if (prefs_write_param(prefs, pref_file->fp) < 0) {
-		g_warning("failed to write ManageSieve Plugin configuration\n");
+		g_warning("failed to write ManageSieve Plugin configuration");
 		prefs_file_close_revert(pref_file);
 		return;
 	}
@@ -463,8 +475,9 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	const gchar *confstr;
 	gchar enc_userid[256], enc_passwd[256];
 	gchar enable, use_host, use_port;
+	guchar tls_type, auth, auth_type;
 	gsize len;
-#ifdef G_OS_WIN32
+#if defined(G_OS_WIN32) || defined(__OpenBSD__)
 	/* Windows sscanf() does not understand the %ms format yet, so we
 	 * have to do the allocation of target buffer ourselves before
 	 * calling sscanf(), and copy the host string to config->host.
@@ -483,31 +496,35 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	config->auth = SIEVEAUTH_REUSE;
 	config->auth_type = SIEVEAUTH_AUTO;
 	config->userid = NULL;
-	config->passwd = NULL;
 
 	confstr = prefs_account_get_privacy_prefs(account, "sieve");
 	if (confstr == NULL)
 		return config;
 
-#ifdef G_OS_WIN32
+#if defined(G_OS_WIN32) || defined(__OpenBSD__)
 	sscanf(confstr, "%c%c %255s %c%hu %hhu %hhu %hhu %255s %255s",
 #else
 	sscanf(confstr, "%c%c %ms %c%hu %hhu %hhu %hhu %255s %255s",
 #endif
 			&enable, &use_host,
-#ifdef G_OS_WIN32
+#if defined(G_OS_WIN32) || defined(__OpenBSD__)
 			tmphost,
 #else
 			&config->host,
 #endif
 			&use_port, &config->port,
-			(char *)&config->tls_type,
-			(char *)&config->auth,
-			(char *)&config->auth_type,
+			&tls_type,
+			&auth,
+			&auth_type,
 			enc_userid,
 			enc_passwd);
 
-#ifdef G_OS_WIN32
+	/* Scan enums separately, for endian purposes */
+	config->tls_type = tls_type;
+	config->auth = auth;
+	config->auth_type = auth_type;
+
+#if defined(G_OS_WIN32) || defined(__OpenBSD__)
 	config->host = g_strndup(tmphost, 255);
 #endif
 
@@ -521,8 +538,14 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	}
 
 	config->userid = g_base64_decode(enc_userid, &len);
-	config->passwd = g_base64_decode(enc_passwd, &len);
-	passcrypt_decrypt(config->passwd, len);
+	if (enc_passwd[0]) {
+		// migrate password from passcrypt to passwordstore
+		gchar *pass = g_base64_decode(enc_passwd, &len);
+		passcrypt_decrypt(pass, len);
+		passwd_store_set_account(account->account_id, "sieve",
+				pass, FALSE);
+		g_free(pass);
+	}
 
 	return config;
 }
@@ -532,21 +555,11 @@ void sieve_prefs_account_set_config(
 {
 	gchar *confstr = NULL;
 	gchar *enc_userid = NULL;
-	gchar *enc_passwd = NULL;
-	gchar *tmp;
 	gsize len;
 
 	if (config->userid) {
 		len = strlen(config->userid);
 		enc_userid = g_base64_encode(config->userid, len);
-	}
-
-	if (config->passwd) {
-		tmp = g_strdup(config->passwd);
-		len = strlen(tmp);
-		passcrypt_encrypt(tmp, len);
-		enc_passwd = g_base64_encode(tmp, len);
-		g_free(tmp);
 	}
 
 	confstr = g_strdup_printf("%c%c %s %c%hu %hhu %hhu %hhu %s %s",
@@ -559,12 +572,10 @@ void sieve_prefs_account_set_config(
 			config->auth,
 			config->auth_type,
 			enc_userid ? enc_userid : "",
-			enc_passwd ? enc_passwd : "");
+			"");
 
 	if (enc_userid)
 		g_free(enc_userid);
-	if (enc_passwd)
-		g_free(enc_passwd);
 
 	prefs_account_set_privacy_prefs(account, "sieve", confstr);
 
@@ -577,7 +588,6 @@ void sieve_prefs_account_free_config(SieveAccountConfig *config)
 {
 	g_free(config->host);
 	g_free(config->userid);
-	g_free(config->passwd);
 	g_free(config);
 }
 

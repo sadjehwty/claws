@@ -34,52 +34,6 @@
 #include "prefs_common.h"
 #include "gtk/manage_window.h"
 
-enum { 
-	PREFS_PAGE_TITLE,		/* page title */
-	PREFS_PAGE_DATA,		/* PrefsTreeNode data */	
-	PREFS_PAGE_DATA_AUTO_FREE,	/* auto free for PREFS_PAGE_DATA */
-	PREFS_PAGE_WEIGHT,		/* weight */
-	PREFS_PAGE_INDEX,		/* index in original page list */
-	N_PREFS_PAGE_COLUMNS
-};
-
-typedef struct _PrefsWindow PrefsWindow;
-typedef struct _PrefsTreeNode PrefsTreeNode;
-
-struct _PrefsWindow
-{
-	GtkWidget *window;
-	GtkWidget *vbox;
-	GtkWidget *paned;
-	GtkWidget *scrolledwindow1;
-	GtkWidget *tree_view;
-	GtkWidget *table2;
-	GtkWidget *pagelabel;
-	GtkWidget *labelframe;
-	GtkWidget *vbox2;
-	GtkWidget *notebook;
-	GtkWidget *confirm_area;
-	GtkWidget *ok_btn;
-	GtkWidget *cancel_btn;
-	GtkWidget *apply_btn;
-	gint *save_width;
-	gint *save_height;
-	PrefsCloseCallbackFunc open_cb;
-	PrefsCloseCallbackFunc close_cb;
-
-	GtkWidget *empty_page;
-
-	gpointer   	 data;
-	GSList	  	*prefs_pages;
-	GDestroyNotify func;
-};
-
-struct _PrefsTreeNode
-{
-	PrefsPage *page;
-	gfloat     treeweight; /* GTK2: not used */
-};
-
 static void prefs_size_allocate_cb(GtkWidget *widget,
 							 GtkAllocation *allocation, gpointer *user_data);
 static GtkTreeStore *prefswindow_create_data_store	(void);
@@ -166,10 +120,15 @@ static void apply_button_clicked(GtkButton *button, gpointer user_data)
 {
 	PrefsWindow *prefswindow = (PrefsWindow *) user_data;
 
+	prefswindow->dialog_response = PREFSWINDOW_RESPONSE_APPLY;
+
 	save_all_pages(prefswindow->prefs_pages);
 #ifdef GENERIC_UMPC
 	prefs_show_sections(prefswindow);
 #endif
+
+	if (prefswindow->apply_cb)
+		prefswindow->apply_cb(prefswindow);
 }
 
 static void close_prefs_window(PrefsWindow *prefswindow)
@@ -179,7 +138,7 @@ static void close_prefs_window(PrefsWindow *prefswindow)
 	close_all_pages(prefswindow->prefs_pages);
 
 	if (prefswindow->close_cb)
-		prefswindow->close_cb(GTK_WINDOW(prefswindow->window));
+		prefswindow->close_cb(prefswindow);
 
 	gtk_widget_destroy(prefswindow->window);
 	g_slist_free(prefswindow->prefs_pages);
@@ -191,6 +150,8 @@ static void close_prefs_window(PrefsWindow *prefswindow)
 static void ok_button_clicked(GtkButton *button, gpointer user_data)
 {
 	PrefsWindow *prefswindow = (PrefsWindow *) user_data;
+
+	prefswindow->dialog_response = PREFSWINDOW_RESPONSE_OK;
 
 	if (query_can_close_all_pages(prefswindow->prefs_pages)) {
 		save_all_pages(prefswindow->prefs_pages);
@@ -359,7 +320,7 @@ static void prefswindow_build_tree(GtkWidget *tree_view, GSList *prefs_pages,
 			gtk_tree_model_foreach(GTK_TREE_MODEL(store), 
 					       (GtkTreeModelForeachFunc) find_node_by_name,
 					       &find_name);
-			if (find_name.found && page->path[i] != page->path[i-1]) {
+			if (find_name.found && (i == 0 || page->path[i] != page->path[i-1])) {
 				node = find_name.node;
 				gtk_tree_model_get(GTK_TREE_MODEL(store), &node,
 						   PREFS_PAGE_DATA, &prefs_node,
@@ -440,6 +401,7 @@ void prefswindow_open_full(const gchar *title, GSList *prefs_pages,
 							 gint *save_width, gint *save_height,
 							 gboolean preload_pages,
 							 PrefsOpenCallbackFunc open_cb,
+							 PrefsApplyCallbackFunc apply_cb,
 							 PrefsCloseCallbackFunc close_cb)
 {
 	PrefsWindow *prefswindow;
@@ -456,7 +418,9 @@ void prefswindow_open_full(const gchar *title, GSList *prefs_pages,
 	prefswindow->save_width = save_width;
 	prefswindow->save_height = save_height;
 	prefswindow->open_cb = open_cb;
+	prefswindow->apply_cb = apply_cb;
 	prefswindow->close_cb = close_cb;
+	prefswindow->dialog_response = PREFSWINDOW_RESPONSE_CANCEL;
 
 	prefswindow->window = gtkut_window_new(GTK_WINDOW_TOPLEVEL, "prefswindow");
 	gtk_window_set_title(GTK_WINDOW(prefswindow->window), title);
@@ -530,7 +494,7 @@ void prefswindow_open_full(const gchar *title, GSList *prefs_pages,
 							preload_pages);
 
 	if (open_cb)
-		open_cb(GTK_WINDOW(prefswindow->window));
+		open_cb(prefswindow);
 
 	gtk_widget_grab_focus(prefswindow->tree_view);
 
@@ -608,10 +572,11 @@ void prefswindow_open_full(const gchar *title, GSList *prefs_pages,
 void prefswindow_open(const gchar *title, GSList *prefs_pages, gpointer data,
 					 gint *save_width, gint *save_height,
 					 PrefsOpenCallbackFunc open_cb,
+					 PrefsApplyCallbackFunc apply_cb,
 					 PrefsCloseCallbackFunc close_cb)
 {
 	prefswindow_open_full(title, prefs_pages, data, NULL, save_width, save_height,
-						  FALSE, open_cb, close_cb);
+						  FALSE, open_cb, apply_cb, close_cb);
 }
 
 /*!

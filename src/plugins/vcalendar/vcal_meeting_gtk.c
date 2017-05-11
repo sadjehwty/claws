@@ -32,7 +32,7 @@
 #ifdef USE_PTHREAD
 #include <pthread.h>
 #endif
-#include <ical.h>
+#include <libical/ical.h>
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <curl/curl.h>
@@ -477,7 +477,7 @@ static gchar *get_date(VCalMeeting *meet, int start)
 	debug_print("DST change offset to apply to time %d\n", dst_offset);
 	t += dst_offset;
 	debug_print("%s\n", ctime(&t));
-	return g_strdup(icaltime_as_ical_string(icaltime_from_timet(t, FALSE)));
+	return g_strdup(icaltime_as_ical_string(icaltime_from_timet_with_zone(t, FALSE, NULL)));
 }
 
 static gchar *get_location(VCalMeeting *meet)
@@ -776,7 +776,7 @@ static gchar *get_avail_msg(const gchar *unavailable_persons, gboolean multiple,
 	gchar *msg, *intro = NULL, *outro = NULL, *before = NULL, *after = NULL;
 
 	if (multiple)
-		intro = g_strdup(_("The following person(s) are busy at the time of your planned meeting:\n- "));
+		intro = g_strdup(_("The following people are busy at the time of your planned meeting:\n- "));
 	else if (!strcmp(unavailable_persons, _("You")))
 		intro = g_strdup(_("You are busy at the time of your planned meeting"));
 	else
@@ -893,8 +893,8 @@ static gboolean find_availability(const gchar *dtstart, const gchar *dtend, GSLi
 	found = FALSE;
 	while (!found && offset >= -3600*6) {
 		gboolean ok = TRUE;
-		struct icaltimetype new_start = icaltime_from_timet(icaltime_as_timet(start)+offset, FALSE);
-		struct icaltimetype new_end   = icaltime_from_timet(icaltime_as_timet(end)+offset, FALSE);
+		struct icaltimetype new_start = icaltime_from_timet_with_zone(icaltime_as_timet(start)+offset, FALSE, NULL);
+		struct icaltimetype new_end   = icaltime_from_timet_with_zone(icaltime_as_timet(end)+offset, FALSE, NULL);
 		for (cur = attendees; cur; cur = cur->next) {
 			VCalAttendee *attendee = (VCalAttendee *)cur->data;
 			debug_print("trying %s - %s (offset %d)\n", 
@@ -919,8 +919,8 @@ static gboolean find_availability(const gchar *dtstart, const gchar *dtend, GSLi
 	offset = 1800;
 	while (!found && offset <= 3600*6) {
 		gboolean ok = TRUE;
-		struct icaltimetype new_start = icaltime_from_timet(icaltime_as_timet(start)+offset, FALSE);
-		struct icaltimetype new_end   = icaltime_from_timet(icaltime_as_timet(end)+offset, FALSE);
+		struct icaltimetype new_start = icaltime_from_timet_with_zone(icaltime_as_timet(start)+offset, FALSE, NULL);
+		struct icaltimetype new_end   = icaltime_from_timet_with_zone(icaltime_as_timet(end)+offset, FALSE, NULL);
 		for (cur = attendees; cur; cur = cur->next) {
 			VCalAttendee *attendee = (VCalAttendee *)cur->data;
 			debug_print("trying %s - %s (offset %d)\n", 
@@ -1016,7 +1016,7 @@ static gboolean check_attendees_availability(VCalMeeting *meet, gboolean tell_if
 			num_format++;
 		}
 		if (num_format > 2) {
-			g_warning("wrong format in %s!\n", real_url);
+			g_warning("wrong format in %s!", real_url);
 			g_free(real_url);
 			return FALSE;
 		}
@@ -1221,12 +1221,11 @@ static gboolean send_meeting_cb(GtkButton *widget, gpointer data)
 	gchar *summary = NULL;
 	gchar *description = NULL;
 	VCalEvent *event = NULL;
-	gchar buf[256];
 	GSList *cur;
 	PrefsAccount *account = NULL;
 	gboolean res = FALSE;
 	gboolean found_att = FALSE;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	gboolean redisp = FALSE;
 
 	if (meet->uid == NULL && meet->visible && 
@@ -1257,22 +1256,10 @@ static gboolean send_meeting_cb(GtkButton *widget, gpointer data)
 
 	organizer_name	= get_organizer_name(meet);
 
-	if (account->set_domain && account->domain) {
-		g_snprintf(buf, sizeof(buf), "%s", account->domain); 
-	} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
-		g_snprintf(buf, sizeof(buf), "%s", 
-			strchr(account->address, '@') ?
-				strchr(account->address, '@')+1 :
-				account->address);
-	} else {
-		g_snprintf(buf, sizeof(buf), "%s", "");
-	}
-	generate_msgid(buf, 255, account->address);
-
 	if (meet->uid) {
 		uid 	= g_strdup(meet->uid);
 	} else {
-		uid 	= g_strdup(buf);
+		uid 	= prefs_account_generate_msgid(account);
 	}
 
 	dtstart		= get_date(meet, TRUE);
@@ -1595,13 +1582,13 @@ static VCalMeeting *vcal_meeting_create_real(VCalEvent *event, gboolean visible)
 	date_hbox = gtk_hbox_new(FALSE, 6);
 	date_vbox = gtk_vbox_new(FALSE, 6);
 	hbox = gtk_hbox_new(FALSE, 6);
-	label = gtk_label_new(_("<b>Starts at:</b> "));
+	label = gtk_label_new(g_strconcat("<b>",_("Starts at:"),"</b> ",NULL));
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 	gtk_label_set_use_markup(GTK_LABEL(label), TRUE);
 	
 	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(hbox), meet->start_time, FALSE, FALSE, 0);
-	label = gtk_label_new(_("<b> on:</b>"));
+	label = gtk_label_new(g_strconcat("<b> ",_("on:"),"</b>",NULL));
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 	gtk_label_set_use_markup(GTK_LABEL(label), TRUE);
 	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
@@ -1619,13 +1606,13 @@ static VCalMeeting *vcal_meeting_create_real(VCalEvent *event, gboolean visible)
 
 	date_vbox = gtk_vbox_new(FALSE, 6);
 	hbox = gtk_hbox_new(FALSE, 6);
-	label = gtk_label_new(_("<b>Ends at:</b> ")); 
+	label = gtk_label_new(g_strconcat("<b>",_("Ends at:"),"</b> ", NULL));
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 	gtk_label_set_use_markup(GTK_LABEL(label), TRUE);
 	
 	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(hbox), meet->end_time, FALSE, FALSE, 0);
-	label = gtk_label_new(_("<b> on:</b>")); 
+	label = gtk_label_new(g_strconcat("<b> ",_("on:"),"</b>",NULL));
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 	gtk_label_set_use_markup(GTK_LABEL(label), TRUE);
 	gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
@@ -1962,7 +1949,8 @@ void multisync_export(void)
 	list = vcal_folder_get_waiting_events();
 	for (cur = list; cur; cur = cur->next) {
 		VCalEvent *event = (VCalEvent *)cur->data;
-		file = g_strdup_printf("multisync%lu-%d", time(NULL), i);
+		file = g_strdup_printf("multisync%lld-%d",
+				(long long)time(NULL), i);
 
 		i++;
 
@@ -1973,7 +1961,7 @@ void multisync_export(void)
         		    icalproperty_new_prodid(
                 		 "-//Claws Mail//NONSGML Claws Mail Calendar//EN"),
 			    icalproperty_new_calscale("GREGORIAN"),
-        		    0
+        		    (void*)0
         	    ); 	
 		vcal_manager_event_dump(event, FALSE, FALSE, calendar, FALSE);
 		tmp = g_strconcat(path, G_DIR_SEPARATOR_S, file, NULL);
@@ -1993,13 +1981,13 @@ void multisync_export(void)
 		for (cur = files; cur; cur = cur->next) {
 			file = (char *)cur->data;
 			if (fprintf(fp, "1 1 %s\n", file) < 0)
-				perror(file);
+				FILE_OP_ERROR(file, "fprintf");
 			g_free(file);
 		}
 		if (fclose(fp) == EOF)
-			perror(file);
+			FILE_OP_ERROR(file, "fclose");
 	} else {
-		perror(file);
+		FILE_OP_ERROR(file, "fopen");
 	}
 	g_free(path);
 	g_slist_free(files);
@@ -2049,7 +2037,7 @@ gboolean vcal_meeting_export_calendar(const gchar *path,
         	    icalproperty_new_prodid(
                 	 "-//Claws Mail//NONSGML Claws Mail Calendar//EN"),
 		    icalproperty_new_calscale("GREGORIAN"),
-        	    0
+        	    (void*)0
             ); 	
 
 	for (cur = list; cur; cur = cur->next) {
@@ -2059,7 +2047,7 @@ gboolean vcal_meeting_export_calendar(const gchar *path,
 	}
 
 	if (str_write_to_file(icalcomponent_as_ical_string(calendar), internal_file) < 0) {
-		g_warning("can't export internal cal\n");
+		g_warning("can't export internal cal");
 	}
 	
 	g_free(internal_file);
@@ -2126,7 +2114,7 @@ putfile:
 			file = tmp;
 		}
 		if (fp) {
-			res = vcal_curl_put(file, fp, filesize, user, pass);
+			res = vcal_curl_put(file, fp, filesize, user, (pass != NULL ? pass : ""));
 			fclose(fp);
 		}
 		g_free(file);
@@ -2161,7 +2149,7 @@ gboolean vcal_meeting_export_freebusy(const gchar *path, const gchar *user,
         	    icalproperty_new_prodid(
                 	 "-//Claws Mail//NONSGML Claws Mail Calendar//EN"),
 		    icalproperty_new_calscale("GREGORIAN"),
-        	    0
+        	    (void*)0
             ); 	
 
 	timezone = icalcomponent_new(ICAL_VTIMEZONE_COMPONENT);
@@ -2184,8 +2172,8 @@ gboolean vcal_meeting_export_freebusy(const gchar *path, const gchar *user,
 
 	icalcomponent_add_component(calendar, timezone);
 
-	itt_start = icaltime_from_timet(whole_start, FALSE);
-	itt_end = icaltime_from_timet(whole_end, FALSE);
+	itt_start = icaltime_from_timet_with_zone(whole_start, FALSE, NULL);
+	itt_end = icaltime_from_timet_with_zone(whole_end, FALSE, NULL);
 	itt_start.second = itt_start.minute = itt_start.hour = 0;
 	itt_end.second = 59; itt_end.minute = 59; itt_end.hour = 23;
 
@@ -2195,7 +2183,7 @@ gboolean vcal_meeting_export_freebusy(const gchar *path, const gchar *user,
                 ICAL_VFREEBUSY_COMPONENT,
 		icalproperty_vanew_dtstart(itt_start, 0),
 		icalproperty_vanew_dtend(itt_end, 0),
-                0
+                (void*)0
                 );
 
 	debug_print("DTSTART:%s\nDTEND:%s\n",
@@ -2221,7 +2209,7 @@ gboolean vcal_meeting_export_freebusy(const gchar *path, const gchar *user,
 	icalcomponent_add_component(calendar, vfreebusy);
 	
 	if (str_write_to_file(icalcomponent_as_ical_string(calendar), internal_file) < 0) {
-		g_warning("can't export freebusy\n");
+		g_warning("can't export freebusy");
 	}
 	
 	g_free(internal_file);
@@ -2274,7 +2262,7 @@ gboolean vcal_meeting_export_freebusy(const gchar *path, const gchar *user,
 			file = tmp;
 		}
 		if (fp) {
-			res = vcal_curl_put(file, fp, filesize, user, pass);
+			res = vcal_curl_put(file, fp, filesize, user, (pass != NULL ? pass : ""));
 			fclose(fp);
 		}
 		g_free(file);

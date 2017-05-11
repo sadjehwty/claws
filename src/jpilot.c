@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2001-2012 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2001-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -164,7 +163,7 @@ static const gchar *jpilot_get_charset(void)
 	static const gchar *charset = NULL;
 
 	if (charset == NULL)
-		charset = getenv("PILOT_CHARSET");
+		charset = g_getenv("PILOT_CHARSET");
 
 	if (charset == NULL)
 		charset = CS_CP1252;
@@ -872,6 +871,7 @@ static gint jpilot_read_db_files( JPilotFile *pilotFile, GList **records ) {
 			}
 		}
 		if (fseek( in, next_offset, SEEK_SET ) < 0) {
+			free_mem_rec_header( &mem_rh );
 			fclose(in);
 			return MGU_ERROR_READ;
 		}
@@ -1352,8 +1352,7 @@ GList *jpilot_load_custom_label( JPilotFile *pilotFile, GList *labelList ) {
 		for( i = 0; i < NUM_CUSTOM_LABEL; i++ ) {
 			gchar *labelName = ai->labels[i+IND_CUSTOM_LABEL];
 			if( labelName ) {
-				g_strchomp( labelName );
-				g_strchug( labelName );
+				g_strstrip( labelName );
 				if( *labelName != '\0' ) {
 					if( convert_charcode ) {
 						gchar *convertBuff = NULL;
@@ -1521,7 +1520,11 @@ gint jpilot_read_data( JPilotFile *pilotFile ) {
 
 	cur_locale = conv_get_current_locale();
 
-	if( g_ascii_strncasecmp( cur_locale, "ja", 2 ) == 0 ) {
+	if( g_ascii_strncasecmp( cur_locale, "hu", 2 ) == 0 ||
+		g_ascii_strncasecmp( cur_locale, "ja", 2 ) == 0 ||
+		g_ascii_strncasecmp( cur_locale, "ko", 2 ) == 0 ||
+		g_ascii_strncasecmp( cur_locale, "vi", 2 ) == 0 ||
+		g_ascii_strncasecmp( cur_locale, "zh", 2 ) == 0 ) {
 		name_order = FAMILY_FIRST;
 	}
 

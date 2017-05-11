@@ -29,17 +29,25 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <gtk/gtk.h>
+
+#ifdef YTNEF_H_SUBDIR
+#include <libytnef/tnef-types.h>
+#include <libytnef/ytnef.h>
+#include <libytnef/mapi.h>
+#include <libytnef/mapidefs.h>
+#else
+#include <tnef-types.h>
+#include <ytnef.h>
+#include <mapi.h>
+#include <mapidefs.h>
+#endif
+
 #include "common/claws.h"
 #include "common/version.h"
 #include "main.h"
 #include "plugin.h"
 #include "procmime.h"
 #include "utils.h"
-
-#include <tnef-types.h>
-#include <ytnef.h>
-#include <mapi.h>
-#include <mapidefs.h>
 
 #include "tnef_dump.h"
 
@@ -69,7 +77,7 @@ static MimeInfo *tnef_broken_mimeinfo(const gchar *reason)
 	fclose(fp);
 	if (g_stat(tmpfilename, &statbuf) < 0) {
 		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
+		procmime_mimeinfo_free_all(&sub_info);
 		return NULL;
 
 	}
@@ -118,14 +126,14 @@ static MimeInfo *tnef_dump_file(const gchar *filename, char *data, size_t size)
 		FILE_OP_ERROR(tmpfilename, "fwrite");
 		fclose(fp);
 		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
+		procmime_mimeinfo_free_all(&sub_info);
 		return tnef_broken_mimeinfo(_("Failed to write the part data."));
 	}
 	fclose(fp);
 
 	if (g_stat(tmpfilename, &statbuf) < 0) {
 		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
+		procmime_mimeinfo_free_all(&sub_info);
 		return tnef_broken_mimeinfo(_("Failed to write the part data."));
 	} else {
 		sub_info->tmp = TRUE;
@@ -170,7 +178,7 @@ MimeInfo *tnef_parse_vcal(TNEFStruct *tnef)
 
 	if (!result) {
 		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
+		procmime_mimeinfo_free_all(&sub_info);
 		return tnef_broken_mimeinfo(_("Failed to parse VCalendar data."));
 	}
 	return sub_info;
@@ -209,7 +217,7 @@ MimeInfo *tnef_parse_vtask(TNEFStruct *tnef)
 	}
 	if (!result) {
 		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
+		procmime_mimeinfo_free_all(&sub_info);
 		return tnef_broken_mimeinfo(_("Failed to parse VTask data."));
 	}
 	return sub_info;
@@ -236,6 +244,7 @@ MimeInfo *tnef_parse_vcard(TNEFStruct *tnef)
 	FILE *fp = get_tmpfile_in_dir(get_mime_tmp_dir(), &tmpfilename);
 	GStatBuf statbuf;
 	gboolean result = FALSE;
+	gint ret;
 	if (!fp) {
 		g_free(tmpfilename);
 		return NULL;
@@ -252,16 +261,21 @@ MimeInfo *tnef_parse_vcard(TNEFStruct *tnef)
 	result = SaveVCard(fp, tnef);
 	
 	fclose(fp);
-	g_stat(tmpfilename, &statbuf);
+
+	ret = g_stat(tmpfilename, &statbuf);
+	if (ret == -1) {
+		debug_print("couldn't stat tmpfilename '%s'\n", tmpfilename);
+	}
+
+	if ((ret == -1) || !result) {
+		claws_unlink(tmpfilename);
+		procmime_mimeinfo_free_all(&sub_info);
+		return tnef_broken_mimeinfo(_("Failed to parse VCard data."));
+	}
+
 	sub_info->tmp = TRUE;
 	sub_info->length = statbuf.st_size;
 	sub_info->encoding_type = ENC_BINARY;
-	
-	if (!result) {
-		claws_unlink(tmpfilename);
-		procmime_mimeinfo_free_all(sub_info);
-		return tnef_broken_mimeinfo(_("Failed to parse VCard data."));
-	}
 	return sub_info;
 }
 

@@ -232,6 +232,7 @@ void gtkut_ctree_node_move_if_on_the_edge(GtkCMCTree *ctree, GtkCMCTreeNode *nod
 	GtkCMCList *clist = GTK_CMCLIST(ctree);
 	gint row;
 	GtkVisibility row_visibility, prev_row_visibility, next_row_visibility;
+	gfloat row_align;
 
 	cm_return_if_fail(ctree != NULL);
 	cm_return_if_fail(node != NULL);
@@ -244,7 +245,12 @@ void gtkut_ctree_node_move_if_on_the_edge(GtkCMCTree *ctree, GtkCMCTreeNode *nod
 	next_row_visibility = gtk_cmclist_row_is_visible(clist, row + 1);
 
 	if (row_visibility == GTK_VISIBILITY_NONE) {
-		gtk_cmclist_moveto(clist, row, -1, 0.5, 0);
+		row_align = 0.5;
+		if (gtk_cmclist_row_is_above_viewport(clist, row))
+			row_align = 0.2;
+		else if (gtk_cmclist_row_is_below_viewport(clist, row))
+			row_align = 0.8;
+		gtk_cmclist_moveto(clist, row, -1, row_align, 0);
 		return;
 	}
 	if (row_visibility == GTK_VISIBILITY_FULL &&
@@ -451,7 +457,7 @@ static gboolean gtkut_text_buffer_find(GtkTextBuffer *buffer, const GtkTextIter 
 
 	wcs = g_utf8_to_ucs4(str, -1, &items_read, &items_written, &error);
 	if (error != NULL) {
-		g_warning("An error occurred while converting a string from UTF-8 to UCS-4: %s\n",
+		g_warning("An error occurred while converting a string from UTF-8 to UCS-4: %s",
 			  error->message);
 		g_error_free(error);
 	}
@@ -487,7 +493,7 @@ static gboolean gtkut_text_buffer_find_backward(GtkTextBuffer *buffer,
 
 	wcs = g_utf8_to_ucs4(str, -1, &items_read, &items_written, &error);
 	if (error != NULL) {
-		g_warning("An error occurred while converting a string from UTF-8 to UCS-4: %s\n",
+		g_warning("An error occurred while converting a string from UTF-8 to UCS-4: %s",
 			  error->message);
 		g_error_free(error);
 	}
@@ -710,8 +716,8 @@ void gtkut_widget_set_app_icon(GtkWidget *widget)
 	cm_return_if_fail(gtk_widget_get_window(widget) != NULL);
 	if (!icon_list) {
 		GdkPixbuf *icon = NULL, *big_icon = NULL;
-		stock_pixbuf_gdk(widget, STOCK_PIXMAP_CLAWS_MAIL_ICON, &icon);
-		stock_pixbuf_gdk(widget, STOCK_PIXMAP_CLAWS_MAIL_LOGO, &big_icon);
+		stock_pixbuf_gdk(STOCK_PIXMAP_CLAWS_MAIL_ICON, &icon);
+		stock_pixbuf_gdk(STOCK_PIXMAP_CLAWS_MAIL_LOGO, &big_icon);
 		if (icon)
 			icon_list = g_list_append(icon_list, icon);
 		if (big_icon)
@@ -729,8 +735,8 @@ void gtkut_widget_set_composer_icon(GtkWidget *widget)
 	cm_return_if_fail(gtk_widget_get_window(widget) != NULL);
 	if (!icon_list) {
 		GdkPixbuf *icon = NULL, *big_icon = NULL;
-		stock_pixbuf_gdk(widget, STOCK_PIXMAP_MAIL_COMPOSE, &icon);
-		stock_pixbuf_gdk(widget, STOCK_PIXMAP_MAIL_COMPOSE_LOGO, &big_icon);
+		stock_pixbuf_gdk(STOCK_PIXMAP_MAIL_COMPOSE, &icon);
+		stock_pixbuf_gdk(STOCK_PIXMAP_MAIL_COMPOSE_LOGO, &big_icon);
 		if (icon)
 			icon_list = g_list_append(icon_list, icon);
 		if (big_icon)
@@ -1061,13 +1067,13 @@ gboolean get_tag_range(GtkTextIter *iter,
 
 	_end_iter = *iter;
 	if (!gtk_text_iter_forward_to_tag_toggle(&_end_iter, tag)) {
-		debug_print("Can't find end");
+		debug_print("Can't find end.\n");
 		return FALSE;
 	}
 
 	_start_iter = _end_iter;
 	if (!gtk_text_iter_backward_to_tag_toggle(&_start_iter, tag)) {
-		debug_print("Can't find start.");
+		debug_print("Can't find start.\n");
 		return FALSE;
 	}
 
@@ -1087,7 +1093,7 @@ GtkWidget *xface_get_from_header(const gchar *o_xface)
 	xface[sizeof(xface) - 1] = '\0';
 
 	if (uncompface(xface) < 0) {
-		g_warning("uncompface failed\n");
+		g_warning("uncompface failed");
 		return NULL;
 	}
 
@@ -1131,7 +1137,7 @@ GtkWidget *face_get_from_header(const gchar *o_face)
 
 	if (!gdk_pixbuf_loader_write (loader, face_png, pngsize, &error) ||
 	    !gdk_pixbuf_loader_close (loader, &error)) {
-		g_warning("loading face failed\n");
+		g_warning("loading face failed");
 		g_object_unref(loader);
 		g_free(face_png);
 		return NULL;
@@ -1144,7 +1150,7 @@ GtkWidget *face_get_from_header(const gchar *o_face)
 
 	if ((gdk_pixbuf_get_width(pixbuf) != 48) || (gdk_pixbuf_get_height(pixbuf) != 48)) {
 		g_object_unref(pixbuf);
-		g_warning("wrong_size\n");
+		g_warning("wrong_size");
 		return NULL;
 	}
 
@@ -1250,7 +1256,7 @@ GtkWidget *gtkut_get_link_btn(GtkWidget *window, const gchar *url, const gchar *
 		gtk_widget_set_style(btn_label, style);
 #if !GTK_CHECK_VERSION(3, 0, 0)
 	} else
-		g_warning("color allocation failed\n");
+		g_warning("color allocation failed");
 #endif
 
 	g_signal_connect(G_OBJECT(btn), "enter",
@@ -1873,18 +1879,23 @@ GdkPixbuf *claws_load_pixbuf_fitting(GdkPixbuf *src_pixbuf, int box_width,
 #if (defined USE_GNUTLS && GLIB_CHECK_VERSION(2,22,0))
 static void auto_configure_done(const gchar *hostname, gint port, gboolean ssl, AutoConfigureData *data)
 {
+	gboolean smtp = strcmp(data->tls_service, "submission") == 0 ? TRUE : FALSE;
+
 	if (hostname != NULL) {
 		if (data->hostname_entry)
 			gtk_entry_set_text(data->hostname_entry, hostname);
 		if (data->set_port)
 			gtk_toggle_button_set_active(data->set_port,
-				(ssl && port == data->default_ssl_port) || (!ssl && port == data->default_port));
+				(ssl && port != data->default_ssl_port) || (!ssl && port != data->default_port));
 		if (data->port)
 			gtk_spin_button_set_value(data->port, port);
 		else if (data->hostname_entry) {
-			gchar *tmp = g_strdup_printf("%s:%d", hostname, port);
-			gtk_entry_set_text(data->hostname_entry, tmp);
-			g_free(tmp);
+			if ((ssl && port != data->default_ssl_port) || (!ssl && port != data->default_port)) {
+				gchar *tmp = g_strdup_printf("%s:%d", hostname, port);
+				gtk_entry_set_text(data->hostname_entry, tmp);
+				g_free(tmp);
+			} else
+				gtk_entry_set_text(data->hostname_entry, hostname);
 		}
 
 		if (ssl && data->ssl_checkbtn) {
@@ -1895,7 +1906,15 @@ static void auto_configure_done(const gchar *hostname, gint port, gboolean ssl, 
 				/* Wizard where TLS is [x]SSL + [x]TLS */
 				gtk_toggle_button_set_active(data->ssl_checkbtn, TRUE);
 			}
-			gtk_toggle_button_set_active(data->tls_checkbtn, TRUE);
+
+			/* Even though technically this is against the RFCs,
+			 * if a "_submission._tcp" SRV record uses port 465,
+			 * it is safe to assume TLS-only service, instead of
+			 * plaintext + STARTTLS one. */
+			if (smtp && port == 465)
+				gtk_toggle_button_set_active(data->ssl_checkbtn, TRUE);
+			else
+				gtk_toggle_button_set_active(data->tls_checkbtn, TRUE);
 		}
 
 		/* Check authentication by default. This is probably required if
@@ -1904,13 +1923,31 @@ static void auto_configure_done(const gchar *hostname, gint port, gboolean ssl, 
 		if (data->auth_checkbtn)
 			gtk_toggle_button_set_active(data->auth_checkbtn, TRUE);
 
+		/* Set user ID to full email address, which is used by the
+		 * majority of providers where auto-configuration works.
+		 */
+		if (data->uid_entry)
+			gtk_entry_set_text(data->uid_entry, data->address);
+
 		gtk_label_set_text(data->info_label, _("Done."));
 	} else {
-	gtk_label_set_text(data->info_label, _("Failed."));
+		gchar *msg;
+		switch (data->resolver_error) {
+		case G_RESOLVER_ERROR_NOT_FOUND:
+			msg = g_strdup(_("Failed: no service record found."));
+			break;
+		case G_RESOLVER_ERROR_TEMPORARY_FAILURE:
+			msg = g_strdup(_("Failed: network error."));
+			break;
+		default:
+			msg = g_strdup_printf(_("Failed: unknown error (%d)."), data->resolver_error);
+		}
+		gtk_label_set_text(data->info_label, msg);
+		g_free(msg);
 	}
 	gtk_widget_show(GTK_WIDGET(data->configure_button));
 	gtk_widget_hide(GTK_WIDGET(data->cancel_button));
-	g_free(data->domain);
+	g_free(data->address);
 	g_free(data);
 }
 
@@ -1942,6 +1979,8 @@ static void resolve_done(GObject *source, GAsyncResult *result, gpointer user_da
 	} else if (error) {
 		if (error->code == G_IO_ERROR_CANCELLED)
 			abort = TRUE;
+		else
+			data->resolver_error = error->code;
 		debug_print("error %s\n", error->message);
 		g_error_free(error);
 	}
@@ -1965,14 +2004,16 @@ void auto_configure_service(AutoConfigureData *data)
 	const gchar *cur_service = data->ssl_service != NULL ? data->ssl_service : data->tls_service;
 
 	cm_return_if_fail(cur_service != NULL);
-	cm_return_if_fail(data->domain != NULL);
+	cm_return_if_fail(data->address != NULL);
 
 	resolver = g_resolver_get_default();
 	if (resolver != NULL) {
+		const gchar *domain = strchr(data->address, '@') + 1;
+
 		gtk_label_set_text(data->info_label, _("Configuring..."));
 		gtk_widget_hide(GTK_WIDGET(data->configure_button));
 		gtk_widget_show(GTK_WIDGET(data->cancel_button));
-		g_resolver_lookup_service_async(resolver, cur_service, "tcp", data->domain,
+		g_resolver_lookup_service_async(resolver, cur_service, "tcp", domain,
 					data->cancel, resolve_done, data);
 	}
 }

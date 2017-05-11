@@ -33,7 +33,7 @@
 #include <webkit/webkitversion.h>
 #include <webkit/webkitwebframe.h>
 #include <webkit/webkitnetworkrequest.h>
-#if WEBKIT_CHECK_VERSION (1,3,13)
+#if WEBKIT_CHECK_VERSION (1,3,10)
 #include <webkit/webkitglobals.h>
 #endif
 #include <prefs_common.h>
@@ -114,9 +114,11 @@ struct _FancyViewer
 	gchar             *filename;
 	MimeInfo          *to_load;
 	gulong            doc_handle;
-	gint              tag;
 	gint              loading;
-	gint              stop_previous;
+
+	/* Coordinates of the last mouse click. */
+	gint              click_x;
+	gint              click_y;
 
 	/* DOM Objects */
 #if WEBKIT_CHECK_VERSION(1,5,1)

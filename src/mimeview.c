@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -24,6 +23,11 @@
 
 #include "defs.h"
 
+#ifdef G_OS_WIN32
+#define UNICODE
+#define _UNICODE
+#endif
+
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <gdk/gdkkeysyms.h>
@@ -31,12 +35,6 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#ifndef HAVE_APACHE_FNMATCH
-/* kludge: apache's fnmatch clashes with <regex.h>, don't include
- * fnmatch.h */
-#include <fnmatch.h>
-#endif
 
 #include "main.h"
 #include "mimeview.h"
@@ -75,11 +73,12 @@ static void mimeview_show_message_part		(MimeView	*mimeview,
 						 MimeInfo	*partinfo);
 static void mimeview_change_view_type		(MimeView	*mimeview,
 						 MimeViewType	 type);
-static gchar *mimeview_get_filename_for_part		(MimeInfo	*partinfo,
+static gchar *mimeview_get_filename_for_part	(MimeInfo	*partinfo,
 						 const gchar	*basedir,
 						 gint		 number);
 static gboolean mimeview_write_part		(const gchar	*filename,
-						 MimeInfo	*partinfo);
+						 MimeInfo	*partinfo,
+						 gboolean	 handle_error);
 
 static void mimeview_selected		(GtkTreeSelection	*selection,
 					 MimeView	*mimeview);
@@ -531,7 +530,7 @@ static void mimeview_free_mimeinfo(MimeView *mimeview)
 		mimeview->check_data->free_after_use = TRUE;
 #endif
 	if (mimeview->mimeinfo != NULL && !defer) {
-		procmime_mimeinfo_free_all(mimeview->mimeinfo);
+		procmime_mimeinfo_free_all(&mimeview->mimeinfo);
 		mimeview->mimeinfo = NULL;
 	} else if (defer) {
 #ifdef USE_PTHREAD
@@ -821,28 +820,23 @@ static MimeViewer *get_viewer_for_content_type(MimeView *mimeview, const gchar *
 	GSList *cur;
 	MimeViewerFactory *factory = NULL;
 	MimeViewer *viewer = NULL;
-	gchar *real_contenttype = NULL;
+	gchar *real_contenttype = NULL, *tmp;
 
-/*
- * FNM_CASEFOLD is a GNU extension
- */
-#ifndef FNM_CASEFOLD
-#define FNM_CASEFOLD 0
 	real_contenttype = g_utf8_strdown((gchar *)content_type, -1);
-#else
-	real_contenttype = g_strdup(content_type);
-#endif
 	
 	for (cur = mimeviewer_factories; cur != NULL; cur = g_slist_next(cur)) {
 		MimeViewerFactory *curfactory = cur->data;
 		gint i = 0;
 
 		while (curfactory->content_types[i] != NULL) {
-			if(!fnmatch(curfactory->content_types[i], real_contenttype, FNM_CASEFOLD)) {
+			tmp = g_utf8_strdown(curfactory->content_types[i], -1);
+			if (g_pattern_match_simple(tmp, real_contenttype)) {
 				debug_print("%s\n", curfactory->content_types[i]);
 				factory = curfactory;
+				g_free(tmp);
 				break;
 			}
+			g_free(tmp);
 			i++;
 		}
 		if (factory != NULL)
@@ -1118,7 +1112,7 @@ static void mimeview_check_data_reset(MimeView *mimeview)
 
 	if (must_free) {
 		debug_print("freeing deferred mimeinfo\n");
-		procmime_mimeinfo_free_all(mimeview->check_data->siginfo);
+		procmime_mimeinfo_free_all(&mimeview->check_data->siginfo);
 	}
 
 	g_free(mimeview->check_data);
@@ -1144,18 +1138,18 @@ static gboolean mimeview_check_sig_thread_cb(void *data)
 	
 	if (mimeinfo == NULL) {
 		/* message changed !? */
-		g_warning("no more siginfo!\n");
+		g_warning("no more siginfo!");
 		goto end;
 	}
 	
 	if (!mimeview->check_data) {
-		g_warning("nothing to check\n");
+		g_warning("nothing to check");
 		return FALSE;
 	}
 
 	if (mimeview->check_data->siginfo != mimeinfo) {
 		/* message changed !? */
-		g_warning("different siginfo!\n");
+		g_warning("different siginfo!");
 		goto end;
 	}
 
@@ -1198,7 +1192,7 @@ static void *mimeview_check_sig_worker_thread(void *data)
 	} else {
 		/* that's strange! we changed message without 
 		 * getting killed. */
-		g_warning("different siginfo!\n");
+		g_warning("different siginfo!");
 		mimeview_check_data_reset(mimeview);
 		return NULL;
 	}
@@ -1558,6 +1552,8 @@ void mimeview_select_next_part(MimeView *mimeview)
 	MimeInfo *partinfo = NULL;
 	gboolean has_next;
 	
+	if (!mimeview->opened) return;
+
 	gtk_tree_model_get_iter(model, &iter, mimeview->opened);
 	path = gtk_tree_model_get_path(model, &iter);
 skip:
@@ -1591,6 +1587,8 @@ void mimeview_select_prev_part(MimeView *mimeview)
 	MimeInfo *partinfo = NULL;
 	gboolean has_prev;
 	
+	if (!mimeview->opened) return;
+
 	gtk_tree_model_get_iter(model, &iter, mimeview->opened);
 	path = gtk_tree_model_get_path(model, &iter);
 skip:
@@ -1818,7 +1816,8 @@ static gchar *mimeview_get_filename_for_part(MimeInfo *partinfo,
  * \param partinfo Attachment to save
  */
 static gboolean mimeview_write_part(const gchar *filename,
-				    MimeInfo *partinfo)
+				    MimeInfo *partinfo,
+				    gboolean handle_error)
 {
 	gchar *dir;
 	gint err;
@@ -1841,20 +1840,62 @@ static gboolean mimeview_write_part(const gchar *filename,
 		res = g_strdup_printf(_("Overwrite existing file '%s'?"),
 				      tmp);
 		g_free(tmp);
-		aval = alertpanel(_("Overwrite"), res, GTK_STOCK_CANCEL, 
+		aval = alertpanel(_("Overwrite"), res, GTK_STOCK_CANCEL,
 				  GTK_STOCK_OK, NULL);
-		g_free(res);					  
+		g_free(res);
 		if (G_ALERTALTERNATE != aval) return FALSE;
 	}
 
 	if ((err = procmime_get_part(filename, partinfo)) < 0) {
-		alertpanel_error
-			(_("Couldn't save the part of multipart message: %s"), 
-				g_strerror(-err));
+		debug_print("error saving MIME part: %d\n", err);
+		if (handle_error)
+			alertpanel_error
+				(_("Couldn't save the part of multipart message: %s"),
+				 g_strerror(-err));
 		return FALSE;
 	}
 
 	return TRUE;
+}
+
+static AlertValue mimeview_save_all_error_ask(gint n)
+{
+	gchar *message = g_strdup_printf(
+		_("An error has occurred while saving message part #%d. "
+		"Do you want to cancel operation or skip error and "
+		"continue?"), n);
+	AlertValue av = alertpanel_full(_("Error saving all message parts"),
+		message, GTK_STOCK_CANCEL, _("Skip"), _("Skip all"),
+		FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT);
+	g_free(message);
+	return av;
+}
+
+static void mimeview_save_all_info(gint errors, gint total)
+{
+	if (!errors) {
+		gchar *msg = g_strdup_printf(
+				ngettext("%d file saved successfully.",
+					"%d files saved successfully.",
+					total),
+				total);
+		alertpanel_notice("%s", msg);
+		g_free(msg);
+	} else {
+		gchar *msg1 = g_strdup_printf(
+				ngettext("%d file saved successfully",
+					"%d files saved successfully",
+					total - errors),
+				total - errors);
+		gchar *msg2 = g_strdup_printf(
+				ngettext("%s, %d file failed.",
+					"%s, %d files failed.",
+					errors),
+				msg1, errors);
+		alertpanel_warning("%s", msg2);
+		g_free(msg2);
+		g_free(msg1);
+	}
 }
 
 /**
@@ -1866,7 +1907,8 @@ static void mimeview_save_all(MimeView *mimeview)
 	MimeInfo *partinfo;
 	gchar *dirname;
 	gchar *startdir = NULL;
-	gint number = 1;
+	gint number = 1, errors = 0;
+	gboolean skip_errors = FALSE;
 
 	if (!mimeview->opened) return;
 	if (!mimeview->file) return;
@@ -1874,8 +1916,7 @@ static void mimeview_save_all(MimeView *mimeview)
 
 	partinfo = mimeview->mimeinfo;
 	if (prefs_common.attach_save_dir && *prefs_common.attach_save_dir)
-		startdir = g_strconcat(prefs_common.attach_save_dir,
-				       G_DIR_SEPARATOR_S, NULL);
+		startdir = g_strconcat(prefs_common.attach_save_dir, G_DIR_SEPARATOR_S, NULL);
 	else
 		startdir = g_strdup(get_home_dir());
 
@@ -1887,8 +1928,7 @@ static void mimeview_save_all(MimeView *mimeview)
 	}
 
 	if (!is_dir_exist (dirname)) {
-		alertpanel_error(_("'%s' is not a directory."),
-				 dirname);
+		alertpanel_error(_("'%s' is not a directory."), dirname);
 		g_free(startdir);
 		g_free(dirname);
 		return;
@@ -1905,17 +1945,26 @@ static void mimeview_save_all(MimeView *mimeview)
 		if (partinfo && partinfo->type == MIMETYPE_TEXT)
 			partinfo = procmime_mimeinfo_next(partinfo);
 	}
-		
+
 	while (partinfo != NULL) {
 		if (partinfo->type != MIMETYPE_MESSAGE &&
 		    partinfo->type != MIMETYPE_MULTIPART &&
 		    (partinfo->disposition != DISPOSITIONTYPE_INLINE
 		     || get_real_part_name(partinfo) != NULL)) {
-			gchar *filename = mimeview_get_filename_for_part
-				(partinfo, dirname, number++);
+			gchar *filename = mimeview_get_filename_for_part(
+				partinfo, dirname, number++);
 
-			mimeview_write_part(filename, partinfo);
+			gboolean ok = mimeview_write_part(filename, partinfo, FALSE);
 			g_free(filename);
+			if (!ok) {
+				++errors;
+				if (!skip_errors) {
+					AlertValue av = mimeview_save_all_error_ask(number - 1);
+					skip_errors = (av == G_ALERTOTHER);
+					if (av == G_ALERTDEFAULT) /* cancel */
+						break;
+				}
+			}
 		}
 		partinfo = procmime_mimeinfo_next(partinfo);
 	}
@@ -1925,6 +1974,8 @@ static void mimeview_save_all(MimeView *mimeview)
 	prefs_common.attach_save_dir = g_filename_to_utf8(dirname,
 					-1, NULL, NULL, NULL);
 	g_free(dirname);
+
+	mimeview_save_all_info(errors, number - 1);
 }
 
 static MimeInfo *mimeview_get_part_to_use(MimeView *mimeview)
@@ -2000,7 +2051,7 @@ void mimeview_save_as(MimeView *mimeview)
 		return;
 	}
 
-	mimeview_write_part(filename, partinfo);
+	mimeview_write_part(filename, partinfo, TRUE);
 
 	filedir = g_path_get_dirname(filename);
 	if (filedir && strcmp(filedir, ".")) {
@@ -2200,6 +2251,7 @@ static void mimeview_view_file(const gchar *filename, MimeInfo *partinfo,
 #ifndef G_OS_WIN32
 	gchar *p;
 	gchar buf[BUFFSIZE];
+
 	if (cmd == NULL)
 		mimeview_open_part_with(mimeview, partinfo, TRUE);
 	else {
@@ -2214,7 +2266,7 @@ static void mimeview_view_file(const gchar *filename, MimeInfo *partinfo,
 			g_warning("MIME viewer command-line is invalid: '%s'", cmd);
 			mimeview_open_part_with(mimeview, partinfo, FALSE);
  		}
-		if (execute_command_line(buf, TRUE) != 0) {
+		if (execute_command_line(buf, TRUE, NULL) != 0) {
 			if (!prefs_common.save_parts_readwrite)
 				g_chmod(filename, S_IRUSR|S_IWUSR);
 			mimeview_open_part_with(mimeview, partinfo, FALSE);
@@ -2222,7 +2274,18 @@ static void mimeview_view_file(const gchar *filename, MimeInfo *partinfo,
 	}
 #else
 	SHFILEINFO file_info;
-	if ((SHGetFileInfo(filename, 0, &file_info, sizeof(SHFILEINFO), SHGFI_EXETYPE)) != 0) {
+	GError *error = NULL;
+	gunichar2 *fn16 = g_utf8_to_utf16(filename, -1, NULL, NULL, &error);
+
+	if (error != NULL) {
+		alertpanel_error(_("Could not convert attachment name to UTF-16:\n\n%s"),
+					error->message);
+		debug_print("filename '%s' conversion to UTF-16 failed\n", filename);
+		g_error_free(error);
+		return;
+	}
+
+	if ((SHGetFileInfo((LPCWSTR)fn16, 0, &file_info, sizeof(SHFILEINFO), SHGFI_EXETYPE)) != 0) {
 		AlertValue val = alertpanel_full(_("Execute untrusted binary?"), 
 				      _("This attachment is an executable file. Executing "
 				        "untrusted binaries is dangerous and could probably "
@@ -2232,10 +2295,13 @@ static void mimeview_view_file(const gchar *filename, MimeInfo *partinfo,
 		      		      NULL, FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT);
 		if (val == G_ALERTALTERNATE) {
 			debug_print("executing binary\n");
-			ShellExecute(NULL, "open", filename, NULL, NULL, SW_SHOW);
+			ShellExecute(NULL, L"open", (LPCWSTR)fn16, NULL, NULL, SW_SHOW);
 		}
-	} else
-		ShellExecute(NULL, "open", filename, NULL, NULL, SW_SHOW);
+	} else {
+		ShellExecute(NULL, L"open", (LPCWSTR)fn16, NULL, NULL, SW_SHOW);
+	}
+
+	g_free(fn16);
 	
 #endif
 }
@@ -2491,29 +2557,29 @@ static void icon_list_append_icon (MimeView *mimeview, MimeInfo *mimeinfo)
 		case SIGNATURE_UNCHECKED:
 		case SIGNATURE_CHECK_FAILED:
 		case SIGNATURE_CHECK_TIMEOUT:
-			pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp,
+			pixmap = stock_pixmap_widget_with_overlay(stockp,
 			    STOCK_PIXMAP_PRIVACY_EMBLEM_SIGNED, OVERLAY_BOTTOM_RIGHT, 6, 3);
 			break;
 		case SIGNATURE_OK:
-			pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp,
+			pixmap = stock_pixmap_widget_with_overlay(stockp,
 			    STOCK_PIXMAP_PRIVACY_EMBLEM_PASSED, OVERLAY_BOTTOM_RIGHT, 6, 3);
 			break;
 		case SIGNATURE_WARN:
 		case SIGNATURE_KEY_EXPIRED:
-			pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp,
+			pixmap = stock_pixmap_widget_with_overlay(stockp,
 			    STOCK_PIXMAP_PRIVACY_EMBLEM_WARN, OVERLAY_BOTTOM_RIGHT, 6, 3);
 			break;
 		case SIGNATURE_INVALID:
-			pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp,
+			pixmap = stock_pixmap_widget_with_overlay(stockp,
 			    STOCK_PIXMAP_PRIVACY_EMBLEM_FAILED, OVERLAY_BOTTOM_RIGHT, 6, 3);
 			break;
 		}
 		sigshort = privacy_mimeinfo_sig_info_short(siginfo);
 	} else if (encrypted != NULL) {
-			pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp,
+			pixmap = stock_pixmap_widget_with_overlay(stockp,
 			    STOCK_PIXMAP_PRIVACY_EMBLEM_ENCRYPTED, OVERLAY_BOTTOM_RIGHT, 6, 3);		
 	} else {
-		pixmap = stock_pixmap_widget_with_overlay(mimeview->mainwin->window, stockp, 0,
+		pixmap = stock_pixmap_widget_with_overlay(stockp, 0,
 							  OVERLAY_NONE, 6, 3);
 	}
 	gtk_container_add(GTK_CONTAINER(button), pixmap);

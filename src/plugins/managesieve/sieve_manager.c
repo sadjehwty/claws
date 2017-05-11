@@ -80,6 +80,13 @@ static GSList *manager_pages = NULL;
 		if ((page = (SieveManagerPage *)cur->data) && \
 			page->active_session == session)
 
+void sieve_managers_done()
+{
+	GSList *list = manager_pages;
+	manager_pages = NULL;
+	g_slist_free_full(list, (GDestroyNotify)sieve_manager_done);
+}
+
 static void filters_list_clear(SieveManagerPage *page)
 {
 	GtkListStore *list_store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(page->filters_list)));
@@ -450,6 +457,7 @@ static void filters_create_list_view_columns(SieveManagerPage *page,
 {
 	GtkTreeViewColumn *column;
 	GtkCellRenderer *renderer;
+	GtkWidget *label;
 
 	/* Name */
 	renderer = gtk_cell_renderer_text_new();
@@ -472,8 +480,14 @@ static void filters_create_list_view_columns(SieveManagerPage *page,
 		 NULL);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(list_view), column);
 	gtk_tree_view_column_set_alignment (column, 0.5);
-	CLAWS_SET_TIP(gtk_tree_view_column_get_widget(column),
+
+	/* the column header needs a widget to have a tooltip */
+	label = gtk_label_new(gtk_tree_view_column_get_title(column));
+	gtk_widget_show(label);
+	gtk_tree_view_column_set_widget(column, label);
+	CLAWS_SET_TIP(label,
 			_("An account can only have one active script at a time."));
+
 	g_signal_connect(G_OBJECT(renderer), "toggled",
 			 G_CALLBACK(filter_active_toggled), page);
 
@@ -591,6 +605,9 @@ static void account_changed(GtkWidget *widget, SieveManagerPage *page)
 	PrefsAccount *account;
 	SieveSession *session;
 
+	if (page->accounts_menu == NULL)
+		return;
+
 	account_id = combobox_get_active_data(GTK_COMBO_BOX(page->accounts_menu));
 	account = account_find_from_id(account_id);
 	if (!account)
@@ -691,6 +708,7 @@ static SieveManagerPage *sieve_manager_page_new()
 	if (!default_account) {
 		gtk_widget_destroy(label);
 		gtk_widget_destroy(accounts_menu);
+		accounts_menu = NULL;
 	}
 
 	/* status */
@@ -717,7 +735,7 @@ static SieveManagerPage *sieve_manager_page_new()
 
 	/* Buttons */
 
-	vbox_allbuttons = gtk_vbox_new (FALSE, 0);
+	vbox_allbuttons = gtk_vbox_new (FALSE, 8);
 	gtk_box_pack_start (GTK_BOX (hbox), vbox_allbuttons, FALSE, FALSE, 0);
 
 	/* buttons that depend on there being a connection */

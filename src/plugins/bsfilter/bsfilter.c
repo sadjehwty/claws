@@ -132,33 +132,6 @@ static pthread_mutex_t wait_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t wait_cond = PTHREAD_COND_INITIALIZER; 
 #endif
 
-static gboolean found_in_addressbook(const gchar *address)
-{
-	gchar *addr = NULL;
-	gboolean found = FALSE;
-	gint num_addr = 0;
-	
-	if (!address)
-		return FALSE;
-	
-	addr = g_strdup(address);
-	extract_address(addr);
-	num_addr = complete_address(addr);
-	if (num_addr > 1) {
-		/* skip first item (this is the search string itself) */
-		int i = 1;
-		for (; i < num_addr && !found; i++) {
-			gchar *caddr = get_complete_address(i);
-			extract_address(caddr);
-			if (strcasecmp(caddr, addr) == 0)
-				found = TRUE;
-			g_free(caddr);
-		}
-	}
-	g_free(addr);
-	return found;
-}
-
 static void bsfilter_do_filter(BsFilterData *data)
 {
 	int status = 0;
@@ -200,7 +173,8 @@ static void bsfilter_do_filter(BsFilterData *data)
 		gchar *classify = g_strconcat((config.bspath && *config.bspath) ? config.bspath:"bsfilterw.exe",
 			" --homedir '",get_rc_dir(),"' '", file, "'", NULL);
 #endif
-		status = execute_command_line(classify, FALSE);
+		status = execute_command_line(classify, FALSE,
+				claws_get_startup_dir());
 	}
 
 	if (config.whitelist_ab)
@@ -507,7 +481,8 @@ int bsfilter_learn(MsgInfo *msginfo, GSList *msglist, gboolean spam)
 				cmd = g_strdup_printf("%s --homedir '%s' -cu '%s'", bs_exec, get_rc_dir(), file);
 				
 			debug_print("%s\n", cmd);
-			if ((status = execute_command_line(cmd, FALSE)) != 0)
+			if ((status = execute_command_line(cmd, FALSE,
+							claws_get_startup_dir())) != 0)
 				log_error(LOG_PROTOCOL, _("Learning failed; `%s` returned with status %d."),
 						cmd, status);
 			g_free(cmd);
@@ -536,7 +511,7 @@ void bsfilter_save_config(void)
 		return;
 
 	if (prefs_write_param(param, pfile->fp) < 0) {
-		g_warning("Failed to write Bsfilter configuration to file\n");
+		g_warning("Failed to write Bsfilter configuration to file");
 		prefs_file_close_revert(pfile);
 		return;
 	}

@@ -41,7 +41,7 @@
 #include "prefs_common.h"
 #include "alertpanel.h"
 #include "gtk/menu.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
     #include "addressbook.h"
     #include "addrindex.h"
 #else
@@ -51,6 +51,11 @@
 #include "gtk/manage_window.h"
 #include "common/utils.h"
 #include "gtk/gtkutils.h"
+#include "inc.h"
+
+static void notification_trayicon_account_list_reset(const gchar *,
+														gpointer,
+														gboolean);
 
 static GdkPixbuf* notification_trayicon_create(void);
 
@@ -60,6 +65,7 @@ static gboolean notification_trayicon_on_size_changed(GtkStatusIcon*,
 						      gint, gpointer);
 
 static void trayicon_get_all_cb(GtkAction*, gpointer);
+static void trayicon_get_from_account_cb(GtkAction*, gpointer);
 static void trayicon_compose_cb(GtkAction*, gpointer);
 static void trayicon_compose_acc_cb(GtkMenuItem*, gpointer);
 static void trayicon_addressbook_cb(GtkAction*, gpointer);
@@ -108,10 +114,12 @@ G_LOCK_DEFINE_STATIC(trayicon_popup);
 static GtkStatusIcon *trayicon;
 static gboolean updating_menu = FALSE;
 static GtkWidget *traymenu_popup;
+static GtkWidget *focused_widget = NULL;
 
 static GtkActionEntry trayicon_popup_menu_entries[] = {
 	{"SysTrayiconPopup", NULL, "SysTrayiconPopup" },
 	{"SysTrayiconPopup/GetMail", NULL, N_("_Get Mail"), NULL, NULL, G_CALLBACK(trayicon_get_all_cb) },
+	{"SysTrayiconPopup/GetMailAcc", NULL, N_("_Get Mail from account"), NULL, NULL, NULL },
 	{"SysTrayiconPopup/---", NULL, "---" },
 	{"SysTrayiconPopup/Email", NULL, N_("_Email"), NULL, NULL, G_CALLBACK(trayicon_compose_cb) },
 	{"SysTrayiconPopup/EmailAcc", NULL, N_("E_mail from account"), NULL, NULL, NULL },
@@ -310,8 +318,10 @@ gboolean notification_trayicon_main_window_close(gpointer source, gpointer data)
       MainWindow *mainwin = mainwindow_get_mainwindow();
 
       *close_allowed = FALSE;
-      if(mainwin && gtk_widget_get_visible(GTK_WIDGET(mainwin->window)))
+      if(mainwin && gtk_widget_get_visible(GTK_WIDGET(mainwin->window))) {
+	focused_widget = gtk_window_get_focus(GTK_WINDOW(mainwin->window));
 	main_window_hide(mainwin);
+      }
     }
   }
   return FALSE;
@@ -333,40 +343,53 @@ gboolean notification_trayicon_main_window_got_iconified(gpointer source,
   return FALSE;
 }
 
-gboolean notification_trayicon_account_list_changed(gpointer source,
-						    gpointer data)
+static void notification_trayicon_account_list_reset(const gchar *menuname,
+													gpointer callback,
+													gboolean receive)
 {
-  GList *cur_ac;
+    GList *cur_ac;
 	GtkWidget *menu, *submenu;
-  GtkWidget *menuitem;
-  PrefsAccount *ac_prefs;
+    GtkWidget *menuitem;
+    PrefsAccount *ac_prefs;
 
-  GList *account_list = account_get_list();
+    GList *account_list = account_get_list();
 
-  if(!notify_config.trayicon_enabled)
-    return FALSE;
-
-	menu = gtk_ui_manager_get_widget(gtkut_ui_manager(), "/Menus/SysTrayiconPopup/EmailAcc");
+	menu = gtk_ui_manager_get_widget(gtkut_ui_manager(), menuname);
 	gtk_widget_show(menu);
 
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu), NULL);
 	submenu = gtk_menu_new();
 
-  for(cur_ac = account_list; cur_ac != NULL; cur_ac = cur_ac->next) {
-    ac_prefs = (PrefsAccount *)cur_ac->data;
+	for(cur_ac = account_list; cur_ac != NULL; cur_ac = cur_ac->next) {
+		ac_prefs = (PrefsAccount *)cur_ac->data;
 
-    menuitem = gtk_menu_item_new_with_label
-      (ac_prefs->account_name ? ac_prefs->account_name
-       : _("Untitled"));
-    gtk_widget_show(menuitem);
+		/* accounts list for receiving: skip SMTP-only accounts */
+		if (receive && ac_prefs->protocol == A_NONE)
+			continue;
+
+		menuitem = gtk_menu_item_new_with_label
+						(ac_prefs->account_name ? ac_prefs->account_name
+						: _("Untitled"));
+		gtk_widget_show(menuitem);
 		gtk_menu_shell_append(GTK_MENU_SHELL(submenu), menuitem);
-    g_signal_connect(G_OBJECT(menuitem), "activate",
-		     G_CALLBACK(trayicon_compose_acc_cb),
-		     ac_prefs);
-  }
+		g_signal_connect(G_OBJECT(menuitem), "activate",
+				G_CALLBACK(callback),
+				ac_prefs);
+	}
 	gtk_widget_show(submenu);
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu), submenu);
-  return FALSE;
+}
+
+gboolean notification_trayicon_account_list_changed(gpointer source,
+						    gpointer data)
+{
+	if (notify_config.trayicon_enabled) {
+	  	notification_trayicon_account_list_reset("/Menus/SysTrayiconPopup/GetMailAcc",
+												(gpointer)trayicon_get_from_account_cb, TRUE);
+		notification_trayicon_account_list_reset("/Menus/SysTrayiconPopup/EmailAcc",
+												(gpointer)trayicon_compose_acc_cb, FALSE);
+	}
+	return FALSE;
 }
 
 static GdkPixbuf* notification_trayicon_create(void)
@@ -395,6 +418,7 @@ static GdkPixbuf* notification_trayicon_create(void)
 
 	MENUITEM_ADDUI("/Menus", "SysTrayiconPopup", "SysTrayiconPopup", GTK_UI_MANAGER_MENU)
 	MENUITEM_ADDUI("/Menus/SysTrayiconPopup", "GetMail", "SysTrayiconPopup/GetMail", GTK_UI_MANAGER_MENUITEM)
+	MENUITEM_ADDUI("/Menus/SysTrayiconPopup", "GetMailAcc", "SysTrayiconPopup/GetMailAcc", GTK_UI_MANAGER_MENU)
 	MENUITEM_ADDUI("/Menus/SysTrayiconPopup", "Separator1", "SysTrayiconPopup/---", GTK_UI_MANAGER_SEPARATOR)
 	MENUITEM_ADDUI("/Menus/SysTrayiconPopup", "Email", "SysTrayiconPopup/Email", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI("/Menus/SysTrayiconPopup", "EmailAcc", "SysTrayiconPopup/EmailAcc", GTK_UI_MANAGER_MENU)
@@ -417,7 +441,15 @@ static GdkPixbuf* notification_trayicon_create(void)
 
 void notification_trayicon_on_activate(GtkStatusIcon *status_icon, gpointer user_data)
 {
+  MainWindow *mainwin = mainwindow_get_mainwindow();
+
+  if(mainwin && gtk_widget_get_visible(GTK_WIDGET(mainwin->window)) == TRUE)
+    focused_widget = gtk_window_get_focus(GTK_WINDOW(mainwin->window));
+
   notification_toggle_hide_show_window();
+
+  if(mainwin && gtk_widget_get_visible(GTK_WIDGET(mainwin->window)) == TRUE)
+    gtk_window_set_focus(GTK_WINDOW(mainwin->window), focused_widget);
 }
 
 static void notification_trayicon_on_popup_menu(GtkStatusIcon *status_icon,
@@ -437,17 +469,13 @@ static void notification_trayicon_on_popup_menu(GtkStatusIcon *status_icon,
 	cm_toggle_menu_set_active("SysTrayiconPopup/ShowBubbles", notify_config.trayicon_popup_enabled);
 #endif
 	cm_menu_set_sensitive("SysTrayiconPopup/GetMail", mainwin->lock_count == 0);
+	cm_menu_set_sensitive("SysTrayiconPopup/GetMailAcc", mainwin->lock_count == 0);
+	cm_menu_set_sensitive("SysTrayiconPopup/Exit", mainwin->lock_count == 0);
 
   updating_menu = FALSE;
 
-#ifndef G_OS_WIN32
   gtk_menu_popup(GTK_MENU(traymenu_popup), NULL, NULL, NULL, NULL,
 		 button, activate_time);
-#else
-  /* http://bugzilla.gnome.org/show_bug.cgi?id=552642 */
-  gtk_menu_popup(GTK_MENU(traymenu_popup), NULL, NULL, NULL, NULL,
-		 0, activate_time);
-#endif
 }
 
 static gboolean notification_trayicon_on_size_changed(GtkStatusIcon *icon,
@@ -465,6 +493,13 @@ static void trayicon_get_all_cb(GtkAction *action, gpointer data)
   inc_all_account_mail_cb(mainwin, 0, NULL);
 }
 
+static void trayicon_get_from_account_cb(GtkAction *action, gpointer data)
+{
+  MainWindow *mainwin = mainwindow_get_mainwindow();
+  PrefsAccount *account = (PrefsAccount *)data;
+  inc_account_mail(mainwin, account);
+}
+
 static void trayicon_compose_cb(GtkAction *action, gpointer data)
 {
   MainWindow *mainwin = mainwindow_get_mainwindow();
@@ -478,7 +513,7 @@ static void trayicon_compose_acc_cb(GtkMenuItem *menuitem, gpointer data)
 
 static void trayicon_addressbook_cb(GtkAction *action, gpointer data)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
     addressbook_open(NULL);
 #else
     GError* error = NULL;
@@ -654,7 +689,7 @@ static gboolean notification_trayicon_popup_create(MsgInfo *msginfo,
 
   /* Icon */
   pixbuf = NULL;
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
   if(msginfo && msginfo->from) {
     gchar *icon_path;
     icon_path = addrindex_get_picture_file(msginfo->from);
@@ -888,7 +923,7 @@ static gchar* notification_trayicon_popup_assemble_body(MsgInfo *msginfo)
 		      		     "%d new mail messages arrived",
 		            popup.num_mail),
 			    popup.num_mail);
-      tmp = g_strdup_printf("%s%s%s",utf8_str,str_empty?"":"\n",msg);
+      tmp = g_strdup_printf("%s%s%s",utf8_str,"",msg);
       g_free(msg);
       g_free(utf8_str);
       utf8_str = tmp;

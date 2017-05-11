@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,11 +14,10 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
-#  include "config.h"
+#include "config.h"
 #include "claws-features.h"
 #endif
 
@@ -60,7 +59,7 @@
 #include "stock_pixmap.h"
 #include "prefswindow.h"
 #include "colorlabel.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addrcustomattr.h"
 #endif
 
@@ -122,6 +121,16 @@ static PrefParam param_os_specific[] = {
 	/* Interface */
 	{"pixmap_theme_path", DEFAULT_PIXMAP_THEME, 
 	 &prefs_common.pixmap_theme_path, P_STRING, NULL, NULL, NULL},
+#ifdef HAVE_SVG
+	{"enable_alpha_svg", "TRUE",
+	 &prefs_common.enable_alpha_svg, P_BOOL, NULL, NULL, NULL},
+	{"enable_pixmap_scaling", "TRUE",
+	 &prefs_common.enable_pixmap_scaling, P_BOOL, NULL, NULL, NULL},
+	{"pixmap_scaling_auto", "TRUE",
+	 &prefs_common.pixmap_scaling_auto, P_BOOL, NULL, NULL, NULL},
+	{"pixmap_scaling_ppi", "96",
+	 &prefs_common.pixmap_scaling_ppi, P_INT, NULL, NULL, NULL},
+#endif
 
 	/* Other */
 	{"ext_editor_command", "notepad %s",
@@ -141,6 +150,9 @@ static PrefParam param_os_specific[] = {
  */
 
 static PrefParam param[] = {
+	{"config_version", "0",
+	 &prefs_common.config_version, P_INT, NULL, NULL, NULL},
+
 	/* Receive */
 	{"use_ext_inc", "FALSE", &prefs_common.use_extinc, P_BOOL,
 	 NULL, NULL, NULL},
@@ -149,7 +161,7 @@ static PrefParam param[] = {
 
 	{"autochk_newmail", "FALSE", &prefs_common.autochk_newmail, P_BOOL,
 	 NULL, NULL, NULL},
-	{"autochk_interval", "10", &prefs_common.autochk_itv, P_INT,
+	{"autochk_interval", "600", &prefs_common.autochk_itv, P_INT,
 	 NULL, NULL, NULL},
 	{"check_on_startup", "FALSE", &prefs_common.chk_on_startup, P_BOOL,
 	 NULL, NULL, NULL},
@@ -197,9 +209,14 @@ static PrefParam param[] = {
 	 NULL, NULL, NULL},
 	{"outgoing_fallback_to_ascii", "TRUE", &prefs_common.outgoing_fallback_to_ascii, P_BOOL,
 	 NULL, NULL, NULL},
-        {"warn_empty_subj", "TRUE", &prefs_common.warn_empty_subj,
+	 {"rewrite_first_from", "TRUE", &prefs_common.rewrite_first_from,
+	  P_BOOL, NULL, NULL, NULL},
+	{"warn_empty_subj", "TRUE", &prefs_common.warn_empty_subj,
 	 P_BOOL, NULL, NULL, NULL},
-
+	{"warn_sending_many_recipients_num", "0", &prefs_common.warn_sending_many_recipients_num, P_INT,
+	 NULL, NULL, NULL},
+	{"hide_timezone", "FALSE", &prefs_common.hide_timezone,
+	 P_BOOL, NULL, NULL, NULL},
 	{"allow_jisx0201_kana", "FALSE", &prefs_common.allow_jisx0201_kana,
 	 P_BOOL, NULL, NULL, NULL},
 
@@ -221,6 +238,8 @@ static PrefParam param[] = {
 	 &prefs_common.compose_body_format, P_STRING, NULL, NULL, NULL},
 	{"show_compose_margin", "FALSE", &prefs_common.show_compose_margin, P_BOOL,
 	 NULL, NULL, NULL},
+	{"type_any_header", "FALSE", &prefs_common.type_any_header, P_BOOL,
+	 NULL, NULL, NULL},
 	
 
 	{"linewrap_length", "72", &prefs_common.linewrap_len, P_INT,
@@ -239,7 +258,7 @@ static PrefParam param[] = {
 	 P_BOOL, NULL, NULL, NULL},
         {"autosave_length", "50", &prefs_common.autosave_length, P_INT,
 	 NULL, NULL, NULL},
-        {"autosave_encrypted", "TRUE", &prefs_common.autosave_encrypted,
+        {"autosave_encrypted", "FALSE", &prefs_common.autosave_encrypted,
 	 P_BOOL, NULL, NULL, NULL},
         {"warn_large_insert", "TRUE", &prefs_common.warn_large_insert,
 	 P_BOOL, NULL, NULL, NULL},
@@ -308,19 +327,7 @@ static PrefParam param[] = {
 	 NULL, NULL, NULL},
 
 	/* Display */
-	/* Obsolete fonts. For coexisting with Gtk+-1.2 version */
-	{"widget_font",		NULL,
-	  &prefs_common.widgetfont_gtk1,	P_STRING, NULL, NULL, NULL},
-	{"message_font",	"-misc-fixed-medium-r-normal--14-*-*-*-*-*-*-*",
-	 &prefs_common.textfont_gtk1,		P_STRING, NULL, NULL, NULL},
-	{"small_font",		"-*-helvetica-medium-r-normal--10-*-*-*-*-*-*-*",
-	  &prefs_common.smallfont_gtk1,		P_STRING, NULL, NULL, NULL},
-	{"bold_font",		"-*-helvetica-bold-r-normal--12-*-*-*-*-*-*-*",
-	  &prefs_common.boldfont_gtk1,		P_STRING, NULL, NULL, NULL},
-	{"normal_font",		"-*-helvetica-medium-r-normal--12-*-*-*-*-*-*-*",
-	  &prefs_common.normalfont_gtk1,	P_STRING, NULL, NULL, NULL},
-
-	/* new fonts */
+	/* fonts */
 #ifndef GENERIC_UMPC
 	{"widget_font_gtk2",	NULL,
 	  &SPECIFIC_PREFS.widgetfont,		P_STRING, NULL, NULL, NULL},
@@ -435,6 +442,10 @@ static PrefParam param[] = {
 	 NULL, NULL, NULL},
 
 	/* Display: Summary View */
+	{"default_sort_key", "3", &prefs_common.default_sort_key, P_ENUM,
+	 NULL, NULL, NULL},
+	{"default_sort_type", "1", &prefs_common.default_sort_type, P_ENUM,
+	 NULL, NULL, NULL},
 	{"use_address_book", "FALSE", &prefs_common.use_addr_book, P_BOOL,
 	 NULL, NULL, NULL},
 	{"thread_by_subject", "TRUE", &prefs_common.thread_by_subject, P_BOOL,
@@ -444,7 +455,10 @@ static PrefParam param[] = {
 	{"msgview_date_format", "FALSE", &prefs_common.msgview_date_format, P_BOOL,
 	 NULL, NULL, NULL},
 
-	{"bold_unread", "TRUE", &prefs_common.bold_unread, P_BOOL,
+	{"next_on_delete", "FALSE", &prefs_common.next_on_delete, P_BOOL,
+	 NULL, NULL, NULL},
+
+	 {"bold_unread", "TRUE", &prefs_common.bold_unread, P_BOOL,
 	 NULL, NULL, NULL},
 
 	{"enable_thread", "TRUE", &prefs_common.enable_thread, P_BOOL,
@@ -712,6 +726,23 @@ static PrefParam param[] = {
 	{"recycle_quote_colors", "FALSE", &prefs_common.recycle_quote_colors,
 	 P_BOOL, NULL, NULL, NULL},
 
+	{"default_header_color", "#000000", &prefs_common.default_header_color, P_COLOR,
+	 NULL, NULL, NULL},
+	{"default_header_bgcolor", "#f5f6be", &prefs_common.default_header_bgcolor, P_COLOR,
+	 NULL, NULL, NULL},
+	{"tags_color", "#000000", &prefs_common.tags_color, P_COLOR,
+	 NULL, NULL, NULL},
+	{"tags_bgcolor", "#f5f6be", &prefs_common.tags_bgcolor, P_COLOR,
+	 NULL, NULL, NULL},
+	{"qs_active_color", "#000000", &prefs_common.qs_active_color, P_COLOR,
+	 NULL, NULL, NULL},
+	{"qs_active_bgcolor", "#f5f6be", &prefs_common.qs_active_bgcolor, P_COLOR,
+	 NULL, NULL, NULL},
+	{"qs_error_color", "#000000", &prefs_common.qs_error_color, P_COLOR,
+	 NULL, NULL, NULL},
+	{"qs_error_bgcolor", "#ff7070", &prefs_common.qs_error_bgcolor, P_COLOR,
+	 NULL, NULL, NULL},
+
 	{"display_header_pane", "FALSE", &prefs_common.display_header_pane,
 	 P_BOOL, NULL, NULL, NULL},
 	{"display_header", "TRUE", &prefs_common.display_header, P_BOOL,
@@ -757,7 +788,7 @@ static PrefParam param[] = {
 	/* MIME viewer */
 	{"mime_textviewer",   NULL,
 	 &SPECIFIC_PREFS.mime_textviewer,   P_STRING, NULL, NULL, NULL},
-	{"mime_open_command", "gedit '%s'",
+	{"mime_open_command", "xdg-open '%s'",
 	 &SPECIFIC_PREFS.mime_open_cmd,     P_STRING, NULL, NULL, NULL},
 	{"show_inline_attachments", "TRUE", 
 	 &prefs_common.show_inline_attachments, P_BOOL, NULL, NULL, NULL},
@@ -772,9 +803,24 @@ static PrefParam param[] = {
 #endif
 	/* {"emulate_emacs", "FALSE", &prefs_common.emulate_emacs, P_BOOL,
 	 NULL, NULL, NULL}, */
-	{"always_show_message_when_selected", "0",
+	{"open_selected_message_on_folder_open", "FALSE",
+	 &prefs_common.open_selected_on_folder_open,
+	 P_BOOL, NULL, NULL, NULL},
+	{"open_selected_message_on_search_results", "FALSE",
+	 &prefs_common.open_selected_on_search_results,
+	 P_BOOL, NULL, NULL, NULL},
+	{"open_selected_message_on_prevnext", "FALSE",
+	 &prefs_common.open_selected_on_prevnext,
+	 P_BOOL, NULL, NULL, NULL},
+	{"open_selected_message_on_deletemove", "FALSE",
+	 &prefs_common.open_selected_on_deletemove,
+	 P_BOOL, NULL, NULL, NULL},
+	{"open_selected_message_on_directional", "FALSE",
+	 &prefs_common.open_selected_on_directional,
+	 P_BOOL, NULL, NULL, NULL},
+	{"always_show_message_when_selected", "FALSE",
 	 &prefs_common.always_show_msg,
-	 P_ENUM, NULL, NULL, NULL},
+	 P_BOOL, NULL, NULL, NULL},
 	{"select_on_entry", "3", &prefs_common.select_on_entry,
 	 P_ENUM, NULL, NULL, NULL},
 	{"show_tooltips", "TRUE", &prefs_common.show_tooltips,
@@ -812,6 +858,20 @@ static PrefParam param[] = {
 	{"pixmap_theme_path", DEFAULT_PIXMAP_THEME, 
 	 &SPECIFIC_PREFS.pixmap_theme_path, P_STRING,
 	 NULL, NULL, NULL},
+#ifdef HAVE_SVG
+	{"enable_alpha_svg", "TRUE",
+	 &SPECIFIC_PREFS.enable_alpha_svg, P_BOOL,
+	 NULL, NULL, NULL},
+	{"enable_pixmap_scaling", "TRUE",
+	 &SPECIFIC_PREFS.enable_pixmap_scaling, P_BOOL,
+	 NULL, NULL, NULL},
+	{"pixmap_scaling_auto", "TRUE",
+	 &SPECIFIC_PREFS.pixmap_scaling_auto, P_BOOL,
+	 NULL, NULL, NULL},
+	{"pixmap_scaling_ppi", "96",
+	 &SPECIFIC_PREFS.pixmap_scaling_ppi, P_INT,
+	 NULL, NULL, NULL},
+#endif
 
 	{"ask_mark_all_read", "TRUE", &prefs_common.ask_mark_all_read, P_BOOL,
 	 NULL, NULL, NULL},
@@ -1180,6 +1240,12 @@ static PrefParam param[] = {
 	{"address_search_wildcard", "TRUE", &prefs_common.address_search_wildcard, P_BOOL,
 	 NULL, NULL, NULL},
 	{"enable_avatars", "3", &prefs_common.enable_avatars, P_INT, NULL, NULL, NULL},
+#ifndef PASSWORD_CRYPTO_OLD
+	{"use_master_passphrase", FALSE, &prefs_common.use_master_passphrase, P_BOOL, NULL, NULL, NULL },
+	{"master_passphrase", "", &prefs_common.master_passphrase, P_STRING, NULL, NULL, NULL },
+	{"master_passphrase_salt", "", &prefs_common.master_passphrase_salt, P_STRING, NULL, NULL, NULL },
+	{"master_passphrase_pbkdf2_rounds", "50000", &prefs_common.master_passphrase_pbkdf2_rounds, P_INT, NULL, NULL, NULL},
+#endif
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
 };
@@ -1274,7 +1340,7 @@ void prefs_common_read_config(void)
 		prefs_common_read_history(MESSAGE_SEARCH_HISTORY);
 	prefs_common.compose_save_to_history =
 		prefs_common_read_history(COMPOSE_SAVE_TO_HISTORY);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	prefs_common.addressbook_custom_attributes = addressbook_update_custom_attr_from_prefs();
 #endif
 	colorlabel_update_colortable_from_prefs();
@@ -1283,7 +1349,7 @@ void prefs_common_read_config(void)
 #define TRY(func) \
 if (!(func)) \
 { \
-	g_warning("failed to write\n"); \
+	g_warning("failed to write"); \
 	goto out;			\
 } \
 
@@ -1373,7 +1439,7 @@ void prefs_common_write_config(void)
 	prefs_common_save_history(COMPOSE_SAVE_TO_HISTORY, 
 		prefs_common.compose_save_to_history);
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 		prefs_common_save_history_to_dir(ADDRBOOK_DIR,
 		ADDRESSBOOK_CUSTOM_ATTRIBUTES, 
 		prefs_common.addressbook_custom_attributes);

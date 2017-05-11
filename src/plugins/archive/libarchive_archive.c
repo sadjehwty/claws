@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2008 Michael Rasmussen and the Claws Mail Team
+ * Copyright (C) 1999-2017 Michael Rasmussen and the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -157,9 +156,9 @@ static GDate* iso2GDate(const gchar* date) {
 
     gdate = g_date_new();
     parts = g_strsplit(date, "-", 3);
-    if (! is_iso_string(parts))
-        return NULL;
     if (!parts)
+        return NULL;
+    if (! is_iso_string(parts))
         return NULL;
     for (i = 0; i < 3; i++) {
         int t = atoi(parts[i]);
@@ -199,7 +198,7 @@ gboolean before_date(time_t msg_mtime, const gchar* before) {
 
     debug_print("Cut-off date: %s\n", before);
     if ((date = iso2GDate(before)) == NULL) {
-        g_warning("Bad date format: %s\n", before);
+        g_warning("Bad date format: %s", before);
         return FALSE;
     }
 
@@ -214,7 +213,7 @@ gboolean before_date(time_t msg_mtime, const gchar* before) {
     }
 
     if (! g_date_valid(file_t)) {
-        g_warning("Invalid msg date\n");
+        g_warning("Invalid msg date");
         return FALSE;
     }
 
@@ -285,18 +284,10 @@ static void archive_add_to_list(struct file_info* file) {
 }
 
 static gchar* strip_leading_dot_slash(gchar* path) {
-	gchar* stripped = path;
-	gchar* result = NULL;
+	if (path && strlen(path) > 1 && path[0] == '.' && path[1] == '/')
+		return g_strdup(&(path[2]));
 
-	if (stripped && stripped[0] == '.') {
-		++stripped;
-	if (stripped && stripped[0] == '/')
-		++stripped;
-		result = g_strdup(stripped);
-	}
-	else
-		result = g_strdup(path);
-	return result;
+	return g_strdup(path);
 }
 
 static gchar* get_full_path(struct file_info* file) {
@@ -349,7 +340,7 @@ static int archive_copy_data(struct archive* in, struct archive* out) {
 #endif
 
 void archive_add_file(gchar* path) {
-	struct file_info* file = archive_new_file_info();
+	struct file_info* file;
 	gchar* filename = NULL;
 
 	g_return_if_fail(path != NULL);
@@ -359,10 +350,11 @@ void archive_add_file(gchar* path) {
 #endif
 	filename = g_strrstr_len(path, strlen(path), "/");
 	if (! filename)
-		g_warning("%s\n", path);
+		g_warning("no filename in path '%s'", path);
 	g_return_if_fail(filename != NULL);
 
 	filename++;
+	file = archive_new_file_info();
 	file->name = g_strdup(filename);
 	file->path = strip_leading_dot_slash(dirname(path));
 	archive_add_to_list(file);
@@ -393,10 +385,7 @@ const gchar* archive_extract(const char* archive_name, int flags) {
 			if ((res = archive_read_open_filename(
 #endif
 				in, archive_name, READ_BLOCK_SIZE)) != ARCHIVE_OK) {
-				buf = g_strdup_printf(
-						"%s: %s\n", archive_name, archive_error_string(in));
-				g_warning("%s\n", buf);
-				g_free(buf);
+				g_warning("%s: %s", archive_name, archive_error_string(in));
 				result = archive_error_string(in);
 			}
 			else {
@@ -405,23 +394,16 @@ const gchar* archive_extract(const char* archive_name, int flags) {
 								out, flags)) == ARCHIVE_OK) {
 					res = archive_read_next_header(in, &entry);
 					while (res == ARCHIVE_OK) {
-						fprintf(stdout, "%s\n", archive_entry_pathname(entry));
 						res = archive_write_header(out, entry);
 						if (res != ARCHIVE_OK) {
-							buf = g_strdup_printf("%s\n", 
-											archive_error_string(out));
-							g_warning("%s\n", buf);
-							g_free(buf);
+							g_warning("%s", archive_error_string(out));
 							/* skip this file an continue */
 							res = ARCHIVE_OK;
 						}
 						else {
 							res = archive_copy_data(in, out);
 							if (res != ARCHIVE_OK) {
-								buf = g_strdup_printf("%s\n", 
-												archive_error_string(in));
-								g_warning("%s\n", buf);
-								g_free(buf);
+								g_warning("%s", archive_error_string(in));
 								/* skip this file an continue */
 								res = ARCHIVE_OK;
 							}
@@ -432,14 +414,9 @@ const gchar* archive_extract(const char* archive_name, int flags) {
 					if (res == ARCHIVE_EOF)
 						res = ARCHIVE_OK;
 					if (res != ARCHIVE_OK) {
-						buf = g_strdup_printf("%s\n", archive_error_string(in));
-						if (*buf == '\n') {
-							g_free(buf);
-							buf = g_strdup_printf("%s: Unknown error\n", archive_name);
-						}
-						g_warning("%s\n", buf);
-						g_free(buf);
-						result = archive_error_string(in);
+						gchar *e = archive_error_string(in);
+						g_warning("%s: %s", archive_name, e? e: "unknown error");
+						result = e;
 					}
 				}
 				else
@@ -483,7 +460,7 @@ const gchar* archive_create(const char* archive_name, GSList* files,
 	debug_print("File: %s\n", archive_name);
 	arch = archive_write_new();
 	switch (method) {
-		case ZIP:
+		case GZIP:
 #if ARCHIVE_VERSION_NUMBER < 3000000
 			if (archive_write_set_compression_gzip(arch) != ARCHIVE_OK)
 #else
@@ -507,6 +484,50 @@ const gchar* archive_create(const char* archive_name, GSList* files,
 #endif
     			        return archive_error_string(arch);
 			break;
+#if ARCHIVE_VERSION_NUMBER >= 2006990
+		case LZMA:
+#if ARCHIVE_VERSION_NUMBER < 3000000
+			if (archive_write_set_compression_lzma(arch) != ARCHIVE_OK)
+#else
+			if (archive_write_add_filter_lzma(arch) != ARCHIVE_OK)
+#endif
+				return archive_error_string(arch);
+			break;
+		case XZ:
+#if ARCHIVE_VERSION_NUMBER < 3000000
+			if (archive_write_set_compression_xz(arch) != ARCHIVE_OK)
+#else
+			if (archive_write_add_filter_xz(arch) != ARCHIVE_OK)
+#endif
+				return archive_error_string(arch);
+			break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3000000
+		case LZIP:
+			if (archive_write_add_filter_lzip(arch) != ARCHIVE_OK)
+				return archive_error_string(arch);
+			break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001000
+		case LRZIP:
+			if (archive_write_add_filter_lrzip(arch) != ARCHIVE_OK)
+				return archive_error_string(arch);
+			break;
+		case LZOP:
+			if (archive_write_add_filter_lzop(arch) != ARCHIVE_OK)
+				return archive_error_string(arch);
+			break;
+		case GRZIP:
+			if (archive_write_add_filter_grzip(arch) != ARCHIVE_OK)
+				return archive_error_string(arch);
+			break;
+#endif
+#if ARCHIVE_VERSION_NUMBER >= 3001900
+		case LZ4:
+			if (archive_write_add_filter_lz4(arch) != ARCHIVE_OK)
+				return archive_error_string(arch);
+			break;
+#endif
 		case NO_COMPRESS:
 #if ARCHIVE_VERSION_NUMBER < 3000000
 			if (archive_write_set_compression_none(arch) != ARCHIVE_OK)
@@ -553,14 +574,10 @@ const gchar* archive_create(const char* archive_name, GSList* files,
 		filename = get_full_path(file);
 		/* libarchive will crash if instructed to add archive to it self */
 		if (g_utf8_collate(archive_name, filename) == 0) {
-			buf = NULL;
-			buf = g_strdup_printf(
-						"%s: Not dumping to %s", archive_name, filename);
-			g_warning("%s\n", buf);
+			g_warning("%s: not dumping to '%s'", archive_name, filename);
 #ifndef _TEST
-			debug_print("%s\n", buf);
+			debug_print("%s: not dumping to '%s'\n", archive_name, filename);
 #endif
-			g_free(buf);
 		}
 		else {
 #ifndef _TEST
@@ -570,38 +587,41 @@ const gchar* archive_create(const char* archive_name, GSList* files,
 			g_free(msg);
 #endif
 			entry = archive_entry_new();
-			lstat(filename, &st);
 			if ((fd = open(filename, O_RDONLY)) == -1) {
-				perror("open file");
+				FILE_OP_ERROR(filename, "open");
 			}
 			else {
-				archive_entry_copy_stat(entry, &st);
-				archive_entry_set_pathname(entry, filename);
-				if (S_ISLNK(st.st_mode)) {
-					buf = NULL;
-					buf = malloc(PATH_MAX + 1);
-					if ((len = readlink(filename, buf, PATH_MAX)) < 0)
-						perror("error in readlink");
-					else
-						buf[len] = '\0';
-					archive_entry_set_symlink(entry, buf);
-					g_free(buf);
-					archive_entry_set_size(entry, 0);
-					archive_write_header(arch, entry);
-				}
-				else {
-					if (archive_write_header(arch, entry) != ARCHIVE_OK)
-						g_warning("%s", archive_error_string(arch));
-					buf = NULL;
-					buf = malloc(READ_BLOCK_SIZE);
-					len = read(fd, buf, READ_BLOCK_SIZE);
-					while (len > 0) {
-						if (archive_write_data(arch, buf, len) == -1)
-							g_warning("%s", archive_error_string(arch));
-						memset(buf, 0, READ_BLOCK_SIZE);
-						len = read(fd, buf, READ_BLOCK_SIZE);
+				if (lstat(filename, &st) == -1) {
+					FILE_OP_ERROR(filename, "lstat");
+				} else {
+					archive_entry_copy_stat(entry, &st);
+					archive_entry_set_pathname(entry, filename);
+					if (S_ISLNK(st.st_mode)) {
+						if ((buf = malloc(PATH_MAX + 1)) != NULL) {
+							if ((len = readlink(filename, buf, PATH_MAX)) < 0) {
+								FILE_OP_ERROR(filename, "readlink");
+							} else
+								buf[len] = '\0';
+							archive_entry_set_symlink(entry, buf);
+							g_free(buf);
+							archive_entry_set_size(entry, 0);
+							archive_write_header(arch, entry);
+						}
 					}
-					g_free(buf);
+					else {
+						if (archive_write_header(arch, entry) != ARCHIVE_OK)
+							g_warning("%s", archive_error_string(arch));
+						if ((buf = malloc(READ_BLOCK_SIZE)) != NULL) {
+							len = read(fd, buf, READ_BLOCK_SIZE);
+							while (len > 0) {
+								if (archive_write_data(arch, buf, len) == -1)
+									g_warning("%s", archive_error_string(arch));
+								memset(buf, 0, READ_BLOCK_SIZE);
+								len = read(fd, buf, READ_BLOCK_SIZE);
+							}
+							g_free(buf);
+						}
+					}
 				}
 				close(fd);
 				archive_entry_free(entry);
@@ -727,3 +747,8 @@ int main(int argc, char** argv) {
 	return EXIT_SUCCESS;
 }
 #endif
+
+void archiver_set_tooltip(GtkWidget* widget, gchar* text) {
+    gtk_widget_set_tooltip_text(widget, text);
+    g_free(text);
+}

@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -823,7 +822,7 @@ static void addressbook_edit_person_clear_picture(void)
 {
 	GdkPixbuf *pixbuf;
 
-	stock_pixbuf_gdk(NULL, STOCK_PIXMAP_ANONYMOUS, &pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_ANONYMOUS, &pixbuf);
 	personeditdlg.picture_set = FALSE;
 	cm_menu_set_sensitive("EditAddressPopup/UnsetPicture", personeditdlg.picture_set);
 	gtk_image_set_from_pixbuf(GTK_IMAGE(personeditdlg.image), pixbuf);
@@ -955,8 +954,10 @@ static void addressbook_edit_person_page_basic( gint pageNum, gchar *pageLbl ) {
 #endif
 	locale = conv_get_current_locale();
 	if (locale &&
-	    (!g_ascii_strncasecmp(locale, "ja", 2) ||
+	    (!g_ascii_strncasecmp(locale, "hu", 2) ||
+	     !g_ascii_strncasecmp(locale, "ja", 2) ||
 	     !g_ascii_strncasecmp(locale, "ko", 2) ||
+	     !g_ascii_strncasecmp(locale, "vi", 2) ||
 	     !g_ascii_strncasecmp(locale, "zh", 2))) {
 		ATTACH_ROW(_("Last Name"), entry_ln);
 		ATTACH_ROW(_("First Name"), entry_fn);
@@ -1558,7 +1559,7 @@ static gboolean addressbook_edit_person_close( gboolean cancelled )
 	listEMail = NULL;
 	listAttrib = NULL;
 
-	if( ! cancelled ) {
+	if(!cancelled && current_person != NULL) {
 		/* Set current_person stuff */		
 
 		gchar *name;
@@ -1690,7 +1691,7 @@ ItemPerson *addressbook_edit_person( AddressBookFile *abf, ItemFolder *parent_fo
 			if (is_file_exist(filename)) {
 				pixbuf = gdk_pixbuf_new_from_file(filename, &error);
 				if (error) {
-					debug_print("Failed to import image: \n%s",
+					debug_print("Failed to import image: %s\n",
 							error->message);
 					g_error_free(error);
 					goto no_img;

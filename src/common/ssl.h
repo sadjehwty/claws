@@ -35,6 +35,10 @@ typedef enum {
 
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
+#if GNUTLS_VERSION_NUMBER >= 0x030000
+#include <gnutls/abstract.h>
+#endif
+
 #include "socket.h"
 
 void ssl_init				(void);
@@ -47,7 +51,7 @@ struct _SSLClientCertHookData
 {
 	const void *account;
 	const gchar *cert_path;
-	const gchar *password;
+	gchar *password;
 	gboolean is_smtp;
 };
 

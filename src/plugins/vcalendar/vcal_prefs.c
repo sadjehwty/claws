@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2007 Colin Leroy <colin@colino.net> and 
+ * Copyright (C) 1999-2016 Colin Leroy <colin@colino.net> and
  * the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,6 +30,7 @@
 #include "defs.h"
 
 #include "mainwindow.h"
+#include "passwordstore.h"
 #include "prefs.h"
 #include "prefs_gtk.h"
 #include "prefswindow.h"
@@ -38,6 +39,7 @@
 #include "vcalendar.h"
 #include "vcal_prefs.h"
 #include "vcal_folder.h"
+#include "vcal_dbus.h"
 
 #define PREFS_BLOCK_NAME "VCalendar"
 
@@ -46,7 +48,8 @@ struct VcalendarPage
 	PrefsPage page;
 	
 	GtkWidget *alert_enable_btn;
-	GtkWidget *alert_delay_spinbtn;
+	GtkWidget *alert_delay_h_spinbtn;
+	GtkWidget *alert_delay_m_spinbtn;
 
 	GtkWidget *export_enable_btn;
 	GtkWidget *export_subs_btn;
@@ -70,6 +73,7 @@ struct VcalendarPage
 	GtkWidget *freebusy_get_url_entry;
 	
 	GtkWidget *ssl_verify_peer_checkbtn;
+	GtkWidget *calendar_server_checkbtn;
 };
 
 VcalendarPrefs vcalprefs;
@@ -113,6 +117,9 @@ static PrefParam param[] = {
 	 NULL, NULL, NULL},
 
 	{"ssl_verify_peer", "TRUE", &vcalprefs.ssl_verify_peer, P_BOOL,
+	 NULL, NULL, NULL},
+
+	{"calendar_server", "FALSE", &vcalprefs.calendar_server, P_BOOL,
 	 NULL, NULL, NULL},
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
@@ -171,6 +178,19 @@ static void path_changed(GtkWidget *widget, gpointer data)
 	set_auth_sensitivity((struct VcalendarPage *)data);
 }
 
+static void alert_spinbutton_value_changed(GtkWidget *widget, gpointer data)
+{
+	struct VcalendarPage *page = (struct VcalendarPage *)data;
+	gint minutes = gtk_spin_button_get_value_as_int (
+		GTK_SPIN_BUTTON (page->alert_delay_m_spinbtn));
+	gint hours = gtk_spin_button_get_value_as_int (
+		GTK_SPIN_BUTTON (page->alert_delay_h_spinbtn));
+	if (minutes < 1 && hours == 0) {
+		gtk_spin_button_set_value (
+			GTK_SPIN_BUTTON (page->alert_delay_m_spinbtn), 1.0);
+	}
+}
+
 static gboolean orage_available(void)
 {
 	gchar *tmp = g_find_program_in_path("orage");
@@ -208,6 +228,16 @@ void register_orage_checkbtn_toggled(GtkToggleButton	*toggle_btn,
 	vcalprefs.orage_registered = gtk_toggle_button_get_active(toggle_btn);
 }
 
+void calendar_server_checkbtn_toggled(GtkToggleButton *toggle, GtkWidget *widget)
+{
+	gboolean active = gtk_toggle_button_get_active(toggle);
+	if (active)
+		connect_dbus();
+	else
+		disconnect_dbus();
+	vcalprefs.calendar_server = active;
+}
+
 static void vcal_prefs_create_widget_func(PrefsPage * _page,
 					   GtkWindow * window,
 					   gpointer data)
@@ -220,7 +250,8 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 	GtkWidget *frame_alert;
 	GtkWidget *alert_enable_checkbtn;
 	GtkObject *alert_enable_spinbtn_adj;
-	GtkWidget *alert_enable_spinbtn;
+	GtkWidget *alert_enable_h_spinbtn;
+	GtkWidget *alert_enable_m_spinbtn;
 	GtkWidget *label_alert_enable;
 
 	GtkWidget *frame_export;
@@ -230,6 +261,7 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 	GtkWidget *export_command_label;
 	GtkWidget *export_command_entry;
 	GtkWidget *register_orage_checkbtn;
+	GtkWidget *calendar_server_checkbtn;
 
 	GtkWidget *export_user_label;
 	GtkWidget *export_user_entry;
@@ -252,6 +284,8 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 
 	GtkWidget *frame_ssl_options;
 	GtkWidget *ssl_verify_peer_checkbtn;
+	gchar *export_pass = NULL;
+	gchar *export_freebusy_pass = NULL;
 
 	vbox1 = gtk_vbox_new (FALSE, VSPACING);
 	gtk_widget_show (vbox1);
@@ -276,23 +310,51 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 	gtk_widget_show (alert_enable_checkbtn);
 	gtk_box_pack_start(GTK_BOX (hbox1), alert_enable_checkbtn, FALSE, FALSE, 0);
 
-	alert_enable_spinbtn_adj = gtk_adjustment_new (10, 1, 24*60, 1, 10, 0);
-	alert_enable_spinbtn = gtk_spin_button_new
-		(GTK_ADJUSTMENT (alert_enable_spinbtn_adj), 1, 0);
-	gtk_widget_set_size_request (alert_enable_spinbtn, 64, -1);
-	gtk_widget_show (alert_enable_spinbtn);
-	gtk_box_pack_start(GTK_BOX (hbox1), alert_enable_spinbtn, FALSE, FALSE, 0);
-	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (alert_enable_spinbtn), TRUE);
+	alert_enable_spinbtn_adj = gtk_adjustment_new (0, 0, 24, 1, 10, 0);
+	alert_enable_h_spinbtn = gtk_spin_button_new (
+		GTK_ADJUSTMENT (alert_enable_spinbtn_adj), 1, 0);
+	gtk_widget_set_size_request (alert_enable_h_spinbtn, 64, -1);
+	gtk_spin_button_set_numeric (
+		GTK_SPIN_BUTTON (alert_enable_h_spinbtn), TRUE);
+	gtk_widget_show (alert_enable_h_spinbtn);
+	gtk_box_pack_start (
+		GTK_BOX (hbox1), alert_enable_h_spinbtn, FALSE, FALSE, 0);
+
+	label_alert_enable = gtk_label_new (_("hours"));
+	gtk_widget_show (label_alert_enable);
+	gtk_box_pack_start (
+		GTK_BOX (hbox1), label_alert_enable, FALSE, FALSE, 0);
+
+	alert_enable_spinbtn_adj = gtk_adjustment_new (0, 0, 59, 1, 10, 0);
+	alert_enable_m_spinbtn = gtk_spin_button_new (
+		GTK_ADJUSTMENT (alert_enable_spinbtn_adj), 1, 0);
+	gtk_widget_set_size_request (alert_enable_m_spinbtn, 64, -1);
+	gtk_spin_button_set_numeric (
+		GTK_SPIN_BUTTON (alert_enable_m_spinbtn), TRUE);
+	gtk_widget_show (alert_enable_m_spinbtn);
+	gtk_box_pack_start (
+		GTK_BOX (hbox1), alert_enable_m_spinbtn, FALSE, FALSE, 0);
 
 	label_alert_enable = gtk_label_new(_("minutes before an event"));
 	gtk_widget_show (label_alert_enable);
-	gtk_box_pack_start(GTK_BOX (hbox1), label_alert_enable, FALSE, FALSE, 0);
+	gtk_box_pack_start (
+		GTK_BOX (hbox1), label_alert_enable, FALSE, FALSE, 0);
 
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(alert_enable_checkbtn), 
+	gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(alert_enable_checkbtn),
 			vcalprefs.alert_enable);
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(alert_enable_spinbtn),
-			vcalprefs.alert_delay);
-	SET_TOGGLE_SENSITIVITY(alert_enable_checkbtn, alert_enable_spinbtn);
+	gtk_spin_button_set_value (GTK_SPIN_BUTTON(alert_enable_h_spinbtn),
+			vcalprefs.alert_delay / 60);
+	gtk_spin_button_set_value (GTK_SPIN_BUTTON(alert_enable_m_spinbtn),
+			vcalprefs.alert_delay % 60);
+	SET_TOGGLE_SENSITIVITY(alert_enable_checkbtn, alert_enable_h_spinbtn);
+	SET_TOGGLE_SENSITIVITY(alert_enable_checkbtn, alert_enable_m_spinbtn);
+
+	g_signal_connect(G_OBJECT(alert_enable_h_spinbtn), "value-changed",
+		G_CALLBACK(alert_spinbutton_value_changed),
+		(gpointer) page);
+	g_signal_connect(G_OBJECT(alert_enable_m_spinbtn), "value-changed",
+		G_CALLBACK(alert_spinbutton_value_changed),
+		(gpointer) page);
 
 /* calendar export */
 /* export enable + path stuff */
@@ -348,7 +410,7 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 	gtk_widget_show (hbox2);
 	gtk_box_pack_start(GTK_BOX (vbox3), hbox2, TRUE, TRUE, 0);
 
-	export_subs_checkbtn = gtk_check_button_new_with_label(_("Include webcal subscriptions in export"));
+	export_subs_checkbtn = gtk_check_button_new_with_label(_("Include Webcal subscriptions in export"));
 	gtk_widget_show(export_subs_checkbtn);
 	gtk_box_pack_start(GTK_BOX (hbox2), export_subs_checkbtn, FALSE, FALSE, 0);
 	SET_TOGGLE_SENSITIVITY(export_enable_checkbtn, export_subs_checkbtn);
@@ -398,6 +460,19 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 			 G_CALLBACK(register_orage_checkbtn_toggled), NULL); 
 	gtk_widget_show (register_orage_checkbtn);
 	gtk_box_pack_start(GTK_BOX (hbox3), register_orage_checkbtn, TRUE, TRUE, 0);
+
+	hbox3 = gtk_hbox_new (FALSE, 8);
+	gtk_widget_show (hbox3);
+	gtk_box_pack_start(GTK_BOX (vbox3), hbox3, TRUE, TRUE, 0);
+	calendar_server_checkbtn = gtk_check_button_new_with_label(_("Export as GNOME shell calendar server"));
+	CLAWS_SET_TIP(calendar_server_checkbtn,
+		      _("Register D-Bus calendar server interface to export Claws Mail's calendar"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(calendar_server_checkbtn),
+				     vcalprefs.calendar_server);
+	g_signal_connect(G_OBJECT(calendar_server_checkbtn), "toggled",
+			 G_CALLBACK(calendar_server_checkbtn_toggled), NULL);
+	gtk_widget_show(calendar_server_checkbtn);
+	gtk_box_pack_start(GTK_BOX(hbox3), calendar_server_checkbtn, TRUE, TRUE, 0);
 
 /* freebusy export */
 /* export enable + path stuff */
@@ -503,7 +578,7 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 			vcalprefs.freebusy_get_url);
 
 /* SSL frame */
-	PACK_FRAME(vbox2, frame_ssl_options, _("SSL options"));
+	PACK_FRAME(vbox2, frame_ssl_options, _("SSL/TLS options"));
 	vbox3 = gtk_vbox_new (FALSE, 8);
 	gtk_widget_show (vbox3);
 	gtk_container_add (GTK_CONTAINER (frame_ssl_options), vbox3);
@@ -515,7 +590,7 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 	gtk_box_pack_start(GTK_BOX (vbox3), hbox2, TRUE, TRUE, 0);
 
 	ssl_verify_peer_checkbtn = gtk_check_button_new_with_label(
-		_("Verify SSL certificate validity"));
+		_("Verify SSL/TLS certificate validity"));
 	gtk_widget_show(ssl_verify_peer_checkbtn);
 	gtk_box_pack_start(GTK_BOX (hbox2), ssl_verify_peer_checkbtn, FALSE, FALSE, 0);
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ssl_verify_peer_checkbtn), 
@@ -523,17 +598,26 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 
 	if (!vcalprefs.export_user)
 		vcalprefs.export_user = g_strdup("");
-	if (!vcalprefs.export_pass)
-		vcalprefs.export_pass = g_strdup("");
 	if (!vcalprefs.export_freebusy_user)
 		vcalprefs.export_freebusy_user = g_strdup("");
-	if (!vcalprefs.export_freebusy_pass)
-		vcalprefs.export_freebusy_pass = g_strdup("");
+
+	export_pass = vcal_passwd_get("export");
+	export_freebusy_pass = vcal_passwd_get("export_freebusy");
 
 	gtk_entry_set_text(GTK_ENTRY(export_user_entry), vcalprefs.export_user);
-	gtk_entry_set_text(GTK_ENTRY(export_pass_entry), vcalprefs.export_pass);
+	gtk_entry_set_text(GTK_ENTRY(export_pass_entry), (export_pass != NULL ? export_pass : ""));
 	gtk_entry_set_text(GTK_ENTRY(export_freebusy_user_entry), vcalprefs.export_freebusy_user);
-	gtk_entry_set_text(GTK_ENTRY(export_freebusy_pass_entry), vcalprefs.export_freebusy_pass);
+	gtk_entry_set_text(GTK_ENTRY(export_freebusy_pass_entry), (export_freebusy_pass != NULL ? export_freebusy_pass : ""));
+
+	if (export_pass != NULL) {
+		memset(export_pass, 0, strlen(export_pass));
+	}
+	g_free(export_pass);
+
+	if (export_freebusy_pass != NULL) {
+		memset(export_freebusy_pass, 0, strlen(export_freebusy_pass));
+	}
+	g_free(export_freebusy_pass);
 
 	g_signal_connect(G_OBJECT(export_enable_checkbtn),
 			 "toggled", G_CALLBACK(path_changed), page);
@@ -545,7 +629,8 @@ static void vcal_prefs_create_widget_func(PrefsPage * _page,
 			 "changed", G_CALLBACK(path_changed), page);
 
 	page->alert_enable_btn = alert_enable_checkbtn;
-	page->alert_delay_spinbtn = alert_enable_spinbtn;
+	page->alert_delay_h_spinbtn = alert_enable_h_spinbtn;
+	page->alert_delay_m_spinbtn = alert_enable_m_spinbtn;
 
 	page->export_enable_btn = export_enable_checkbtn;
 	page->export_subs_btn = export_subs_checkbtn;
@@ -583,6 +668,7 @@ void vcal_prefs_save(void)
 {
 	PrefFile *pfile;
 	gchar *rcpath;
+
 	rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, COMMON_RC, NULL);
 	pfile = prefs_write_open(rcpath);
 	g_free(rcpath);
@@ -590,7 +676,7 @@ void vcal_prefs_save(void)
 		return;
 
 	if (prefs_write_param(param, pfile->fp) < 0) {
-		g_warning("failed to write Vcalendar configuration to file\n");
+		g_warning("failed to write vCalendar configuration to file");
 		prefs_file_close_revert(pfile);
 		return;
 	}
@@ -604,14 +690,17 @@ void vcal_prefs_save(void)
 static void vcal_prefs_save_func(PrefsPage * _page)
 {
 	struct VcalendarPage *page = (struct VcalendarPage *) _page;
+	gchar *pass;
 
 /* alert */
 	vcalprefs.alert_enable =
 	    gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON
 					 (page->alert_enable_btn));
 	vcalprefs.alert_delay =
-		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON
-						 (page->alert_delay_spinbtn));
+		60 * gtk_spin_button_get_value_as_int (
+			GTK_SPIN_BUTTON(page->alert_delay_h_spinbtn))
+		+ gtk_spin_button_get_value_as_int (
+			GTK_SPIN_BUTTON(page->alert_delay_m_spinbtn));
 
 /* calendar export */
 	vcalprefs.export_enable = 
@@ -633,9 +722,11 @@ static void vcal_prefs_save_func(PrefsPage * _page)
 	g_free(vcalprefs.export_user);
 	vcalprefs.export_user =
 	    gtk_editable_get_chars(GTK_EDITABLE(page->export_user_entry), 0, -1);
-	g_free(vcalprefs.export_pass);
-	vcalprefs.export_pass =
-	    gtk_editable_get_chars(GTK_EDITABLE(page->export_pass_entry), 0, -1);
+	pass = gtk_editable_get_chars(GTK_EDITABLE(page->export_pass_entry), 0, -1);
+	
+	vcal_passwd_set("export", pass);
+	memset(pass, 0, strlen(pass));
+	g_free(pass);
 	
 /* free/busy export */
 	vcalprefs.export_freebusy_enable = 
@@ -653,10 +744,11 @@ static void vcal_prefs_save_func(PrefsPage * _page)
 	g_free(vcalprefs.export_freebusy_user);
 	vcalprefs.export_freebusy_user =
 	    gtk_editable_get_chars(GTK_EDITABLE(page->export_freebusy_user_entry), 0, -1);
-	g_free(vcalprefs.export_freebusy_pass);
-	vcalprefs.export_freebusy_pass =
-	    gtk_editable_get_chars(GTK_EDITABLE(page->export_freebusy_pass_entry), 0, -1);
-	
+	pass = gtk_editable_get_chars(GTK_EDITABLE(page->export_freebusy_pass_entry), 0, -1);
+
+	vcal_passwd_set("export_freebusy", pass);
+	memset(pass, 0, strlen(pass));
+	g_free(pass);
 
 /* free/busy import */
 	g_free(vcalprefs.freebusy_get_url);
@@ -669,6 +761,7 @@ static void vcal_prefs_save_func(PrefsPage * _page)
 					 (page->ssl_verify_peer_checkbtn));
 
 	vcal_prefs_save();
+	passwd_store_write_config();
 	vcal_folder_export(NULL);
 }
 
@@ -676,15 +769,37 @@ void vcal_prefs_init(void)
 {
 	static gchar *path[3];
 	gchar *rcpath;
+	gboolean passwords_migrated = FALSE;
 
 	path[0] = _("Plugins");
-	path[1] = _("vCalendar");
+	path[1] = _(PLUGIN_NAME);
 	path[2] = NULL;
 
 	prefs_set_default(param);
 	rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, COMMON_RC, NULL);
 	prefs_read_config(param, PREFS_BLOCK_NAME, rcpath, NULL);
 	g_free(rcpath);
+
+	/* Move passwords that are still in main config to password store. */
+	if (vcalprefs.export_pass != NULL &&
+			strlen(vcalprefs.export_pass) > 0) {
+		passwd_store_set(PWS_PLUGIN, PLUGIN_NAME, "export",
+				vcalprefs.export_pass, TRUE);
+		passwords_migrated = TRUE;
+		memset(vcalprefs.export_pass, 0, strlen(vcalprefs.export_pass));
+		g_free(vcalprefs.export_pass);
+	}
+	if (vcalprefs.export_freebusy_pass != NULL &&
+			strlen(vcalprefs.export_freebusy_pass) > 0) {
+		passwd_store_set(PWS_PLUGIN, PLUGIN_NAME, "export",
+				vcalprefs.export_freebusy_pass, TRUE);
+		passwords_migrated = TRUE;
+		memset(vcalprefs.export_freebusy_pass, 0, strlen(vcalprefs.export_freebusy_pass));
+		g_free(vcalprefs.export_freebusy_pass);
+	}
+
+	if (passwords_migrated)
+		passwd_store_write_config();
 
 	vcal_prefs_page.page.path = path;
 	vcal_prefs_page.page.create_widget = vcal_prefs_create_widget_func;

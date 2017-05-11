@@ -116,7 +116,7 @@ static gint save_new_message(MsgInfo *oldmsg, MsgInfo *newmsg, MimeInfo *info,
 	
 	finalmsg = procmsg_msginfo_new_from_mimeinfo(newmsg, info);
 	if (!finalmsg) {
-		procmsg_msginfo_free(newmsg);
+		procmsg_msginfo_free(&newmsg);
 		return -1;
 	}
 
@@ -133,14 +133,14 @@ static gint save_new_message(MsgInfo *oldmsg, MsgInfo *newmsg, MimeInfo *info,
 	msgnum = folder_item_add_msg(item, finalmsg->plaintext_file, 
 			&flags, TRUE);
 	finalmsg->msgnum = msgnum;
-	procmsg_msginfo_free(newmsg);
-	procmsg_msginfo_free(finalmsg);
+	procmsg_msginfo_free(&newmsg);
+	procmsg_msginfo_free(&finalmsg);
 		
 	newmsg = folder_item_get_msginfo(item, msgnum);
 	if (newmsg && item) {
 		procmsg_msginfo_unset_flags(newmsg, ~0, ~0);
 		procmsg_msginfo_set_flags(newmsg, flags.perm_flags, flags.tmp_flags);
-		procmsg_msginfo_free(newmsg);
+		procmsg_msginfo_free(&newmsg);
 	}
 	
 	return msgnum;
@@ -168,12 +168,12 @@ static void remove_attachments_cb(GtkWidget *widget, AttRemover *attremover)
 	partinfo = procmime_mimeinfo_next(partinfo);
 	if (!partinfo || !gtk_tree_model_get_iter_first(model, &iter)) {
 		gtk_widget_destroy(attremover->window);
-		procmsg_msginfo_free(newmsg);
+		procmsg_msginfo_free(&newmsg);
 		return;
 	}
 
 	main_window_cursor_wait(mainwin);
-	gtk_cmclist_freeze(GTK_CMCLIST(summaryview->ctree));
+	summary_freeze(summaryview);
 	folder_item_update_freeze();
 	inc_lock();
 	
@@ -242,11 +242,11 @@ static void remove_attachments_cb(GtkWidget *widget, AttRemover *attremover)
 			 
 	inc_unlock();
 	folder_item_update_thaw();
-	gtk_cmclist_thaw(GTK_CMCLIST(summaryview->ctree));
+	summary_thaw(summaryview);
 	main_window_cursor_normal(mainwin);
 
 	if (msgnum > 0)
-		summary_select_by_msgnum(summaryview, msgnum);
+		summary_select_by_msgnum(summaryview, msgnum, TRUE);
 
 	gtk_widget_destroy(attremover->window);
 }
@@ -296,9 +296,9 @@ static void fill_attachment_store(GtkTreeView *list_view, MimeInfo *partinfo)
 		if (!name)
 			name = _("unknown");
 		
-		label = g_strconcat(_("<b>Type: </b>"), content_type, "   ",
-			_("<b>Size: </b>"), to_human_readable((goffset)partinfo->length),
-			"\n", _("<b>Filename: </b>"), name, NULL);
+		label = g_strconcat("<b>",_("Type:"), "</b> ", content_type, "   <b>",
+			 _("Size:"), "</b> ", to_human_readable((goffset)partinfo->length),
+			"\n", "<b>", _("Filename:"), "</b> ", name, NULL);
 
 		gtk_list_store_append(list_store, &iter);
 		gtk_list_store_set(list_store, &iter,
@@ -423,7 +423,7 @@ static void remove_attachments(GSList *msglist)
 		return;
 
 	main_window_cursor_wait(summaryview->mainwin);
-	gtk_cmclist_freeze(GTK_CMCLIST(summaryview->ctree));
+	summary_freeze(summaryview);
 	folder_item_update_freeze();
 	inc_lock();
 
@@ -440,7 +440,7 @@ static void remove_attachments(GSList *msglist)
 		info = procmime_scan_message(newmsg);
 	
 		if ( !(partinfo = find_first_text_part(info)) ) {
-			procmsg_msginfo_free(newmsg);
+			procmsg_msginfo_free(&newmsg);
 			continue;
 		}
 		partinfo->node->next = NULL;
@@ -452,11 +452,11 @@ static void remove_attachments(GSList *msglist)
 
 	inc_unlock();
 	folder_item_update_thaw();
-	gtk_cmclist_thaw(GTK_CMCLIST(summaryview->ctree));
+	summary_thaw(summaryview);
 	main_window_cursor_normal(summaryview->mainwin);
 
 	if (msgnum > 0) {
-		summary_select_by_msgnum(summaryview, msgnum);
+		summary_select_by_msgnum(summaryview, msgnum, TRUE);
 	}
 }
 
@@ -538,7 +538,7 @@ gboolean plugin_done(void)
         	return TRUE;
         
 	if (prefs_write_param(prefs, pref_file->fp) < 0) {
-		g_warning("failed to write AttRemover Plugin configuration\n");
+		g_warning("failed to write AttRemover Plugin configuration");
 		prefs_file_close_revert(pref_file);
 		return TRUE;
         }

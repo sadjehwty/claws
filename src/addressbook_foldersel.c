@@ -228,9 +228,8 @@ static void addressbook_foldersel_create( void )
 
 	gtk_widget_show_all( window );
 
-	stock_pixbuf_gdk( window, STOCK_PIXMAP_BOOK, &bookXpm);
-	stock_pixbuf_gdk( window, STOCK_PIXMAP_DIR_OPEN,
-			  &folderXpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_BOOK, &bookXpm);
+	stock_pixbuf_gdk(STOCK_PIXMAP_DIR_OPEN, &folderXpm);
 }
 
 static void addressbook_foldersel_load_folder( GtkCMCTreeNode *parentNode, ItemFolder *parentFolder,
@@ -396,7 +395,7 @@ gboolean addressbook_foldersel_selection( AddressIndex *addrIndex,
 	addressbook_foldersel_load_data( addrIndex, &folder_path_match );
 
 	if ( folder_path_match.folder_path != NULL && folder_path_match.matched == FALSE)
-		g_warning("addressbook_foldersel_load_data: couldn't match book/folder path '%s'\n", path);
+		g_warning("addressbook_foldersel_load_data: couldn't match book/folder path '%s'", path);
 
 	g_strfreev( folder_path_match.folder_path );
 

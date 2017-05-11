@@ -1,13 +1,11 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright(C) 1999-2007 the Claws Mail Team
- * This file Copyright (C) 2007 Salvatore De Paolis 
- * <iwkse@claws-mail.org> 
+ * Copyright (C) 1999-2016 Salvatore De Paolis & the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
- *(at your option) any later version.
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -15,8 +13,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -31,7 +28,9 @@
 #include "printing.h"
 #include "prefs_common.h"
 #include "gtk/gtkutils.h"
+#include "gtk/inputdialog.h"
 #include "mimeview.h"
+#include "summaryview.h"
 #ifndef POPPLER_WITH_GDK
 #include "stdbool.h"
 #endif
@@ -84,6 +83,7 @@ static void pdf_viewer_spin_change_page_cb(GtkSpinButton *button, PdfViewer *vie
 static void pdf_viewer_spin_zoom_scroll_cb(GtkSpinButton *button, PdfViewer *viewer);
 /* Show/Hide the index pane */
 static void pdf_viewer_show_document_index_cb(GtkButton *button, PdfViewer *viewer);
+static void pdf_viewer_button_print_cb(GtkButton *button, PdfViewer *viewer);
 static void pdf_viewer_button_document_info_cb(GtkButton *button, PdfViewer *viewer);
 
 static void pdf_viewer_show_controls(PdfViewer *viewer, gboolean show);
@@ -556,7 +556,7 @@ static void pdf_viewer_get_document_index(PdfViewer *viewer, PopplerIndexIter *i
 			PopplerDest *dest = poppler_document_find_dest(
 					viewer->pdf_doc, action->goto_dest.dest->named_dest);
 			if (dest->type != POPPLER_DEST_XYZ) {
-				g_warning("couldn't figure out link\n");
+				g_warning("couldn't figure out link");
 				poppler_dest_free(dest);
 				continue;
 			}
@@ -566,9 +566,9 @@ static void pdf_viewer_get_document_index(PdfViewer *viewer, PopplerIndexIter *i
 #endif
 		else {
 #ifdef HAVE_POPPLER_DEST_NAMED
-			g_warning("unhandled link type %d\nplease contact developers\n", action->goto_dest.dest->type);
+			g_warning("unhandled link type %d. please contact developers", action->goto_dest.dest->type);
 #else
-			g_warning("unhandled link type %d\nplease upgrade libpoppler-glib to 0.5.4\n", action->goto_dest.dest->type);
+			g_warning("unhandled link type %d. please upgrade libpoppler-glib to 0.5.4", action->goto_dest.dest->type);
 #endif
 			continue;
 		}
@@ -837,7 +837,7 @@ static void pdf_viewer_button_press_events_cb(GtkWidget *widget, GdkEventButton 
 				dest = poppler_document_find_dest(
 					viewer->pdf_doc, viewer->link_action->goto_dest.dest->named_dest);
 			if (dest->type != POPPLER_DEST_XYZ) {
-				g_warning("couldn't figure out link\n");
+				g_warning("couldn't figure out link");
 				poppler_dest_free(dest);
 				break;
 			}
@@ -852,7 +852,7 @@ static void pdf_viewer_button_press_events_cb(GtkWidget *widget, GdkEventButton 
 			dest = poppler_document_find_dest(
 					viewer->pdf_doc, viewer->link_action->goto_remote.dest->named_dest);
 			if (dest->type != POPPLER_DEST_XYZ) {
-				g_warning ("couldn't figure out link\n");
+				g_warning ("couldn't figure out link");
 				poppler_dest_free(dest);
 				break;
 			}
@@ -878,10 +878,10 @@ static void pdf_viewer_button_press_events_cb(GtkWidget *widget, GdkEventButton 
 		case POPPLER_ACTION_NONE:
 			debug_print("action none does nothing, surprise!\n");
 			break;
-#if POPPLER_CHECK_VERSION(0,14,0)
 		case POPPLER_ACTION_MOVIE:
 			debug_print("yoyoyo ;-) a movie?\n");
 			break;
+#if POPPLER_CHECK_VERSION(0,14,0)
 		case POPPLER_ACTION_RENDITION:
 			debug_print("yoyoyo ;-) multimedia?\n");
 			break;
@@ -1174,6 +1174,12 @@ static void pdf_viewer_show_document_index_cb(GtkButton *button, PdfViewer *view
 
 }
 
+static void pdf_viewer_button_print_cb(GtkButton *button, PdfViewer *viewer)
+{
+	MainWindow *mainwin = mainwindow_get_mainwindow();
+	summary_print(mainwin->summaryview);
+}
+
 static void pdf_viewer_button_document_info_cb(GtkButton *button, PdfViewer *viewer)
 {
 	alertpanel_full(_("PDF properties"), NULL, GTK_STOCK_CLOSE, NULL, NULL,
@@ -1214,6 +1220,7 @@ static void pdf_viewer_show_controls(PdfViewer *viewer, gboolean show)
 		gtk_widget_show(viewer->widgets_table);
 		gtk_widget_show(viewer->rotate_right);
 		gtk_widget_show(viewer->rotate_left);
+		gtk_widget_show(viewer->print);
 		gtk_widget_show(viewer->doc_info);
 		gtk_widget_show(viewer->doc_index);
 	} else {
@@ -1226,12 +1233,13 @@ static void pdf_viewer_show_controls(PdfViewer *viewer, gboolean show)
 		gtk_widget_hide(viewer->zoom_out);
 		gtk_widget_hide(viewer->zoom_fit);
 		gtk_widget_hide(viewer->zoom_width);
+		gtk_widget_hide(viewer->zoom_scroll);
 		gtk_widget_hide(viewer->widgets_table);
 		gtk_widget_hide(viewer->rotate_right);
 		gtk_widget_hide(viewer->rotate_left);
+		gtk_widget_hide(viewer->print);
 		gtk_widget_hide(viewer->doc_info);
 		gtk_widget_hide(viewer->doc_index);
-		gtk_widget_hide(viewer->zoom_scroll);
 	}
 }
 /** Render the current page, page_num on the viewer */
@@ -1242,6 +1250,7 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 	GError *error = NULL;
 	gchar *tmpfile = NULL;
 	gchar *tmp;
+	gchar *password = NULL;
 
 	debug_print("pdf_viewer_update\n");
 
@@ -1252,22 +1261,19 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 		}
 
 		if (pdf_viewer_mimepart_get_type(viewer->to_load) == TYPE_PS) {
-			stock_pixbuf_gdk(viewer->hbox, 
-					STOCK_PIXMAP_MIME_PS, 
+			stock_pixbuf_gdk(STOCK_PIXMAP_MIME_PS, 
 					&viewer->icon_pixbuf);
 			gtk_image_set_from_pixbuf(GTK_IMAGE(viewer->icon_type),
 									viewer->icon_pixbuf);
 		} 
 		else if (pdf_viewer_mimepart_get_type(viewer->to_load) == TYPE_PDF) {
-			stock_pixbuf_gdk(viewer->hbox, 
-			STOCK_PIXMAP_MIME_PDF, 
+			stock_pixbuf_gdk(STOCK_PIXMAP_MIME_PDF, 
 			&viewer->icon_pixbuf);
 			gtk_image_set_from_pixbuf(GTK_IMAGE(viewer->icon_type), 
 									viewer->icon_pixbuf);
 		} 
 		else {
-			stock_pixbuf_gdk(viewer->hbox, 
-			STOCK_PIXMAP_MIME_APPLICATION, 
+			stock_pixbuf_gdk(STOCK_PIXMAP_MIME_APPLICATION, 
 			&viewer->icon_pixbuf);
 			gtk_image_set_from_pixbuf(GTK_IMAGE(viewer->icon_type), 
 									viewer->icon_pixbuf);
@@ -1291,14 +1297,14 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 					"gs -dSAFER -dCompatibilityLevel=1.2 -q -dNOPAUSE -dBATCH "
 					  "-sDEVICE=pdfwrite -sOutputFile=%s -c .setpdfwrite -f \"%s\"",
 					tmpfile, viewer->filename);
-				result = execute_command_line(cmdline, FALSE);
+				result = execute_command_line(cmdline, FALSE, NULL);
 				if (result == 0) {
 					tmp = g_filename_to_uri(tmpfile, NULL, NULL);
 					viewer->pdf_doc = poppler_document_new_from_file( tmp, NULL, &error);
 					g_free(tmp);
 				} 
 				else {
-					g_warning("gs conversion failed: %s returned %d\n", cmdline, result);
+					g_warning("gs conversion failed: %s returned %d", cmdline, result);
 					tmp = g_strdup_printf("gs: err %d", result);
 					alertpanel_warning("%s", tmp);
 					g_free(tmp);
@@ -1309,7 +1315,7 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 				g_free(tmpfile);
 			}
 			else {
-				g_warning("gs conversion disabled: gs binary was not found\n");
+				g_warning("gs conversion disabled: gs binary was not found");
 				alertpanel_warning("PostScript view disabled: required gs program not found");
 				result = 1;
 
@@ -1321,6 +1327,14 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 		}   
 		else {
 			viewer->pdf_doc = poppler_document_new_from_file( viewer->fsname, NULL, &error);
+		}
+		if (error && g_error_matches(error, POPPLER_ERROR, POPPLER_ERROR_ENCRYPTED)) {
+			g_clear_error(&error);
+			password = input_dialog_with_invisible(_("Enter password"),
+					_("This document is locked and requires a password before it can be opened."),
+					"");
+			viewer->pdf_doc = poppler_document_new_from_file(viewer->fsname, password, &error);
+			g_free(password);
 		}
 
 		viewer->num_pages = poppler_document_get_n_pages(viewer->pdf_doc);
@@ -1346,8 +1360,7 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 		main_window_cursor_normal(mainwindow_get_mainwindow());
 	} 
 	if (viewer->pdf_doc == NULL) {
-		stock_pixbuf_gdk(viewer->hbox, 
-				STOCK_PIXMAP_MIME_APPLICATION, 
+		stock_pixbuf_gdk(STOCK_PIXMAP_MIME_APPLICATION, 
 				&viewer->icon_pixbuf);
 
 		gtk_image_set_from_pixbuf(GTK_IMAGE(viewer->icon_type), viewer->icon_pixbuf);
@@ -1394,7 +1407,7 @@ static void pdf_viewer_update(MimeViewer *_viewer, gboolean reload_file, int pag
 		viewer->pdf_page = poppler_document_get_page(viewer->pdf_doc, page_num - 1);
 
 		if (viewer->pdf_page == NULL) {
-			g_warning("Page not found\n");
+			g_warning("Page not found");
 			return;
 		}   
 
@@ -1476,7 +1489,8 @@ static void pdf_viewer_show_mimepart(MimeViewer *_viewer, const gchar *infile,
 
 	pdf_viewer_update((MimeViewer *)viewer, TRUE, 1);
 
-	messageview->updating = FALSE;
+	if (messageview)
+		messageview->updating = FALSE;
 }
 
 static void pdf_viewer_clear(MimeViewer *_viewer)
@@ -1580,7 +1594,7 @@ static void pdf_viewer_scroll_one_line(MimeViewer *_viewer, gboolean up)
 #define BUTTON_H_PADDING 3
 #define ADD_BUTTON_TO_TABLE(widget, stock_image) \
 	widget = gtk_button_new(); \
-	img = gtk_image_new_from_stock(stock_image, GTK_ICON_SIZE_MENU); \
+	img = stock_pixmap_widget(stock_image); \
 	gtk_button_set_image(GTK_BUTTON(widget), img); \
 	gtk_table_attach(GTK_TABLE(viewer->widgets_table), GTK_WIDGET(widget), \
 				col, col+1, 0, 1, 0, 0, BUTTON_H_PADDING, 0); \
@@ -1721,8 +1735,8 @@ static MimeViewer *pdf_viewer_create(void)
 	gtk_frame_set_label(GTK_FRAME(viewer->frame_index), _("Document Index"));
 
 	ADD_SEP_TO_TABLE
-	ADD_BUTTON_TO_TABLE(viewer->first_page, GTK_STOCK_GOTO_FIRST)
-	ADD_BUTTON_TO_TABLE(viewer->prev_page, GTK_STOCK_GO_BACK)
+	ADD_BUTTON_TO_TABLE(viewer->first_page, STOCK_PIXMAP_FIRST_ARROW)
+	ADD_BUTTON_TO_TABLE(viewer->prev_page, STOCK_PIXMAP_LEFT_ARROW)
 	viewer->cur_page = gtk_spin_button_new_with_range(0.0, 0.0, 1.0);
 	viewer->zoom_scroll = gtk_spin_button_new_with_range(0.20, 8.0, 0.20);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(viewer->zoom_scroll), 1.0);
@@ -1742,33 +1756,26 @@ static MimeViewer *pdf_viewer_create(void)
 					0);
 	col++;
 
-	ADD_BUTTON_TO_TABLE(viewer->next_page, GTK_STOCK_GO_FORWARD)
-	ADD_BUTTON_TO_TABLE(viewer->last_page, GTK_STOCK_GOTO_LAST)
+	ADD_BUTTON_TO_TABLE(viewer->next_page, STOCK_PIXMAP_RIGHT_ARROW)
+	ADD_BUTTON_TO_TABLE(viewer->last_page, STOCK_PIXMAP_LAST_ARROW)
 	ADD_SEP_TO_TABLE
-	ADD_BUTTON_TO_TABLE(viewer->zoom_fit, GTK_STOCK_ZOOM_FIT)
-	ADD_BUTTON_TO_TABLE(viewer->zoom_in, GTK_STOCK_ZOOM_IN)
+	ADD_BUTTON_TO_TABLE(viewer->zoom_fit, STOCK_PIXMAP_ZOOM_FIT)
+	ADD_BUTTON_TO_TABLE(viewer->zoom_in, STOCK_PIXMAP_ZOOM_IN)
 	gtk_table_attach(GTK_TABLE(viewer->widgets_table), GTK_WIDGET(viewer->zoom_scroll),
 					col, col+1, 
 					0, 1, 0, 0, 
 					BUTTON_H_PADDING, 
 					0);
 	col++;
-	ADD_BUTTON_TO_TABLE(viewer->zoom_out, GTK_STOCK_ZOOM_OUT)
-	ADD_BUTTON_TO_TABLE(viewer->zoom_width, GTK_STOCK_FULLSCREEN)
+	ADD_BUTTON_TO_TABLE(viewer->zoom_out, STOCK_PIXMAP_ZOOM_OUT)
+	ADD_BUTTON_TO_TABLE(viewer->zoom_width, STOCK_PIXMAP_ZOOM_WIDTH)
 	ADD_SEP_TO_TABLE
-	ADD_BUTTON_TO_TABLE(viewer->rotate_left, GTK_STOCK_UNDO)
-	ADD_BUTTON_TO_TABLE(viewer->rotate_right, GTK_STOCK_REDO)
+	ADD_BUTTON_TO_TABLE(viewer->rotate_left, STOCK_PIXMAP_ROTATE_LEFT)
+	ADD_BUTTON_TO_TABLE(viewer->rotate_right, STOCK_PIXMAP_ROTATE_RIGHT)
 	ADD_SEP_TO_TABLE
-	ADD_BUTTON_TO_TABLE(viewer->doc_info, GTK_STOCK_INFO)
-
-	viewer->doc_index = GTK_WIDGET(gtk_toggle_tool_button_new_from_stock(GTK_STOCK_INDEX));
-	gtk_widget_set_size_request(GTK_WIDGET(viewer->doc_index), 26, 26);
-	gtk_table_attach(GTK_TABLE(viewer->widgets_table), GTK_WIDGET(viewer->doc_index),
-					col, col+1, 
-					0, 1, 0, 0, 
-					BUTTON_H_PADDING, 
-					0);
-	col++;
+	ADD_BUTTON_TO_TABLE(viewer->print, STOCK_PIXMAP_PRINTER)
+	ADD_BUTTON_TO_TABLE(viewer->doc_info, STOCK_PIXMAP_DOC_INFO)
+	ADD_BUTTON_TO_TABLE(viewer->doc_index, STOCK_PIXMAP_DOC_INDEX)
 
 	gtk_scrolled_window_set_policy(
 			GTK_SCROLLED_WINDOW(viewer->scrollwin), 
@@ -1820,8 +1827,7 @@ static MimeViewer *pdf_viewer_create(void)
 
 	/* end treeview */
 
-	stock_pixbuf_gdk(viewer->hbox, 
-			STOCK_PIXMAP_MIME_TEXT_PLAIN, 
+	stock_pixbuf_gdk(STOCK_PIXMAP_MIME_TEXT_PLAIN, 
 			&viewer->icon_pixbuf);
 
 	gtk_image_set_from_pixbuf(GTK_IMAGE(viewer->icon_type), 
@@ -1885,6 +1891,8 @@ static MimeViewer *pdf_viewer_create(void)
 	g_object_ref(GTK_WIDGET(viewer->rotate_right));
 	gtk_widget_show(GTK_WIDGET(viewer->rotate_left));
 	g_object_ref(GTK_WIDGET(viewer->rotate_left));
+	gtk_widget_show(GTK_WIDGET(viewer->print));
+	g_object_ref(GTK_WIDGET(viewer->print));
 	gtk_widget_show(GTK_WIDGET(viewer->doc_info));
 	g_object_ref(GTK_WIDGET(viewer->doc_info));
 	gtk_widget_show(GTK_WIDGET(viewer->doc_index));
@@ -1931,6 +1939,9 @@ static MimeViewer *pdf_viewer_create(void)
 
 	CLAWS_SET_TIP(viewer->rotate_right,
 				_("Rotate Right"));
+
+	CLAWS_SET_TIP(viewer->print,
+				_("Print Document"));
 
 	CLAWS_SET_TIP(viewer->doc_info,
 				_("Document Info"));
@@ -1994,6 +2005,11 @@ static MimeViewer *pdf_viewer_create(void)
 	g_signal_connect(G_OBJECT(viewer->rotate_left), 
 				    "clicked", 
 				    G_CALLBACK(pdf_viewer_button_rotate_left_cb), 
+				   (gpointer) viewer);
+
+	g_signal_connect(G_OBJECT(viewer->print), 
+				    "clicked", 
+				    G_CALLBACK(pdf_viewer_button_print_cb), 
 				   (gpointer) viewer);
 
 	g_signal_connect(G_OBJECT(viewer->doc_info), 

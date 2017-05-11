@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #include <glib.h>
@@ -27,7 +26,8 @@
 #include "utils.h"
 
 #define SC_HTMLBUFSIZE	8192
-#define HR_STR		"------------------------------------------------"
+#define HR_STR		"────────────────────────────────────────────────"
+#define LI_STR		"• "
 
 typedef struct _SC_HTMLSymbol	SC_HTMLSymbol;
 
@@ -346,6 +346,7 @@ SC_HTMLParser *sc_html_parser_new(FILE *fp, CodeConverter *conv)
 	parser->empty_line = TRUE;
 	parser->space = FALSE;
 	parser->pre = FALSE;
+	parser->indent = 0;
 
 #define SYMBOL_TABLE_ADD(table, list) \
 { \
@@ -488,6 +489,12 @@ static void sc_html_append_char(SC_HTMLParser *parser, gchar ch)
 		parser->newline = TRUE;
 		if (str->len > 1 && str->str[str->len - 2] == '\n')
 			parser->empty_line = TRUE;
+		if (parser->indent > 0) {
+			gint i, n = parser->indent;
+			for (i = 0; i < n; i++)
+				g_string_append_c(str, '>');
+			g_string_append_c(str, ' ');
+		}
 	} else
 		parser->newline = FALSE;
 }
@@ -572,7 +579,15 @@ static SC_HTMLTag *sc_html_get_tag(const gchar *str)
 				tmpp++;
 				attr_value = tmpp;
 				if ((p = strchr(attr_value, quote)) == NULL) {
-					g_warning("sc_html_get_tag(): syntax error in tag: '%s'\n", str);
+					if (debug_get_mode()) {
+						g_warning("sc_html_get_tag(): syntax error in tag: '%s'",
+								  str);
+					} else {
+						gchar *cut = g_strndup(str, 100);
+						g_warning("sc_html_get_tag(): syntax error in tag: '%s%s'",
+								  cut, strlen(str)>100?"...":".");
+						g_free(cut);
+					}
 					return tag;
 				}
 				tmpp = p;
@@ -649,6 +664,7 @@ static SC_HTMLState sc_html_parse_tag(SC_HTMLParser *parser)
 		parser->state = SC_HTML_BR;
 	} else if (!strcmp(tag->name, "a")) {
 		GList *cur;
+		parser->href = NULL;
 		for (cur = tag->attr; cur != NULL; cur = cur->next) {
 			if (cur->data && !strcmp(((SC_HTMLAttr *)cur->data)->name, "href")) {
 				g_free(parser->href);
@@ -658,6 +674,9 @@ static SC_HTMLState sc_html_parse_tag(SC_HTMLParser *parser)
 				break;
 			}
 		}
+		if (parser->href == NULL)
+			parser->href = g_strdup("");
+		parser->state = SC_HTML_HREF_BEG;
 	} else if (!strcmp(tag->name, "/a")) {
 		parser->state = SC_HTML_HREF;
 	} else if (!strcmp(tag->name, "p")) {
@@ -679,19 +698,30 @@ static SC_HTMLState sc_html_parse_tag(SC_HTMLParser *parser)
 			parser->space = FALSE;
 			sc_html_append_char(parser, '\n');
 		}
-		sc_html_append_str(parser, HR_STR "\n", -1);
+		sc_html_append_str(parser, HR_STR, -1);
+		sc_html_append_char(parser, '\n');
 		parser->state = SC_HTML_HR;
 	} else if (!strcmp(tag->name, "div")    ||
 		   !strcmp(tag->name, "ul")     ||
 		   !strcmp(tag->name, "li")     ||
 		   !strcmp(tag->name, "table")  ||
+		   !strcmp(tag->name, "dd")     ||
 		   !strcmp(tag->name, "tr")     ||
 		   (tag->name[0] == 'h' && g_ascii_isdigit(tag->name[1]))) {
 		if (!parser->newline) {
 			parser->space = FALSE;
 			sc_html_append_char(parser, '\n');
 		}
+		if (!strcmp(tag->name, "li")) {
+			sc_html_append_str(parser, LI_STR, -1);
+		}
 		parser->state = SC_HTML_NORMAL;
+	} else if (!strcmp(tag->name, "blockquote")) {
+		parser->state = SC_HTML_NORMAL;
+		parser->indent++;
+	} else if (!strcmp(tag->name, "/blockquote")) {
+		parser->state = SC_HTML_NORMAL;
+		parser->indent--;
 	} else if (!strcmp(tag->name, "/table") ||
 		   (tag->name[0] == '/' &&
 		    tag->name[1] == 'h' &&

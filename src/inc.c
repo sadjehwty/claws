@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -60,6 +59,7 @@
 #include "log.h"
 #include "hooks.h"
 #include "logwindow.h"
+#include "passwordstore.h"
 
 extern SessionStats session_stats;
 
@@ -194,7 +194,7 @@ void inc_mail(MainWindow *mainwin, gboolean notify)
 
 	if (prefs_common.use_extinc && prefs_common.extinc_cmd) {
 		/* external incorporating program */
-		if (execute_command_line(prefs_common.extinc_cmd, FALSE) < 0) {
+		if (execute_command_line(prefs_common.extinc_cmd, FALSE, NULL) < 0) {
 			main_window_unlock(mainwin);
 			inc_autocheck_timer_set();
 			inc_unlock();
@@ -257,7 +257,6 @@ static gint inc_account_mail_real(MainWindow *mainwin, PrefsAccount *account)
 		folderview_check_new(FOLDER(account->folder));
 		return 0;
 	case A_POP3:
-	case A_APOP:
 		session = inc_session_new(account);
 		if (!session) return 0;
 		
@@ -341,7 +340,7 @@ void inc_all_account_mail(MainWindow *mainwin, gboolean autocheck,
 
 	if (prefs_common.use_extinc && prefs_common.extinc_cmd) {
 		/* external incorporating program */
-		if (execute_command_line(prefs_common.extinc_cmd, FALSE) < 0) {
+		if (execute_command_line(prefs_common.extinc_cmd, FALSE, NULL) < 0) {
 			log_error(LOG_PROTOCOL, _("%s failed\n"), prefs_common.extinc_cmd);
 			
 			main_window_unlock(mainwin);
@@ -428,12 +427,9 @@ static IncProgressDialog *inc_progress_dialog_create(gboolean autocheck)
 
 	progress_dialog_get_fraction(progress);
 
-	stock_pixbuf_gdk(progress->treeview, STOCK_PIXMAP_COMPLETE,
-			 &okpix);
-	stock_pixbuf_gdk(progress->treeview, STOCK_PIXMAP_CONTINUE,
-			 &currentpix);
-	stock_pixbuf_gdk(progress->treeview, STOCK_PIXMAP_ERROR,
-			 &errorpix);
+	stock_pixbuf_gdk(STOCK_PIXMAP_COMPLETE, &okpix);
+	stock_pixbuf_gdk(STOCK_PIXMAP_CONTINUE, &currentpix);
+	stock_pixbuf_gdk(STOCK_PIXMAP_ERROR, &errorpix);
 
 	if (!geometry.min_height) {
 		geometry.min_width = 460;
@@ -570,36 +566,34 @@ static gint inc_start(IncProgressDialog *inc_dialog)
 		pop3_session = POP3_SESSION(session->session); 
 		pop3_session->user = g_strdup(pop3_session->ac_prefs->userid);
 
+		if (inc_dialog->show_dialog)
+			manage_window_focus_in
+				(inc_dialog->dialog->window,
+				 NULL, NULL);
+
 		if (password_get(pop3_session->user,
 					pop3_session->ac_prefs->recv_server,
 					"pop3", pop3_get_port(pop3_session),
 					&(pop3_session->pass))) {
 			/* NOP */;
-		} else if (pop3_session->ac_prefs->passwd)
-			pop3_session->pass =
-				g_strdup(pop3_session->ac_prefs->passwd);
-		else {
+		} else if ((pop3_session->pass = passwd_store_get_account(
+						pop3_session->ac_prefs->account_id, PWS_ACCOUNT_RECV)) == NULL) {
 			gchar *pass;
-
-			if (inc_dialog->show_dialog)
-				manage_window_focus_in
-					(inc_dialog->dialog->window,
-					 NULL, NULL);
 
 			pass = input_dialog_query_password_keep
 				(pop3_session->ac_prefs->recv_server,
 				 pop3_session->user,
 				 &(pop3_session->ac_prefs->session_passwd));
 
-			if (inc_dialog->show_dialog)
-				manage_window_focus_out
-					(inc_dialog->dialog->window,
-					 NULL, NULL);
-
 			if (pass) {
 				pop3_session->pass = pass;
 			}
 		}
+
+		if (inc_dialog->show_dialog)
+			manage_window_focus_out
+				(inc_dialog->dialog->window,
+				 NULL, NULL);
 
 		qlist = next;
 	}
@@ -717,8 +711,7 @@ static gint inc_start(IncProgressDialog *inc_dialog)
 
 		for(msglist_element = msglist; msglist_element != NULL; 
 		    msglist_element = msglist_element->next) {
-			MsgInfo *msginfo = (MsgInfo *)msglist_element->data;
-			procmsg_msginfo_free(msginfo);
+			procmsg_msginfo_free((MsgInfo**)&(msglist_element->data));
 		}
 		folder_item_update_thaw();
 		
@@ -820,8 +813,8 @@ static IncState inc_pop3_session_do(IncSession *session)
 	if (ac->ssl_pop != SSL_NONE) {
 		if (alertpanel_full(_("Insecure connection"),
 			_("This connection is configured to be secured "
-			  "using SSL, but SSL is not available in this "
-			  "build of Claws Mail. \n\n"
+			  "using SSL/TLS, but SSL/TLS is not available "
+			  "in this build of Claws Mail. \n\n"
 			  "Do you want to continue connecting to this "
 			  "server? The communication would not be "
 			  "secure."),
@@ -1448,7 +1441,7 @@ static void inc_notify_cmd(gint new_msgs, gboolean notify)
 		buf = ret_str;
 	}
 	debug_print("executing new mail notification command: %s\n", buf);
-	execute_command_line(buf, TRUE);
+	execute_command_line(buf, TRUE, NULL);
 
 	g_free(buf);
 }
@@ -1478,7 +1471,7 @@ static void inc_autocheck_timer_set_interval(guint interval)
 
 void inc_autocheck_timer_set(void)
 {
-	inc_autocheck_timer_set_interval(prefs_common.autochk_itv * 60000);
+	inc_autocheck_timer_set_interval(prefs_common.autochk_itv * 1000);
 }
 
 void inc_autocheck_timer_remove(void)

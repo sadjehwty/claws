@@ -267,6 +267,7 @@ guint feed_update(Feed *feed, time_t last_update)
 	feed_ctx->parser = XML_ParserCreate(NULL);
 	feed_ctx->depth = 0;
 	feed_ctx->str = NULL;
+	feed_ctx->xhtml_str = NULL;
 	feed_ctx->feed = feed;
 	feed_ctx->location = 0;
 	feed_ctx->curitem = NULL;
@@ -299,7 +300,7 @@ guint feed_update(Feed *feed, time_t last_update)
 	if( last_update != -1 ) {
 		curl_easy_setopt(eh, CURLOPT_TIMECONDITION,
 				CURL_TIMECOND_IFMODSINCE);
-		curl_easy_setopt(eh, CURLOPT_TIMEVALUE, last_update);
+		curl_easy_setopt(eh, CURLOPT_TIMEVALUE, (long)last_update);
 	}
 
 #if LIBCURL_VERSION_NUM >= 0x070a00
@@ -348,6 +349,10 @@ cleanup:
 	XML_ParserFree(feed_ctx->parser);
 	g_free(feed_ctx->name);
 	g_free(feed_ctx->mail);
+	if (feed_ctx->str != NULL)
+		g_string_free(feed_ctx->str, TRUE);
+	if (feed_ctx->xhtml_str != NULL)
+		g_string_free(feed_ctx->xhtml_str, TRUE);
 	g_free(feed_ctx);
 
 	return response_code;
@@ -425,7 +430,7 @@ gchar *feed_get_cacert_file(Feed *feed)
 	return feed->cacert_file;
 }
 
-void feed_set_cacert_file(Feed *feed, gchar *path)
+void feed_set_cacert_file(Feed *feed, const gchar *path)
 {
 	g_return_if_fail(feed != NULL);
 

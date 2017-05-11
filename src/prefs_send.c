@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2005-2012 Colin Leroy <colin@colino.net> & The Claws Mail Team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2005-2016 Colin Leroy & The Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -53,6 +52,8 @@ typedef struct _SendPage
 	GtkWidget *checkbtn_never_send_retrcpt;
 	GtkWidget *checkbtn_senddialog;
 	GtkWidget *checkbtn_warn_empty_subj;
+	GtkWidget *checkbtn_warn_multiple_recipients;
+	GtkWidget *spinbtn_warn_multiple_recipients;
 	GtkWidget *combobox_charset;
 	GtkWidget *combobox_encoding_method;
 } SendPage;
@@ -128,13 +129,21 @@ static gboolean _combobox_separator_func(GtkTreeModel *model,
 	return FALSE;
 }
 
+static void checkbtn_warn_multiple_recipients_toggled(GtkToggleButton *button,
+		gpointer user_data)
+{
+	gboolean active = gtk_toggle_button_get_active(button);
+	GtkWidget *spin = GTK_WIDGET(user_data);
+
+	gtk_widget_set_sensitive(spin, active);
+}
+
 static void prefs_send_create_widget(PrefsPage *_page, GtkWindow *window, 
 			       	  gpointer data)
 {
 	SendPage *prefs_send = (SendPage *) _page;
-	
-	GtkWidget *vbox1;
-	GtkWidget *vbox2;
+	GtkWidget *frame;
+	GtkWidget *vbox1, *vbox2, *hbox1;
 	GtkWidget *checkbtn_savemsg;
 	GtkWidget *label_outcharset;
 	GtkWidget *combobox_charset;
@@ -147,36 +156,68 @@ static void prefs_send_create_widget(PrefsPage *_page, GtkWindow *window,
 	GtkWidget *checkbtn_confirm_send_queued_messages;
 	GtkWidget *checkbtn_never_send_retrcpt;
 	GtkWidget *checkbtn_warn_empty_subj;
+	GtkWidget *checkbtn_warn_multiple_recipients;
+	GtkWidget *spinbtn_warn_multiple_recipients;
 	GtkWidget *table;
 
 	vbox1 = gtk_vbox_new (FALSE, VSPACING);
 	gtk_widget_show (vbox1);
 	gtk_container_set_border_width (GTK_CONTAINER (vbox1), VBOX_BORDER);
 
+	/* messages frame */
 	vbox2 = gtk_vbox_new (FALSE, 0);
 	gtk_widget_show (vbox2);
-	gtk_box_pack_start (GTK_BOX (vbox1), vbox2, FALSE, FALSE, 0);
 
 	PACK_CHECK_BUTTON(vbox2, checkbtn_savemsg,
-			_("Save sent messages to Sent folder"));
-
-	PACK_CHECK_BUTTON(vbox2, checkbtn_confirm_send_queued_messages,
-			_("Confirm before sending queued messages"));
+			_("Save sent messages"));
 
 	PACK_CHECK_BUTTON(vbox2, checkbtn_never_send_retrcpt,
 			_("Never send Return Receipts"));
 
-	PACK_CHECK_BUTTON(vbox2, checkbtn_senddialog,
-			_("Show send dialog"));
-	PACK_CHECK_BUTTON(vbox2, checkbtn_warn_empty_subj,
-			_("Warn when Subject is empty"));
-
+	/* encoding table */
 	table = gtk_table_new(2, 2, FALSE);
 	gtk_widget_show(table);
-	gtk_container_add (GTK_CONTAINER (vbox1), table);
+	gtk_container_add (GTK_CONTAINER (vbox2), table);
 	gtk_table_set_row_spacings(GTK_TABLE(table), 4);
 	gtk_table_set_col_spacings(GTK_TABLE(table), 8);
 
+	PACK_FRAME (vbox1, frame, _("Messages"))
+	gtk_container_set_border_width(GTK_CONTAINER(vbox2), 8);
+	gtk_container_add(GTK_CONTAINER(frame), vbox2);
+
+	/* interface frame */
+	vbox2 = gtk_vbox_new (FALSE, 0);
+	gtk_widget_show (vbox2);
+
+	PACK_CHECK_BUTTON(vbox2, checkbtn_confirm_send_queued_messages,
+			_("Confirm before sending queued messages"));
+
+	PACK_CHECK_BUTTON(vbox2, checkbtn_senddialog,
+			_("Show send dialog"));
+
+	PACK_CHECK_BUTTON(vbox2, checkbtn_warn_empty_subj,
+			_("Warn when Subject is empty"));
+
+	hbox1 = gtk_hbox_new (FALSE, 0);
+	gtk_widget_show (hbox1);
+
+	PACK_CHECK_BUTTON(hbox1, checkbtn_warn_multiple_recipients,
+			_("Warn when sending to more recipients than:"));
+
+	spinbtn_warn_multiple_recipients = gtk_spin_button_new_with_range(2, 999, 1);
+	gtk_widget_show(spinbtn_warn_multiple_recipients);
+	gtk_box_pack_start(GTK_BOX(hbox1), spinbtn_warn_multiple_recipients, FALSE, FALSE, 0);
+	g_signal_connect(G_OBJECT(checkbtn_warn_multiple_recipients), "toggled",
+			G_CALLBACK(checkbtn_warn_multiple_recipients_toggled),
+			spinbtn_warn_multiple_recipients);
+
+	gtk_box_pack_start(GTK_BOX(vbox2), hbox1, FALSE, FALSE, 0);
+
+	PACK_FRAME (vbox1, frame, _("Interface"))
+	gtk_container_set_border_width(GTK_CONTAINER(vbox2), 8);
+	gtk_container_add(GTK_CONTAINER(frame), vbox2);
+
+	/* populate table within encoding sub-frame */
 	label_outcharset = gtk_label_new (_("Outgoing encoding"));
 	gtk_widget_show (label_outcharset);
 	gtk_table_attach(GTK_TABLE(table), label_outcharset, 0, 1, 1, 2,
@@ -217,7 +258,7 @@ static void prefs_send_create_widget(PrefsPage *_page, GtkWindow *window,
 			-1); \
 }
 
-	SET_MENUITEM(_("Automatic (Recommended)"),	 CS_AUTO);
+	SET_MENUITEM(_("Automatic"),			 CS_AUTO);
 	SET_MENUITEM(NULL, NULL);
 	SET_MENUITEM(_("7bit ASCII (US-ASCII)"),	 CS_US_ASCII);
 	SET_MENUITEM(_("Unicode (UTF-8)"),		 CS_UTF_8);
@@ -304,18 +345,28 @@ static void prefs_send_create_widget(PrefsPage *_page, GtkWindow *window,
 		!prefs_common.send_dialog_invisible);
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(checkbtn_warn_empty_subj),
 		prefs_common.warn_empty_subj);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(checkbtn_warn_multiple_recipients), prefs_common.warn_sending_many_recipients_num > 0);
+
+	if (prefs_common.warn_sending_many_recipients_num > 0)
+		gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbtn_warn_multiple_recipients),
+				prefs_common.warn_sending_many_recipients_num);
+	else
+		gtk_widget_set_sensitive(spinbtn_warn_multiple_recipients, FALSE);
+
 	prefs_common_charset_set_optmenu(combobox_charset, 
 		prefs_common.outgoing_charset);
 	combobox_select_by_data(GTK_COMBO_BOX(combobox_encoding),
 		prefs_common.encoding_method);
-	
-	prefs_send->window			= GTK_WIDGET(window);
-	
+
+	prefs_send->window = GTK_WIDGET(window);
+
 	prefs_send->checkbtn_savemsg = checkbtn_savemsg;
 	prefs_send->checkbtn_confirm_send_queued_messages = checkbtn_confirm_send_queued_messages;
  	prefs_send->checkbtn_never_send_retrcpt = checkbtn_never_send_retrcpt;
 	prefs_send->checkbtn_senddialog = checkbtn_senddialog;
 	prefs_send->checkbtn_warn_empty_subj = checkbtn_warn_empty_subj;
+	prefs_send->checkbtn_warn_multiple_recipients = checkbtn_warn_multiple_recipients;
+	prefs_send->spinbtn_warn_multiple_recipients = spinbtn_warn_multiple_recipients;
 	prefs_send->combobox_charset = combobox_charset;
 	prefs_send->combobox_encoding_method = combobox_encoding;
 
@@ -336,6 +387,12 @@ static void prefs_send_save(PrefsPage *_page)
 		GTK_TOGGLE_BUTTON(page->checkbtn_senddialog));
 	prefs_common.warn_empty_subj = gtk_toggle_button_get_active(
 		GTK_TOGGLE_BUTTON(page->checkbtn_warn_empty_subj));
+
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(page->checkbtn_warn_multiple_recipients)))
+		prefs_common.warn_sending_many_recipients_num =
+			gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(page->spinbtn_warn_multiple_recipients));
+	else
+		prefs_common.warn_sending_many_recipients_num = 0;
 
 	g_free(prefs_common.outgoing_charset);
 	prefs_common.outgoing_charset = prefs_common_charset_set_data_from_optmenu(

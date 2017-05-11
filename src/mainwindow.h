@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifndef __MAINWINDOW_H__
@@ -64,11 +63,13 @@ typedef enum
 	M_HAVE_MULTI_ACCOUNT,
 	M_FOLDER_SELECTED,
 	M_SESSION_PASSWORDS,
+	M_MASTER_PASSPHRASE,
 	M_DELETED_EXISTS,
 	M_NOT_TRASH,
 	M_HIDE_READ_THREADS,
 	M_HAVE_RETRIEVABLE_ACCOUNT,
 	M_HAVE_ANY_RETRIEVABLE_ACCOUNT,
+	M_NOT_DRAFT,
 
 /* reserved */
     M_MAX_RESERVED
@@ -215,6 +216,8 @@ void mainwindow_jump_to			      (const gchar 	 *target,
 					       gboolean popup);
 void mainwindow_show_error		      (void);
 void mainwindow_clear_error		      (MainWindow *mainwin);
+void mainwindow_delete_duplicated     (MainWindow *mainwin);
+void mainwindow_delete_duplicated_all (MainWindow *mainwin);
 gboolean mainwindow_is_obscured		      (void);
 void mainwindow_exit_folder		      (MainWindow *mainwin);
 void mainwindow_enter_folder		      (MainWindow *mainwin);

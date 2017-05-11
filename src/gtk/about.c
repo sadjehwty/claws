@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2015 Hiroyuki Yamamoto and the Claws Mail team
+ * Copyright (C) 1999-2017 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,6 +84,8 @@ void about_show(void)
 	
 }
 
+#define ADD_TEXT(text) gtk_text_buffer_insert(buffer, &iter, text, -1)
+
 static GtkWidget *about_create_child_page_info(void)
 {
 	GtkWidget *scrolledwin;
@@ -127,23 +129,25 @@ static GtkWidget *about_create_child_page_info(void)
 				"underline", PANGO_UNDERLINE_SINGLE,
 				NULL);
 
-	gtk_text_buffer_insert(buffer, &iter, _(
-				"Claws Mail is a lightweight, fast and "
-				"highly-configurable email client.\n\n"
-				"For further information visit the Claws Mail "
-				"website:\n"), -1);
+	ADD_TEXT(_("Claws Mail is a lightweight, fast and highly-configurable "
+				"email client."));
+	ADD_TEXT("\n\n");
+	ADD_TEXT(_("For further information visit the Claws Mail website:"));
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, HOMEPAGE_URI, -1,
 				"link", NULL);
-	gtk_text_buffer_insert(buffer, &iter, _("\n\n"
-				"For support and discussion subscribe to the Claws Mail "
-				"users' mailing list:\n"),-1);
+	ADD_TEXT("\n\n");
+	ADD_TEXT(_("For support and discussion subscribe to the Claws Mail "
+				"users' mailing list:"));
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, USERS_ML_URI, -1,
 				"link", NULL);
-	gtk_text_buffer_insert(buffer, &iter, _("\n\n"
-				"Claws Mail is free software released "
+	ADD_TEXT("\n\n");
+	ADD_TEXT(_("Claws Mail is free software released "
 				"under the GPL. If you wish to donate "
 				"to the Claws Mail project you can do "
-				"so at:\n"), -1);
+				"so at:"));
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, DONATE_URI, -1,
 				"link", NULL);
 
@@ -154,37 +158,38 @@ static GtkWidget *about_create_child_page_info(void)
 				"underline", PANGO_UNDERLINE_SINGLE,
 				NULL);
 #ifdef GENERIC_UMPC
-	gtk_text_buffer_insert(buffer, &iter, _(
-				"\n\nCopyright (C) 1999-2015\nThe Claws Mail Team\n"
-				" and Hiroyuki Yamamoto"), -1);
+	ADD_TEXT("\n\n");
+	ADD_TEXT(_("Copyright (C) 1999-2017\nThe Claws Mail Team\n"
+				"and Hiroyuki Yamamoto"));
 #endif
-	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("\n\nSystem Information\n")), -1,
-			"underlined-list-title", NULL);
+	ADD_TEXT("\n\n");
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
+			(_("System Information\n")), -1, "underlined-list-title", NULL);
 
 #if HAVE_SYS_UTSNAME_H
 	uname(&utsbuf);
-	g_snprintf(buf, sizeof(buf),
-		   _("GTK+ %d.%d.%d / GLib %d.%d.%d\n"
-		     "Locale: %s (charset: %s)\n"
-		     "Operating System: %s %s (%s)"),
+	g_snprintf(buf, sizeof(buf),g_strconcat(
+		       "GTK+ %d.%d.%d / GLib %d.%d.%d\n",
+		     _("Locale: %s (charset: %s)\n"
+		     "Operating System: %s %s (%s)"), NULL),
 		   gtk_major_version, gtk_minor_version, gtk_micro_version,
 		   glib_major_version, glib_minor_version, glib_micro_version,
 		   conv_get_current_locale(), conv_get_locale_charset_str(),
 		   utsbuf.sysname, utsbuf.release, utsbuf.machine);
 #elif defined(G_OS_WIN32)
-	g_snprintf(buf, sizeof(buf),
-		   _("GTK+ %d.%d.%d / GLib %d.%d.%d\n"
-		     "Locale: %s (charset: %s)\n"
-		     "Operating System: %s"),
+	g_snprintf(buf, sizeof(buf),g_strconcat(
+		       "GTK+ %d.%d.%d / GLib %d.%d.%d\n",
+		     _("Locale: %s (charset: %s)\n"
+		     "Operating System: %s"), NULL),
 		   gtk_major_version, gtk_minor_version, gtk_micro_version,
 		   glib_major_version, glib_minor_version, glib_micro_version,
 		   conv_get_current_locale(), conv_get_locale_charset_str(),
 		   "Win32");
 #else
-	g_snprintf(buf, sizeof(buf),
-		   _("GTK+ %d.%d.%d / GLib %d.%d.%d\n"
-		     "Locale: %s (charset: %s)\n"
-		     "Operating System: unknown"),
+	g_snprintf(buf, sizeof(buf),g_strconcat(
+		       "GTK+ %d.%d.%d / GLib %d.%d.%d\n",
+		     _("Locale: %s (charset: %s)\n"
+		     "Operating System: unknown"), NULL),
 		   gtk_major_version, gtk_minor_version, gtk_micro_version,
 		   glib_major_version, glib_minor_version, glib_micro_version,
 		   conv_get_current_locale(), conv_get_locale_charset_str());
@@ -192,8 +197,7 @@ static GtkWidget *about_create_child_page_info(void)
 
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, buf, -1,
 						 "indented-list-item", NULL);
-
-	gtk_text_buffer_insert(buffer, &iter, "\n", -1);
+	ADD_TEXT("\n");
 
 	g_signal_connect(G_OBJECT(tag), "event",
 				G_CALLBACK(about_textview_uri_clicked), text);
@@ -239,8 +243,8 @@ static GtkWidget *about_create_child_page_authors(void)
 				"underline", PANGO_UNDERLINE_SINGLE,
 				NULL);
 
-	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("The Claws Mail Team")), -1,
-			"underlined-list-title", NULL);
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
+			(_("The Claws Mail Team")), -1, "underlined-list-title", NULL);
 	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
 
 	for (i = 0; TEAM_LIST[i] != NULL; i++) {
@@ -257,10 +261,10 @@ static GtkWidget *about_create_child_page_authors(void)
 		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
-	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("Previous team members")), -1,
-			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
+			(_("Previous team members")), -1, "underlined-list-title", NULL);
+	ADD_TEXT("\n");
 
 	for (i = 0; EX_TEAM_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(EX_TEAM_LIST[i], -1, NULL))
@@ -273,13 +277,13 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
-	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("The translation team")), -1,
-			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
+			(_("The translation team")), -1, "underlined-list-title", NULL);
+	ADD_TEXT("\n");
 
 	for (i = 0; TRANS_TEAM_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(TRANS_TEAM_LIST[i], -1, NULL))
@@ -292,13 +296,13 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
-	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("Documentation team")), -1,
-			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
+			(_("Documentation team")), -1, "underlined-list-title", NULL);
+	ADD_TEXT("\n");
 
 	for (i = 0; DOC_TEAM_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(DOC_TEAM_LIST[i], -1, NULL))
@@ -311,13 +315,13 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("Logo")), -1,
 			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 
 	for (i = 0; LOGO_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(LOGO_LIST[i], -1, NULL))
@@ -330,13 +334,13 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("Icons")), -1,
 			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 
 	for (i = 0; ICONS_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(ICONS_LIST[i], -1, NULL))
@@ -349,13 +353,13 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (_("Contributors")), -1,
 			"underlined-list-title", NULL);
-	gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+	ADD_TEXT("\n");
 
 	for (i = 0; CONTRIBS_LIST[i] != NULL; i++) {
 		if (g_utf8_validate(CONTRIBS_LIST[i], -1, NULL))
@@ -368,7 +372,7 @@ static GtkWidget *about_create_child_page_authors(void)
 						"indented-list-item", NULL);
 			g_free(conv);
 		}
-		gtk_text_buffer_insert(buffer, &iter, "\n", 1);
+		ADD_TEXT("\n");
 	}
 
 	return scrolledwin;
@@ -401,13 +405,14 @@ static GtkWidget *about_create_child_page_features(void)
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text));
 	gtk_text_buffer_get_iter_at_offset(buffer, &iter, 0);
 
-	gtk_text_buffer_insert(buffer, &iter, _("Compiled-in Features\n"), -1);
+	ADD_TEXT(_("Compiled-in Features"));
+	ADD_TEXT("\n");
 
 	gtk_text_buffer_create_tag(buffer, "bold", "weight", PANGO_WEIGHT_BOLD,
 				   NULL);
 
-	stock_pixbuf_gdk(window, STOCK_PIXMAP_CHECKBOX_ON, &active_pixbuf);
-	stock_pixbuf_gdk(window, STOCK_PIXMAP_CHECKBOX_OFF, &inactive_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_CHECKBOX_ON, &active_pixbuf);
+	stock_pixbuf_gdk(STOCK_PIXMAP_CHECKBOX_OFF, &inactive_pixbuf);
 
 #if HAVE_LIBCOMPFACE
 	gtk_text_buffer_insert_pixbuf(buffer, &iter, active_pixbuf);
@@ -510,6 +515,16 @@ static GtkWidget *about_create_child_page_features(void)
 	gtk_text_buffer_insert(buffer, &iter,
 		(gchar *)C_("NetworkManager", "adds support for detection of network connection changes\n"), -1);
 
+#if HAVE_SVG
+	gtk_text_buffer_insert_pixbuf(buffer, &iter, active_pixbuf);
+#else
+	gtk_text_buffer_insert_pixbuf(buffer, &iter, inactive_pixbuf);
+#endif
+	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, (" librSVG "), -1,
+						 "bold", NULL);
+	gtk_text_buffer_insert(buffer, &iter,
+		(gchar *)C_("librSVG", "adds support for SVG themes\n"), -1);
+
 	return scrolledwin;
 }
 
@@ -539,17 +554,19 @@ static GtkWidget *about_create_child_page_license(void)
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text));
 	gtk_text_buffer_get_iter_at_offset(buffer, &iter, 0);
 
-	gtk_text_buffer_insert(buffer, &iter,
+	ADD_TEXT(
 		_("This program is free software; you can redistribute it and/or modify "
 		  "it under the terms of the GNU General Public License as published by "
 		  "the Free Software Foundation; either version 3, or (at your option) "
-		  "any later version.\n\n"), -1);
+		  "any later version."));
+	ADD_TEXT("\n\n");
 
-	gtk_text_buffer_insert(buffer, &iter,
+	ADD_TEXT(
 		_("This program is distributed in the hope that it will be useful, "
 		  "but WITHOUT ANY WARRANTY; without even the implied warranty of "
 		  "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. "
-		  "See the GNU General Public License for more details.\n\n"), -1);
+		  "See the GNU General Public License for more details."));
+	ADD_TEXT("\n\n");
 
 	/* textview link style (based upon main prefs) */
 	gtkut_convert_int_to_gdk_color(prefs_common.uri_col,
@@ -563,13 +580,13 @@ static GtkWidget *about_create_child_page_license(void)
 		"underline", PANGO_UNDERLINE_SINGLE,
 		NULL);
 
-	gtk_text_buffer_insert(buffer, &iter,
+	gtk_text_buffer_insert(buffer, &iter, g_strconcat(
 		_("You should have received a copy of the GNU General Public License "
-		  "along with this program. If not, see <"), -1);
+		  "along with this program. If not, see "), "<", NULL), -1);
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter, 
 		"http://www.gnu.org/licenses/", -1,
 		"link", NULL);
-	gtk_text_buffer_insert(buffer, &iter, _(">. \n\n"), -1);
+	gtk_text_buffer_insert(buffer, &iter, ">. \n\n", -1);
 
 	g_signal_connect(G_OBJECT(tag), "event",
 				G_CALLBACK(about_textview_uri_clicked), text);
@@ -580,6 +597,8 @@ static GtkWidget *about_create_child_page_license(void)
 
 	return scrolledwin;
 }
+
+#undef ADD_TEXT
 
 static gboolean release_notes_available(void)
 {
@@ -633,7 +652,7 @@ static GtkWidget *about_create_child_page_release_notes(void)
 
 		tmp = conv_codeset_strdup(buf, src_codeset, dest_codeset);
 		if (!tmp) {
-			g_warning("Failed to convert character set of action configuration\n");
+			g_warning("Failed to convert character set of action configuration");
 			tmp = g_strdup(buf);
 		}
 
@@ -804,7 +823,7 @@ static void about_create(void)
 	gtk_table_set_row_spacings (GTK_TABLE (table), 8);
 	gtk_table_set_col_spacings (GTK_TABLE (table), 8);
 
-	image = stock_pixmap_widget(window, STOCK_PIXMAP_CLAWS_MAIL_LOGO);
+	image = stock_pixmap_widget(STOCK_PIXMAP_CLAWS_MAIL_LOGO);
 	gtk_table_attach (GTK_TABLE (table), image, 0, 1, 0, 1,
 			(GtkAttachOptions) (GTK_EXPAND),
 			(GtkAttachOptions) (0), 0, 0);
@@ -820,7 +839,7 @@ static void about_create(void)
 	gtk_box_pack_start(GTK_BOX(vbox2), label, FALSE, FALSE, 0);
 	markup = g_markup_printf_escaped
 		("<span weight=\"bold\" size=\"xx-large\">Claws Mail</span>\nversion %s",
-		 VERSION_GIT_FULL);
+		 VERSION);
 	gtk_label_set_markup(GTK_LABEL(label), markup);
 	g_free(markup);
 
@@ -828,7 +847,7 @@ static void about_create(void)
 	gtk_box_pack_start(GTK_BOX(vbox2), button, FALSE, FALSE, 0);
 #ifndef GENERIC_UMPC
 	label = gtk_label_new
-		(_("Copyright (C) 1999-2015\nThe Claws Mail Team\n"
+		(_("Copyright (C) 1999-2017\nThe Claws Mail Team\n"
 		 "and Hiroyuki Yamamoto"));
 	gtk_label_set_selectable(GTK_LABEL(label), TRUE);
 	gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);

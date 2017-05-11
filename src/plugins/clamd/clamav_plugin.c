@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2003-2010 Michael Rasmussen and the Claws Mail Team
+ * Copyright (C) 2003-2017 Michael Rasmussen and the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,7 +68,7 @@ static PrefParam param[] = {
 	 NULL, NULL, NULL},
 	{"clamd_host", NULL, &config.clamd_host, P_STRING,
 	 NULL, NULL, NULL},
-	{"clamd_port", NULL, &config.clamd_port, P_INT,
+	{"clamd_port", "0", &config.clamd_port, P_INT,
 	 NULL, NULL, NULL},
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
@@ -118,7 +118,7 @@ static gboolean scan_func(GNode *node, gpointer data)
 					case VIRUS: 
 						msg = g_strconcat(_("Detected %s virus."),
 							clamd_get_virus_name(buf.msg), NULL);
-						g_warning("%s\n", msg);
+						g_warning("%s", msg);
 						debug_print("no_recv: %d\n", prefs_common_get_prefs()->no_recv_err_panel);
 						if (prefs_common_get_prefs()->no_recv_err_panel) {
 						    statusbar_print_all("%s", msg);
@@ -193,15 +193,20 @@ static gboolean mail_filtering_hook(gpointer source, gpointer data)
 		}
 	}
 	
-	procmime_mimeinfo_free_all(mimeinfo);
+	procmime_mimeinfo_free_all(&mimeinfo);
 
 	return (result.status == OK) ? FALSE : TRUE;
 }
 
 Clamd_Stat clamd_prepare(void) {
 	debug_print("Creating socket\n");
-	if (!config.clamd_config_type || (config.clamd_host != NULL && config.clamd_port > 0)) {
-		if (config.clamd_host == NULL || config.clamd_port < 1) {
+	if (!config.clamd_config_type
+			|| (config.clamd_host != NULL
+				&& *(config.clamd_host) != '\0'
+				&& config.clamd_port > 0)) {
+		if (config.clamd_host == NULL
+				|| *(config.clamd_host) == '\0'
+				|| config.clamd_port == 0) {
 			/* error */
 			return NO_SOCKET;
 		}
@@ -246,7 +251,7 @@ void clamav_save_config(void)
 		return;
 
 	if (prefs_write_param(param, pfile->fp) < 0) {
-		g_warning("failed to write Clamd configuration to file\n");
+		g_warning("failed to write Clamd configuration to file");
 		prefs_file_close_revert(pfile);
 		return;
 	}

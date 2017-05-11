@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2005-2012 DINH Viet Hoa and the Claws Mail team
+ * Copyright (C) 2005-2016 DINH Viet Hoa and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -156,7 +155,7 @@ static void imap_logger_cmd(int direction, const char * str, size_t size)
 	int i = 0;
 
 	if (size > 8192) {
-		log_print(LOG_PROTOCOL, "IMAP4%c [CMD data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [CMD data - %zd bytes]\n", direction?'>':'<', size);
 		return;
 	}
 	buf = malloc(size+1);
@@ -177,7 +176,7 @@ static void imap_logger_cmd(int direction, const char * str, size_t size)
 	lines = g_strsplit(buf, "\n", -1);
 
 	while (lines[i] && *lines[i]) {
-		log_print(LOG_PROTOCOL, "IMAP4%c %s\n", direction?'>':'<', lines[i]);
+		log_print(LOG_PROTOCOL, "IMAP%c %s\n", direction?'>':'<', lines[i]);
 		i++;
 	}
 	g_strfreev(lines);
@@ -191,7 +190,7 @@ static void imap_logger_fetch(int direction, const char * str, size_t size)
 	int i = 0;
 
 	if (size > 128 && !direction) {
-		log_print(LOG_PROTOCOL, "IMAP4%c [FETCH data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [FETCH data - %zd bytes]\n", direction?'>':'<', size);
 		return;
 	}
 	
@@ -213,11 +212,11 @@ static void imap_logger_fetch(int direction, const char * str, size_t size)
 
 	if (direction != 0 || (buf[0] == '*' && buf[1] == ' ') || size < 32) {
 		while (lines[i] && *lines[i]) {
-			log_print(LOG_PROTOCOL, "IMAP4%c %s\n", direction?'>':'<', lines[i]);
+			log_print(LOG_PROTOCOL, "IMAP%c %s\n", direction?'>':'<', lines[i]);
 			i++;
 		}
 	} else {
-		log_print(LOG_PROTOCOL, "IMAP4%c [data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [data - %zd bytes]\n", direction?'>':'<', size);
 	}
 	g_strfreev(lines);
 	free(buf);
@@ -230,7 +229,7 @@ static void imap_logger_uid(int direction, const char * str, size_t size)
 	int i = 0;
 
 	if (size > 8192) {
-		log_print(LOG_PROTOCOL, "IMAP4%c [UID data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [UID data - %zd bytes]\n", direction?'>':'<', size);
 		return;
 	}
 	buf = malloc(size+1);
@@ -252,11 +251,11 @@ static void imap_logger_uid(int direction, const char * str, size_t size)
 	while (lines[i] && *lines[i]) {
 		int llen = strlen(lines[i]);
 		if (llen < 64)
-			log_print(LOG_PROTOCOL, "IMAP4%c %s\n", direction?'>':'<', lines[i]);
+			log_print(LOG_PROTOCOL, "IMAP%c %s\n", direction?'>':'<', lines[i]);
 		else {
 			gchar tmp[64];
 			strncpy2(tmp, lines[i], 63);
-			log_print(LOG_PROTOCOL, "IMAP4%c %s[... - %d bytes more]\n", direction?'>':'<', tmp,
+			log_print(LOG_PROTOCOL, "IMAP%c %s[... - %d bytes more]\n", direction?'>':'<', tmp,
 				  llen-64);
 		}
 		i++;
@@ -272,10 +271,10 @@ static void imap_logger_append(int direction, const char * str, size_t size)
 	int i = 0;
 
 	if (size > 8192) {
-		log_print(LOG_PROTOCOL, "IMAP4%c [APPEND data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [APPEND data - %zd bytes]\n", direction?'>':'<', size);
 		return;
 	} else if (direction == 0 && size > 64) {
-		log_print(LOG_PROTOCOL, "IMAP4%c [APPEND data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [APPEND data - %zd bytes]\n", direction?'>':'<', size);
 		return;
 	} 
 	buf = malloc(size+1);
@@ -296,11 +295,11 @@ static void imap_logger_append(int direction, const char * str, size_t size)
 
 	if (direction == 0 || (buf[0] == '*' && buf[1] == ' ') || size < 64) {
 		while (lines[i] && *lines[i]) {
-			log_print(LOG_PROTOCOL, "IMAP4%c %s\n", direction?'>':'<', lines[i]);
+			log_print(LOG_PROTOCOL, "IMAP%c %s\n", direction?'>':'<', lines[i]);
 			i++;
 		}
 	} else {
-		log_print(LOG_PROTOCOL, "IMAP4%c [data - %zd bytes]\n", direction?'>':'<', size);
+		log_print(LOG_PROTOCOL, "IMAP%c [data - %zd bytes]\n", direction?'>':'<', size);
 	}
 	g_strfreev(lines);
 	free(buf);
@@ -402,7 +401,7 @@ void imap_done(Folder * folder)
 	
 	chash_delete(imap_hash, &key, NULL);
 	
-	debug_print("remove thread");
+	debug_print("remove thread\n");
 }
 
 static struct etpan_thread * get_thread(Folder * folder)
@@ -458,7 +457,7 @@ static void generic_cb(int cancelled, void * result, void * callback_data)
 	debug_print("generic_cb\n");
 	if (op->imap && op->imap->imap_response_info &&
 	    op->imap->imap_response_info->rsp_alert) {
-		log_error(LOG_PROTOCOL, "IMAP4< Alert: %s\n", 
+		log_error(LOG_PROTOCOL, "IMAP< Alert: %s\n",
 			op->imap->imap_response_info->rsp_alert);
 		g_timeout_add(10, cb_show_error, NULL);
 	} 
@@ -967,7 +966,7 @@ static void login_run(struct etpan_thread_op * op)
 	old_debug = mailstream_debug;
 	mailstream_debug = 0;
 #endif
-	if (!strcmp(param->type, "LOGIN"))
+	if (!strcmp(param->type, "plaintext"))
 		r = mailimap_login(param->imap,
 			   param->login, param->password);
 	else if (!strcmp(param->type, "GSSAPI"))
@@ -979,7 +978,7 @@ static void login_run(struct etpan_thread_op * op)
 		/* 7th argument has to be NULL here, to stop libetpan sending the
 		 * a= attribute in its initial SCRAM-SHA-1 message to server. At least
 		 * Dovecot 2.2 doesn't seem to like that, and will not authenticate
-		 * succesfully. */
+		 * successfully. */
 		r = mailimap_authenticate(param->imap,
 			param->type, NULL, NULL, NULL,
 			NULL, param->login,
@@ -1008,6 +1007,9 @@ int imap_threaded_login(Folder * folder,
 	
 	debug_print("imap login - begin\n");
 	
+	if (!folder)
+		return MAILIMAP_ERROR_INVAL;
+
 	param.imap = get_imap(folder);
 	param.login = login;
 	param.password = password;
@@ -1192,7 +1194,7 @@ static void starttls_run(struct etpan_thread_op * op)
 	r = mailimap_starttls(param->imap);
 	
 	result->error = r;
-	debug_print("imap starttls run - end %i\n", r);
+	debug_print("imap STARTTLS run - end %i\n", r);
 	
 	if (r == 0) {
 		mailimap *imap = param->imap;
@@ -1203,14 +1205,14 @@ static void starttls_run(struct etpan_thread_op * op)
 		plain_low = mailstream_get_low(imap->imap_stream);
 		fd = mailstream_low_get_fd(plain_low);
 		if (fd == -1) {
-			debug_print("imap starttls run - can't get fd\n");
+			debug_print("imap STARTTLS run - can't get fd\n");
 			result->error = MAILIMAP_ERROR_STREAM;
 			return;
 		}
 
 		tls_low = mailstream_low_tls_open_with_callback(fd, etpan_connect_ssl_context_cb, param->account);
 		if (tls_low == NULL) {
-			debug_print("imap starttls run - can't tls_open\n");
+			debug_print("imap STARTTLS run - can't tls_open\n");
 			result->error = MAILIMAP_ERROR_STREAM;
 			return;
 		}
@@ -1225,7 +1227,7 @@ int imap_threaded_starttls(Folder * folder, const gchar *host, int port)
 	struct starttls_result result;
 	gboolean accept_if_valid = FALSE;
 
-	debug_print("imap starttls - begin\n");
+	debug_print("imap STARTTLS - begin\n");
 
 	param.imap = get_imap(folder);
 	param.server = host;
@@ -1238,7 +1240,7 @@ int imap_threaded_starttls(Folder * folder, const gchar *host, int port)
 	if (threaded_run(folder, &param, &result, starttls_run))
 		return MAILIMAP_ERROR_INVAL;
 
-	debug_print("imap starttls - end\n");
+	debug_print("imap STARTTLS - end\n");
 
 	if (result.error == 0 && param.imap && !etpan_skip_ssl_cert_check) {
 		if (etpan_certificate_check(param.imap->imap_stream, host, port,
@@ -2067,7 +2069,7 @@ static void fetch_uid_run(struct etpan_thread_op * op)
 
 	fetch_result = NULL;
 	mailstream_logger = imap_logger_noop;
-	log_print(LOG_PROTOCOL, "IMAP4- [fetching UIDs...]\n");
+	log_print(LOG_PROTOCOL, "IMAP- [fetching UIDs...]\n");
 
 	r = imap_get_messages_list(param->imap, param->first_index,
 				   &fetch_result);
@@ -2324,7 +2326,7 @@ int imap_threaded_fetch_uid_flags(Folder * folder, uint32_t first_index,
 	param.first_index = first_index;
 	
 	mailstream_logger = imap_logger_noop;
-	log_print(LOG_PROTOCOL, "IMAP4- [fetching flags...]\n");
+	log_print(LOG_PROTOCOL, "IMAP- [fetching flags...]\n");
 
 	threaded_run(folder, &param, &result, fetch_uid_flags_run);
 
@@ -2940,7 +2942,12 @@ imap_get_envelopes_list(mailimap * imap, struct mailimap_set * set,
 		r = imap_add_envelope_fetch_att(fetch_type);
 	else
 		r = imap_add_header_fetch_att(fetch_type);
-	
+
+	if (r != MAILIMAP_NO_ERROR) {
+		debug_print("add fetch attr: %d\n", r);
+		return r;
+	}
+
 	mailstream_logger = imap_logger_fetch;
 	
 	r = mailimap_uid_fetch(imap, set, fetch_type, &fetch_result);

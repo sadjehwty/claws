@@ -334,7 +334,7 @@ static void prefs_actions_create(MainWindow *mainwin)
 	CLAWS_SET_TIP(subst_btn,
 			_("Replace the selected action in list with the action above"));
 
-	del_btn = gtk_button_new_with_mnemonic (_("Re_move"));
+	del_btn = gtk_button_new_with_mnemonic (_("D_elete"));
 	gtk_button_set_image(GTK_BUTTON(del_btn),
 			gtk_image_new_from_stock(GTK_STOCK_REMOVE,GTK_ICON_SIZE_BUTTON));
 	gtk_widget_show(del_btn);
@@ -464,7 +464,7 @@ void prefs_actions_read_config(void)
 
 		tmp = conv_codeset_strdup(buf, src_codeset, dest_codeset);
 		if (!tmp) {
-			g_warning("Failed to convert character set of action configuration\n");
+			g_warning("Failed to convert character set of action configuration");
 			tmp = g_strdup(buf);
 		}
 
@@ -491,7 +491,7 @@ void prefs_actions_write_config(void)
 
 	rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, ACTIONS_RC, NULL);
 	if ((pfile= prefs_write_open(rcpath)) == NULL) {
-		g_warning("Failed to write configuration to file\n");
+		g_warning("failed to write configuration to file");
 		g_free(rcpath);
 		return;
 	}
@@ -504,7 +504,7 @@ void prefs_actions_write_config(void)
 
 		act = conv_codeset_strdup(tmp, src_codeset, dest_codeset);
 		if (!act) {
-			g_warning("Failed to convert character set of action configuration\n");
+			g_warning("Failed to convert character set of action configuration");
 			act = g_strdup(act);
 		}
 
@@ -522,7 +522,7 @@ void prefs_actions_write_config(void)
 	g_free(rcpath);
 
 	if (prefs_file_close(pfile) < 0) {
-		g_warning("failed to write configuration to file\n");
+		g_warning("failed to write configuration to file");
 		return;
 	}
 }
@@ -591,7 +591,7 @@ static void prefs_actions_set_list(void)
 static gint prefs_actions_clist_set_row(gint row)
 {
 	const gchar *entry_text;
-	gint len, action_nb;
+	gint len;
 	gchar action[PREFSBUFSIZE];
 	gchar *new_action;
 
@@ -611,12 +611,6 @@ static gint prefs_actions_clist_set_row(gint row)
 		return -1;
 	}
 
-	action_nb = prefs_actions_find_by_name(entry_text);
-	if ((action_nb != -1) && ((row == -1) || (row != action_nb + 1))) {
-		alertpanel_error(_("There is an action with this name already."));
-		return -1;
-	}
-	
 	strncpy(action, entry_text, PREFSBUFSIZE - 1);
 
 	while (strstr(action, "//")) {
@@ -897,12 +891,12 @@ static void prefs_actions_cancel(GtkWidget *w, gpointer data)
 
 	if (modified && alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"),
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	} else if (modified_list && alertpanel(_("Actions list not saved"),
 				 _("The actions list has been modified. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"), 
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	}
@@ -928,7 +922,7 @@ static void prefs_actions_ok(GtkWidget *widget, gpointer data)
 
 	if (modified && alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"),
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	} 

@@ -1,4 +1,4 @@
-# Copyright 1999-2014 the Claws Mail team.
+# Copyright 1999-2017 the Claws Mail team.
 # This file is part of Claws Mail package, and distributed under the
 # terms of the General Public License version 3 (or later).
 # See COPYING file for license details.
@@ -24,7 +24,8 @@ archiveinclude_HEADERS = \
 
 archive_la_LDFLAGS = \
 		-avoid-version -module \
-		$(GTK_LIBS)
+		$(GTK_LIBS) \
+		$(LIBARCHIVE_LIBS)
 
 archive_la_LIBADD = \
 		@ARCHIVE_LIBS@
@@ -36,4 +37,5 @@ archive_la_CPPFLAGS = \
 	-I$(top_builddir)/src/common \
 	-I$(top_srcdir)/src/gtk \
 	$(GLIB_CFLAGS) \
-	$(GTK_CFLAGS)
+	$(GTK_CFLAGS) \
+	$(LIBARCHIVE_CFLAGS)

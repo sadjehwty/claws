@@ -214,7 +214,7 @@ static void import_ok_cb(GtkWidget *widget, gpointer data)
 
 	mbox = g_filename_from_utf8(utf8mbox, -1, NULL, NULL, NULL);
 	if (!mbox) {
-		g_warning("import_ok_cb(): failed to convert character set.\n");
+		g_warning("import_ok_cb(): failed to convert character set.");
 		mbox = g_strdup(utf8mbox);
 	}
 
@@ -268,7 +268,8 @@ static void import_destsel_cb(GtkWidget *widget, gpointer data)
 	FolderItem *dest;
 	gchar *path;
 
-	dest = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE);
+	dest = foldersel_folder_sel(NULL, FOLDER_SEL_COPY, NULL, FALSE,
+			_("Select folder to import to"));
 	if (!dest)
 		 return;
 	path = folder_item_get_identifier(dest);

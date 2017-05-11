@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2013 Hiroyuki Yamamoto and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 1999-2016 Hiroyuki Yamamoto and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #include "defs.h"
@@ -68,7 +67,7 @@
 #include "statusbar.h"
 #include "folder_item_prefs.h"
 #include "avatars.h"
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	#include "addressbook.h"
 #else
 	#include "addressadd.h"
@@ -204,147 +203,146 @@ static void messageview_nothing_cb	   (GtkAction *action, gpointer data)
 static GList *msgview_list = NULL;
 static GtkActionEntry msgview_entries[] =
 {
-	{"Menu",			NULL, "Menu" },
+	{"Menu",                                     NULL, "Menu", NULL, NULL, NULL },
 /* menus */
-	{"File",			NULL, N_("_File") },
-	{"Edit",			NULL, N_("_Edit") },
-	{"View",			NULL, N_("_View") },
-	{"Message",			NULL, N_("_Message") },
-	{"Tools",			NULL, N_("_Tools") },
-	{"Help",			NULL, N_("_Help") },
-	{"PlaceHolder",			NULL, "Placeholder", NULL, NULL, G_CALLBACK(messageview_nothing_cb) },
+	{"File",                                     NULL, N_("_File"), NULL, NULL, NULL },
+	{"Edit",                                     NULL, N_("_Edit"), NULL, NULL, NULL },
+	{"View",                                     NULL, N_("_View"), NULL, NULL, NULL },
+	{"Message",                                  NULL, N_("_Message"), NULL, NULL, NULL },
+	{"Tools",                                    NULL, N_("_Tools"), NULL, NULL, NULL },
+	{"Help",                                     NULL, N_("_Help"), NULL, NULL, NULL },
+	{"PlaceHolder",                              NULL, "Placeholder", NULL, NULL, G_CALLBACK(messageview_nothing_cb) },
 
 /* File menu */
-	{"File/SaveAs",			NULL, N_("_Save email as..."), "<control>S", NULL, G_CALLBACK(save_as_cb) },
-	{"File/SavePartAs",		NULL, N_("_Save part as..."), "Y", NULL, G_CALLBACK(save_part_as_cb) },
-	{"File/PageSetup",		NULL, N_("Page setup..."), NULL, NULL, G_CALLBACK(page_setup_cb) },
-	{"File/Print",			NULL, N_("_Print..."), "<control>P", NULL, G_CALLBACK(print_cb) },
-	{"File/---",			NULL, "---", NULL, NULL, NULL },
-	{"File/Close",			NULL, N_("_Close"), "<control>W", NULL, G_CALLBACK(close_cb) },
+	{"File/SaveAs",                              NULL, N_("_Save email as..."), "<control>S", NULL, G_CALLBACK(save_as_cb) },
+	{"File/SavePartAs",                          NULL, N_("_Save part as..."), "Y", NULL, G_CALLBACK(save_part_as_cb) },
+	{"File/PageSetup",                           NULL, N_("Page setup..."), NULL, NULL, G_CALLBACK(page_setup_cb) },
+	{"File/Print",                               NULL, N_("_Print..."), "<control>P", NULL, G_CALLBACK(print_cb) },
+	{"File/---",                                 NULL, "---", NULL, NULL, NULL },
+	{"File/Close",                               NULL, N_("_Close"), "<control>W", NULL, G_CALLBACK(close_cb) },
 
 /* Edit menu */
-	{"Edit/Copy",			NULL, N_("_Copy"), "<control>C", NULL, G_CALLBACK(copy_cb) },
-	{"Edit/SelectAll",		NULL, N_("_Select all"), "<control>A", NULL, G_CALLBACK(allsel_cb) },
-	{"Edit/---",			NULL, "---", NULL, NULL, NULL },
-	{"Edit/Find",			NULL, N_("_Find"), "<control>F", NULL, G_CALLBACK(search_cb) },
+	{"Edit/Copy",                                NULL, N_("_Copy"), "<control>C", NULL, G_CALLBACK(copy_cb) },
+	{"Edit/SelectAll",                           NULL, N_("_Select all"), "<control>A", NULL, G_CALLBACK(allsel_cb) },
+	{"Edit/---",                                 NULL, "---", NULL, NULL, NULL },
+	{"Edit/Find",                                NULL, N_("_Find"), "<control>F", NULL, G_CALLBACK(search_cb) },
 	
 /* View menu */
-	{"View/Goto",			NULL, N_("_Go to") },
-	{"View/Goto/Prev",		NULL, N_("_Previous message"), "P", NULL, G_CALLBACK(prev_cb) },
-	{"View/Goto/Next",		NULL, N_("_Next message"), "N", NULL, G_CALLBACK(next_cb) },
-	{"View/Goto/---",		NULL, "---", NULL, NULL, NULL },
-	{"View/Goto/PrevUnread",	NULL, N_("P_revious unread message"), "<shift>P", NULL, G_CALLBACK(prev_unread_cb) },
-	{"View/Goto/NextUnread",	NULL, N_("N_ext unread message"), "<shift>N", NULL, G_CALLBACK(next_unread_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/PrevNew",		NULL, N_("Previous ne_w message"), NULL, NULL, G_CALLBACK(prev_new_cb) },
-	{"View/Goto/NextNew",		NULL, N_("Ne_xt new message"), NULL, NULL, G_CALLBACK(next_new_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/PrevMarked",	NULL, N_("Previous _marked message"), NULL, NULL, G_CALLBACK(prev_marked_cb) },
-	{"View/Goto/NextMarked",	NULL, N_("Next m_arked message"), NULL, NULL, G_CALLBACK(next_marked_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/PrevLabeled",	NULL, N_("Previous _labeled message"), NULL, NULL, G_CALLBACK(prev_labeled_cb) },
-	{"View/Goto/NextLabeled",	NULL, N_("Next la_beled message"), NULL, NULL, G_CALLBACK(next_labeled_cb) },
-	/* {"View/Goto/---",			NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/PrevHistory",	NULL, N_("Previous opened message"), "<alt>Left", NULL, G_CALLBACK(prev_history_cb) },
-	{"View/Goto/NextHistory",	NULL, N_("Next opened message"), "<alt>Right", NULL, G_CALLBACK(next_history_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/ParentMessage",	NULL, N_("Parent message"), "<control>Up", NULL, G_CALLBACK(parent_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/NextUnreadFolder",	NULL, N_("Next unread _folder"), "<shift>G", NULL, G_CALLBACK(goto_unread_folder_cb) },
-	{"View/Goto/OtherFolder",	NULL, N_("_Other folder..."), "G", NULL, G_CALLBACK(goto_folder_cb) },
-	/* {"View/Goto/---",		NULL, "---", NULL, NULL, NULL }, */
-	{"View/Goto/NextPart",		NULL, N_("Next part"), "A", NULL, G_CALLBACK(goto_next_part_cb) },
-	{"View/Goto/PrevPart",		NULL, N_("Previous part"), "Z", NULL, G_CALLBACK(goto_prev_part_cb) },
-        {"View/Scroll",                 NULL, N_("Message scroll") },
-        {"View/Scroll/PrevLine",        NULL, N_("Previous line"), NULL, NULL, G_CALLBACK(scroll_prev_line_cb) },
-        {"View/Scroll/NextLine",        NULL, N_("Next line"), NULL, NULL, G_CALLBACK(scroll_next_line_cb) },
-        {"View/Scroll/PrevPage",        NULL, N_("Previous page"), NULL, NULL, G_CALLBACK(scroll_prev_page_cb) },
-        {"View/Scroll/NextPage",        NULL, N_("Next page"), NULL, NULL, G_CALLBACK(scroll_next_page_cb) },
-        /* {"View/Scroll/---",          NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto",                                NULL, N_("_Go to"), NULL, NULL, NULL },
+	{"View/Goto/Prev",                           NULL, N_("_Previous message"), "P", NULL, G_CALLBACK(prev_cb) },
+	{"View/Goto/Next",                           NULL, N_("_Next message"), "N", NULL, G_CALLBACK(next_cb) },
+	{"View/Goto/---",                            NULL, "---", NULL, NULL, NULL },
+	{"View/Goto/PrevUnread",                     NULL, N_("P_revious unread message"), "<shift>P", NULL, G_CALLBACK(prev_unread_cb) },
+	{"View/Goto/NextUnread",                     NULL, N_("N_ext unread message"), "<shift>N", NULL, G_CALLBACK(next_unread_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/PrevNew",                        NULL, N_("Previous ne_w message"), NULL, NULL, G_CALLBACK(prev_new_cb) },
+	{"View/Goto/NextNew",                        NULL, N_("Ne_xt new message"), NULL, NULL, G_CALLBACK(next_new_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/PrevMarked",                     NULL, N_("Previous _marked message"), NULL, NULL, G_CALLBACK(prev_marked_cb) },
+	{"View/Goto/NextMarked",                     NULL, N_("Next m_arked message"), NULL, NULL, G_CALLBACK(next_marked_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/PrevLabeled",                    NULL, N_("Previous _labeled message"), NULL, NULL, G_CALLBACK(prev_labeled_cb) },
+	{"View/Goto/NextLabeled",                    NULL, N_("Next la_beled message"), NULL, NULL, G_CALLBACK(next_labeled_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/PrevHistory",                    NULL, N_("Previous opened message"), "<alt>Left", NULL, G_CALLBACK(prev_history_cb) },
+	{"View/Goto/NextHistory",                    NULL, N_("Next opened message"), "<alt>Right", NULL, G_CALLBACK(next_history_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/ParentMessage",                  NULL, N_("Parent message"), "<control>Up", NULL, G_CALLBACK(parent_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/NextUnreadFolder",               NULL, N_("Next unread _folder"), "<shift>G", NULL, G_CALLBACK(goto_unread_folder_cb) },
+	{"View/Goto/Folder",                         NULL, N_("F_older..."), "G", NULL, G_CALLBACK(goto_folder_cb) },
+	/* {"View/Goto/---",                         NULL, "---", NULL, NULL, NULL }, */
+	{"View/Goto/NextPart",                       NULL, N_("Next part"), "A", NULL, G_CALLBACK(goto_next_part_cb) },
+	{"View/Goto/PrevPart",                       NULL, N_("Previous part"), "Z", NULL, G_CALLBACK(goto_prev_part_cb) },
+	{"View/Scroll",                              NULL, N_("Message scroll"), NULL, NULL, NULL },
+	{"View/Scroll/PrevLine",                     NULL, N_("Previous line"), NULL, NULL, G_CALLBACK(scroll_prev_line_cb) },
+	{"View/Scroll/NextLine",                     NULL, N_("Next line"), NULL, NULL, G_CALLBACK(scroll_next_line_cb) },
+	{"View/Scroll/PrevPage",                     NULL, N_("Previous page"), NULL, NULL, G_CALLBACK(scroll_prev_page_cb) },
+	{"View/Scroll/NextPage",                     NULL, N_("Next page"), NULL, NULL, G_CALLBACK(scroll_next_page_cb) },
+	/* {"View/Scroll/---",                       NULL, "---", NULL, NULL, NULL }, */
 
-	{"View/Encoding",		NULL, N_("Character _encoding") }, /* set_charset_cb */
-	{"View/Encoding/---",		NULL, "---" },
+	{"View/Encoding",                            NULL, N_("Character _encoding"), NULL, NULL, NULL }, /* set_charset_cb */
+	{"View/Encoding/---",                        NULL, "---", NULL, NULL, NULL },
 #define ENC_ACTION(cs_char,c_char,string) \
 	{ "View/Encoding/" cs_char, NULL, N_(string), NULL, NULL, c_char }
 
-	{"View/Encoding/Western",	NULL, N_("Western European") },
-	{"View/Encoding/Baltic",	NULL, N_("Baltic") },
-	{"View/Encoding/Hebrew",	NULL, N_("Hebrew") },
-	{"View/Encoding/Arabic",	NULL, N_("Arabic") },
-	{"View/Encoding/Cyrillic",	NULL, N_("Cyrillic") },
-	{"View/Encoding/Japanese",	NULL, N_("Japanese") },
-	{"View/Encoding/Chinese",	NULL, N_("Chinese") },
-	{"View/Encoding/Korean",	NULL, N_("Korean") },
-	{"View/Encoding/Thai",		NULL, N_("Thai") },
+	{"View/Encoding/Western",                    NULL, N_("Western European"), NULL, NULL, NULL },
+	{"View/Encoding/Baltic",                     NULL, N_("Baltic"), NULL, NULL, NULL },
+	{"View/Encoding/Hebrew",                     NULL, N_("Hebrew"), NULL, NULL, NULL },
+	{"View/Encoding/Arabic",                     NULL, N_("Arabic"), NULL, NULL, NULL },
+	{"View/Encoding/Cyrillic",                   NULL, N_("Cyrillic"), NULL, NULL, NULL },
+	{"View/Encoding/Japanese",                   NULL, N_("Japanese"), NULL, NULL, NULL },
+	{"View/Encoding/Chinese",                    NULL, N_("Chinese"), NULL, NULL, NULL },
+	{"View/Encoding/Korean",                     NULL, N_("Korean"), NULL, NULL, NULL },
+	{"View/Encoding/Thai",                       NULL, N_("Thai"), NULL, NULL, NULL },
 
-	{"View/Decode",			NULL, N_("Decode") }, /* set_decode_cb */
-	{"View/Decode/---",		NULL, "---" },
+	{"View/Decode",                              NULL, N_("Decode"), NULL, NULL, NULL }, /* set_decode_cb */
+	{"View/Decode/---",                          NULL, "---", NULL, NULL, NULL },
 
 #define DEC_ACTION(cs_type,c_type,string) \
 	{ "View/Decode/" cs_type, NULL, N_(string), NULL, NULL, c_type }
 
-	{"View/---",			NULL, "---", NULL, NULL, NULL },
-	{"View/MessageSource",		NULL, N_("Mess_age source"), "<control>U", NULL, G_CALLBACK(view_source_cb) },
-	{"View/Part",			NULL, N_("Message part") },
-	{"View/Part/AsText",		NULL, N_("View as text"), "T", NULL, G_CALLBACK(view_part_as_text_cb) },
-	{"View/Part/Open",		NULL, N_("Open"), "L", NULL, G_CALLBACK(open_part_cb) },
+	{"View/---",                                 NULL, "---", NULL, NULL, NULL },
+	{"View/MessageSource",                       NULL, N_("Mess_age source"), "<control>U", NULL, G_CALLBACK(view_source_cb) },
+	{"View/Part",                                NULL, N_("Message part"), NULL, NULL, NULL },
+	{"View/Part/AsText",                         NULL, N_("View as text"), "T", NULL, G_CALLBACK(view_part_as_text_cb) },
+	{"View/Part/Open",                           NULL, N_("Open"), "L", NULL, G_CALLBACK(open_part_cb) },
 #ifndef G_OS_WIN32
-	{"View/Part/OpenWith",		NULL, N_("Open with..."), "O", NULL, G_CALLBACK(open_part_with_cb) },
+	{"View/Part/OpenWith",                       NULL, N_("Open with..."), "O", NULL, G_CALLBACK(open_part_with_cb) },
 #endif
 
-	{"View/Quotes",			NULL, N_("Quotes") }, 
+	{"View/Quotes",                              NULL, N_("Quotes"), NULL, NULL, NULL }, 
 
 /* Message menu */
-	{"Message/Compose",		NULL, N_("Compose _new message"), "<control>M", NULL, G_CALLBACK(compose_cb) },
-	{"Message/---",			NULL, "---", NULL, NULL, NULL },
+	{"Message/Compose",                          NULL, N_("Compose _new message"), "<control>M", NULL, G_CALLBACK(compose_cb) },
+	{"Message/---",                              NULL, "---", NULL, NULL, NULL },
 
-	{"Message/Reply",		NULL, N_("_Reply"), "<control>R", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY */
-	{"Message/ReplyTo",		NULL, N_("Repl_y to") }, 
-	{"Message/ReplyTo/All",		NULL, N_("_All"), "<control><shift>R", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_ALL */
-	{"Message/ReplyTo/Sender",	NULL, N_("_Sender"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_SENDER */
-	{"Message/ReplyTo/List",	NULL, N_("Mailing _list"), "<control>L", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_LIST */
-	/* {"Message/---",			NULL, "---", NULL, NULL, NULL }, */
+	{"Message/Reply",                            NULL, N_("_Reply"), "<control>R", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY */
+	{"Message/ReplyTo",                          NULL, N_("Repl_y to"), NULL, NULL, NULL }, 
+	{"Message/ReplyTo/All",                      NULL, N_("_All"), "<control><shift>R", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_ALL */
+	{"Message/ReplyTo/Sender",                   NULL, N_("_Sender"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_SENDER */
+	{"Message/ReplyTo/List",                     NULL, N_("Mailing _list"), "<control>L", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REPLY_TO_LIST */
+	/* {"Message/---",                           NULL, "---", NULL, NULL, NULL }, */
 
-	{"Message/Forward",		NULL, N_("_Forward"), "<control><alt>F", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_FORWARD_INLINE */
-	{"Message/ForwardAtt",		NULL, N_("For_ward as attachment"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_FORWARD_AS_ATTACH */
-	{"Message/Redirect",		NULL, N_("Redirec_t"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REDIRECT */
-	{"Message/CheckSignature",		NULL, N_("Check signature"), "C", NULL, G_CALLBACK(check_signature_cb) },
+	{"Message/Forward",                          NULL, N_("_Forward"), "<control><alt>F", NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_FORWARD_INLINE */
+	{"Message/ForwardAtt",                       NULL, N_("For_ward as attachment"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_FORWARD_AS_ATTACH */
+	{"Message/Redirect",                         NULL, N_("Redirec_t"), NULL, NULL, G_CALLBACK(reply_cb) }, /* COMPOSE_REDIRECT */
+	{"Message/CheckSignature",                   NULL, N_("Check signature"), "C", NULL, G_CALLBACK(check_signature_cb) },
 
 /* Tools menu */	
-	{"Tools/AddressBook",		NULL, N_("_Address book"), "<control><shift>A", NULL, G_CALLBACK(addressbook_open_cb) }, 
-	{"Tools/AddSenderToAB",		NULL, N_("Add sender to address boo_k"), NULL, NULL, G_CALLBACK(add_address_cb) }, 
-	{"Tools/---",			NULL, "---", NULL, NULL, NULL },
+	{"Tools/AddressBook",                        NULL, N_("_Address book"), "<control><shift>A", NULL, G_CALLBACK(addressbook_open_cb) }, 
+	{"Tools/AddSenderToAB",                      NULL, N_("Add sender to address boo_k"), NULL, NULL, G_CALLBACK(add_address_cb) }, 
+	{"Tools/---",                                NULL, "---", NULL, NULL, NULL },
 
-	{"Tools/CreateFilterRule",			NULL, N_("_Create filter rule") },
-	{"Tools/CreateFilterRule/Automatically",	NULL, N_("_Automatically"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_AUTO */
-	{"Tools/CreateFilterRule/ByFrom",		NULL, N_("By _From"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_FROM */
-	{"Tools/CreateFilterRule/ByTo",			NULL, N_("By _To"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_TO     */
-	{"Tools/CreateFilterRule/BySubject",		NULL, N_("By _Subject"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_SUBJECT */
+	{"Tools/CreateFilterRule",                   NULL, N_("_Create filter rule"), NULL, NULL, NULL },
+	{"Tools/CreateFilterRule/Automatically",     NULL, N_("_Automatically"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_AUTO */
+	{"Tools/CreateFilterRule/ByFrom",            NULL, N_("By _From"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_FROM */
+	{"Tools/CreateFilterRule/ByTo",              NULL, N_("By _To"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_TO     */
+	{"Tools/CreateFilterRule/BySubject",         NULL, N_("By _Subject"), NULL, NULL, G_CALLBACK(create_filter_cb) }, /* FILTER_BY_SUBJECT */
 
-	{"Tools/CreateProcessingRule",			NULL, N_("Create processing rule") },
-	{"Tools/CreateProcessingRule/Automatically",	NULL, N_("_Automatically"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
-	{"Tools/CreateProcessingRule/ByFrom",		NULL, N_("By _From"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
-	{"Tools/CreateProcessingRule/ByTo",		NULL, N_("By _To"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
-	{"Tools/CreateProcessingRule/BySubject",		NULL, N_("By _Subject"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
+	{"Tools/CreateProcessingRule",               NULL, N_("Create processing rule"), NULL, NULL, NULL },
+	{"Tools/CreateProcessingRule/Automatically", NULL, N_("_Automatically"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
+	{"Tools/CreateProcessingRule/ByFrom",        NULL, N_("By _From"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
+	{"Tools/CreateProcessingRule/ByTo",          NULL, N_("By _To"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
+	{"Tools/CreateProcessingRule/BySubject",     NULL, N_("By _Subject"), NULL, NULL, G_CALLBACK(create_processing_cb) }, 
+	/* {"Tools/---",                             NULL, "---", NULL, NULL, NULL }, */
 
-	/* {"Tools/---",			NULL, "---", NULL, NULL, NULL }, */
+	{"Tools/ListUrls",                           NULL, N_("List _URLs..."), "<control><shift>U", NULL, G_CALLBACK(open_urls_cb) }, 
 
-	{"Tools/ListUrls",		NULL, N_("List _URLs..."), "<control><shift>U", NULL, G_CALLBACK(open_urls_cb) }, 
-
-	/* {"Tools/---",			NULL, "---", NULL, NULL, NULL }, */
-	{"Tools/Actions",	NULL, N_("Actio_ns") },
-	{"Tools/Actions/PlaceHolder",	NULL, "Placeholder", NULL, NULL, G_CALLBACK(messageview_nothing_cb) },
+	/* {"Tools/---",                             NULL, "---", NULL, NULL, NULL }, */
+	{"Tools/Actions",                            NULL, N_("Actio_ns"), NULL, NULL, NULL },
+	{"Tools/Actions/PlaceHolder",                NULL, "Placeholder", NULL, NULL, G_CALLBACK(messageview_nothing_cb) },
 
 /* Help menu */
-	{"Help/About",		NULL, N_("_About"), NULL, NULL, G_CALLBACK(about_cb) }, 
+	{"Help/About",                               NULL, N_("_About"), NULL, NULL, G_CALLBACK(about_cb) }, 
 };
 
 static GtkToggleActionEntry msgview_toggle_entries[] =
 {
-	{"View/AllHeaders",		NULL, N_("Show all _headers"), "<control>H", NULL, G_CALLBACK(show_all_header_cb) }, /* toggle */
-	{"View/Quotes/CollapseAll",	NULL, N_("_Collapse all"), "<control><shift>Q", NULL, G_CALLBACK(msg_hide_quotes_cb) }, /* 1 toggle */
-	{"View/Quotes/Collapse2",		NULL, N_("Collapse from level _2"), NULL, NULL, G_CALLBACK(msg_hide_quotes_cb) }, /* 2 toggle */
-	{"View/Quotes/Collapse3",		NULL, N_("Collapse from level _3"), NULL, NULL, G_CALLBACK(msg_hide_quotes_cb) }, /* 3 toggle */
+	{"View/AllHeaders",         NULL, N_("Show all _headers"), "<control>H", NULL, G_CALLBACK(show_all_header_cb), FALSE }, /* toggle */
+	{"View/Quotes/CollapseAll", NULL, N_("_Collapse all"), "<control><shift>Q", NULL, G_CALLBACK(msg_hide_quotes_cb), FALSE }, /* 1 toggle */
+	{"View/Quotes/Collapse2",   NULL, N_("Collapse from level _2"), NULL, NULL, G_CALLBACK(msg_hide_quotes_cb), FALSE }, /* 2 toggle */
+	{"View/Quotes/Collapse3",   NULL, N_("Collapse from level _3"), NULL, NULL, G_CALLBACK(msg_hide_quotes_cb), FALSE }, /* 3 toggle */
 };
 
 static GtkRadioActionEntry msgview_radio_enc_entries[] =
@@ -527,7 +525,7 @@ static void messageview_add_toolbar(MessageView *msgview, GtkWidget *window)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "ParentMessage", "View/Goto/ParentMessage", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "Separator7", "View/Goto/---", GTK_UI_MANAGER_SEPARATOR)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "NextUnreadFolder", "View/Goto/NextUnreadFolder", GTK_UI_MANAGER_MENUITEM)
-	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "OtherFolder", "View/Goto/OtherFolder", GTK_UI_MANAGER_MENUITEM)
+	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "Folder", "View/Goto/Folder", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "Separator8", "View/Goto/---", GTK_UI_MANAGER_SEPARATOR)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "NextPart", "View/Goto/NextPart", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(msgview->ui_manager, "/Menu/View/Goto", "PrevPart", "View/Goto/PrevPart", GTK_UI_MANAGER_MENUITEM)
@@ -773,32 +771,35 @@ void messageview_init(MessageView *messageview)
 	noticeview_hide(messageview->noticeview);
 }
 
-static void notification_convert_header(gchar *dest, gint len, 
+static void notification_convert_header(gchar **dest,
 					const gchar *src_,
 					gint header_len)
 {
 	char *src;
 
 	cm_return_if_fail(src_ != NULL);
-	cm_return_if_fail(dest != NULL);
 
-	if (len < 1) return;
+	if (header_len < 1) {
+		*dest = g_strdup("");
+		return;
+	}
 
-	Xstrndup_a(src, src_, len, return);
+	Xstrndup_a(src, src_, strlen(src_), return);
 
 	remove_return(src);
 
 	if (is_ascii_str(src)) {
-		strncpy2(dest, src, len);
-		dest[len - 1] = '\0';
+		*dest = g_strdup(src);
 		return;
-	} else
-		conv_encode_header(dest, len, src, header_len, FALSE);
+	} else {
+		*dest = g_malloc(BUFFSIZE);
+		conv_encode_header(*dest, BUFFSIZE, src, header_len, FALSE);
+	}
 }
 
 static gint disposition_notification_send(MsgInfo *msginfo)
 {
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
 	gchar tmp[MAXPATHLEN + 1];
 	FILE *fp;
 	GList *ac_list;
@@ -813,6 +814,7 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 	gchar *foo = NULL;
 	gboolean queued_removed = FALSE;
 	gchar *boundary = NULL;
+	gchar buf_date[RFC822_DATE_BUFFSIZE];
 	gchar *date = NULL;
 	gchar *orig_to = NULL;
 	gchar *enc_sub = NULL;
@@ -829,8 +831,7 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 	else
 		to = msginfo->extradata->returnreceiptto;
 
-	ok = procheader_get_header_from_msginfo(msginfo, buf, sizeof(buf),
-				"Return-Path:");
+	ok = procheader_get_header_from_msginfo(msginfo, &buf, "Return-Path:");
 	if (ok == 0) {
 		gchar *to_addr = g_strdup(to);
 		extract_address(to_addr);
@@ -838,8 +839,7 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		ok = strcasecmp(to_addr, buf);
 		g_free(to_addr);
 	} else {
-		g_strlcpy(buf, _("<No Return-Path found>"), 
-				sizeof(buf));
+		buf = g_strdup(_("<No Return-Path found>"));
 	}
 	
 	if (ok != 0) {
@@ -850,28 +850,41 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		    "to be sent does not correspond to the return path:\n"
 		    "Notification address: %s\n"
 		    "Return path: %s\n"
-		    "It is advised to not to send the return receipt."),
+		    "It is advised to not send the return receipt."),
 		  to, buf);
 		val = alertpanel_full(_("Warning"), message,
 				_("_Don't Send"), _("_Send"), NULL, FALSE,
 				NULL, ALERT_WARNING, G_ALERTDEFAULT);
 		g_free(message);				
-		if (val != G_ALERTALTERNATE)
+		if (val != G_ALERTALTERNATE) {
+			g_free(buf);
 			return -1;
+		}
 	}
+	g_free(buf);
+	buf = NULL;
 
 	ac_list = account_find_all_from_address(NULL, msginfo->to);
 	ac_list = account_find_all_from_address(ac_list, msginfo->cc);
 
 	if (ac_list == NULL) {
-		AlertValue val = 
-		alertpanel_full(_("Warning"),
-		  _("This message is asking for a return receipt notification\n"
-		    "but according to its 'To:' and 'CC:' headers it was not\n"
+		AlertValue val;
+		gchar *tr;
+		gchar *text;
+		tr = g_strdup(C_("'%s' stands for 'To' then 'Cc'",
+		    "This message is asking for a return receipt notification\n"
+		    "but according to its '%s' and '%s' headers it was not\n"
 		    "officially addressed to you.\n"
-		    "It is advised to not to send the return receipt."),
+		    "It is advised to not send the return receipt."));
+		text = g_strdup_printf(tr,
+		  prefs_common_translated_header_name("To"),
+		  prefs_common_translated_header_name("Cc"));
+		val = alertpanel_full(_("Warning"),
+		  text,
 		  _("_Don't Send"), _("_Send"), NULL, FALSE,
 		  NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		g_free(text);
+		g_free(tr);
 		if (val != G_ALERTALTERNATE)
 			return -1;
 	}
@@ -904,7 +917,7 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 	/* chmod for security */
 	if (change_file_mode_rw(fp, tmp) < 0) {
 		FILE_OP_ERROR(tmp, "chmod");
-		g_warning("can't change file mode\n");
+		g_warning("can't change file mode");
 	}
 	
 	addr = g_strdup(to);
@@ -952,17 +965,21 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		goto FILE_ERROR;
 
 	/* Date */
-	get_rfc822_date(buf, sizeof(buf));
+	get_rfc822_date(buf_date, sizeof(buf_date));
 	if (fprintf(fp, "Date: %s\n", buf) < 0)
 		goto FILE_ERROR;
 
 	/* From */
 	if (account->name && *account->name) {
-		notification_convert_header
-			(buf, sizeof(buf), account->name,
-			 strlen("From: "));
-		if (fprintf(fp, "From: %s <%s>\n", buf, account->address) < 0)
+		notification_convert_header(&buf, account->name, strlen("From: "));
+		if (buf == NULL)
 			goto FILE_ERROR;
+		if (fprintf(fp, "From: %s <%s>\n", buf, account->address) < 0) {
+			g_free(buf);
+			goto FILE_ERROR;
+		}
+		g_free(buf);
+		buf = NULL;
 	} else
 		if (fprintf(fp, "From: %s\n", account->address) < 0)
 			goto FILE_ERROR;
@@ -971,37 +988,28 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		goto FILE_ERROR;
 
 	/* Subject */
-	notification_convert_header(buf, sizeof(buf), msginfo->subject,
-				    strlen("Subject: "));
-	if (fprintf(fp, "Subject: Disposition notification: %s\n", buf) < 0)
+	notification_convert_header(&buf, msginfo->subject, strlen("Subject: "));
+	if (buf == NULL)
 		goto FILE_ERROR;
+	if (fprintf(fp, "Subject: Disposition notification: %s\n", buf) < 0) {
+		g_free(buf);
+		goto FILE_ERROR;
+	}
+	g_free(buf);
+	buf = NULL;
 
 	/* Message ID */
-	if (account->set_domain && account->domain) {
-		g_snprintf(buf, sizeof(buf), "%s", account->domain); 
-	} else if (!strncmp(get_domain_name(), "localhost", strlen("localhost"))) {
-		g_snprintf(buf, sizeof(buf), "%s", 
-			strchr(account->address, '@') ?
-				strchr(account->address, '@')+1 :
-				account->address);
-	} else {
-		g_snprintf(buf, sizeof(buf), "%s", "");
-	}
-	
 	if (account->gen_msgid) {
-		gchar *addr = NULL;
-		if (account->msgid_with_addr) {
-			addr = account->address;
-		}
-		generate_msgid(buf, sizeof(buf), addr);
-
-		if (fprintf(fp, "Message-ID: <%s>\n", buf) < 0)
+		gchar *addr = prefs_account_generate_msgid(account);
+		if (fprintf(fp, "Message-ID: <%s>\n", addr) < 0) {
+			g_free(addr);
 			goto FILE_ERROR;
+		}
+		g_free(addr);
 	}
 
 	boundary = generate_mime_boundary("DN");
-	get_rfc822_date(buf, sizeof(buf));
-	date = g_strdup(buf);
+	date = g_strdup(buf_date);
 	if (msginfo->to) {
 		orig_to = g_strdup(msginfo->to);
 		extract_address(orig_to);
@@ -1081,13 +1089,13 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 	queue = account_get_special_folder(account, F_QUEUE);
 	if (!queue) queue = folder_get_default_queue();
 	if (!queue) {
-		g_warning("can't find queue folder\n");
+		g_warning("can't find queue folder");
 		claws_unlink(tmp);
 		return -1;
 	}
 	folder_item_scan(queue);
 	if ((num = folder_item_add_msg(queue, tmp, NULL, TRUE)) < 0) {
-		g_warning("can't queue the message\n");
+		g_warning("can't queue the message");
 		claws_unlink(tmp);
 		return -1;
 	}
@@ -1273,6 +1281,60 @@ MsgInfo *messageview_nav_get_next(MessageView *messageview) {
 	return info;
 }
 
+static gboolean messageview_try_select_mimeinfo(MessageView *messageview, MsgInfo *msginfo, MimeInfo *mimeinfo)
+{
+	if (mimeinfo->type == MIMETYPE_TEXT) {
+		if (!strcasecmp(mimeinfo->subtype, "calendar")
+				&& mimeview_has_viewer_for_content_type(messageview->mimeview, "text/calendar")) {
+			mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
+			return TRUE;
+		} else if (!strcasecmp(mimeinfo->subtype, "html")
+				&& mimeinfo->disposition != DISPOSITIONTYPE_ATTACHMENT
+				&& (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_ALWAYS
+					|| (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_DEFAULT
+						&& prefs_common.promote_html_part))) {
+			mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void messageview_find_part_depth_first(MimeInfoSearch *context, MimeMediaType type, const gchar *subtype)
+{
+	MimeInfo * mimeinfo = context->current;
+
+	if (!mimeinfo)
+		return;
+
+	debug_print("found part %d/%s\n", mimeinfo->type, mimeinfo->subtype);
+
+	if (mimeinfo->type == type
+			&& !strcasecmp(mimeinfo->subtype, subtype)) {
+		context->found = mimeinfo;
+	} else if (mimeinfo->type == MIMETYPE_MULTIPART) {
+		if (!strcasecmp(mimeinfo->subtype, "alternative")
+				|| !strcasecmp(mimeinfo->subtype, "related")) {
+			context->found = procmime_mimeinfo_next(mimeinfo);
+			while (context->found && context->found != context->parent) {
+				if (context->found->type == type
+					&& !strcasecmp(context->found->subtype, subtype))
+						break;
+				context->found = procmime_mimeinfo_next(context->found);
+			}
+			if (context->found == context->parent)
+				context->found = NULL;
+		}
+		if (!context->found
+			&& (!strcasecmp(mimeinfo->subtype, "related")
+				|| !strcasecmp(mimeinfo->subtype, "mixed"))) {
+			context->parent = mimeinfo;
+			context->current = procmime_mimeinfo_next(mimeinfo);
+			messageview_find_part_depth_first(context, type, subtype);
+		}
+	}
+}
+
 gint messageview_show(MessageView *messageview, MsgInfo *msginfo,
 		      gboolean all_headers)
 {
@@ -1329,7 +1391,7 @@ gint messageview_show(MessageView *messageview, MsgInfo *msginfo,
 		statuswindow_pop_all();
 
 	if (!file) {
-		g_warning("can't get message file path.\n");
+		g_warning("can't get message file path.");
 		textview_show_error(messageview->mimeview->textview);
 		return -1;
 	}
@@ -1370,7 +1432,7 @@ gint messageview_show(MessageView *messageview, MsgInfo *msginfo,
 	}
 			
 	if (messageview->msginfo != msginfo) {
-		procmsg_msginfo_free(messageview->msginfo);
+		procmsg_msginfo_free(&(messageview->msginfo));
 		messageview->msginfo = NULL;
 		messageview_set_menu_sensitive(messageview);
 		messageview->msginfo = 
@@ -1455,82 +1517,36 @@ gint messageview_show(MessageView *messageview, MsgInfo *msginfo,
 			
 	root = mimeinfo;
 	mimeinfo = procmime_mimeinfo_next(mimeinfo);
-	if (!all_headers && mimeinfo 
-			&& (mimeinfo->type != MIMETYPE_TEXT || 
-	    strcasecmp(mimeinfo->subtype, "plain")) 
-			&& (mimeinfo->type != MIMETYPE_MULTIPART || 
-	    strcasecmp(mimeinfo->subtype, "signed"))) {
-	    	if (strcasecmp(mimeinfo->subtype, "html")) {
-		    	MimeInfo *saved_mimeinfo = mimeinfo;
-			MimeInfo *alt_parent = mimeinfo;
-
-			/* if multipart/{related,mixed} part, look inside for a multipart/alternative child */
-			if (mimeinfo->type == MIMETYPE_MULTIPART &&
-			    (!strcasecmp(mimeinfo->subtype, "related") ||
-			     !strcasecmp(mimeinfo->subtype, "mixed"))) {
-				for (; mimeinfo; mimeinfo = procmime_mimeinfo_next(mimeinfo)) {
-					if (mimeinfo->node->parent != saved_mimeinfo->node) {
-						/* only consider children of the 
-						 * multipart/{related,mixed} part */
-						continue;
-					}
-					if (mimeinfo->type == MIMETYPE_MULTIPART && 
-					    !strcasecmp(mimeinfo->subtype, "alternative")) {
-					    	/* we got an alternative part */
-					    	alt_parent = mimeinfo;
-						break;
-					}
-					if (mimeinfo->type == MIMETYPE_TEXT && 
-					    !strcasecmp(mimeinfo->subtype, "calendar") &&
-					    mimeview_has_viewer_for_content_type(messageview->mimeview,
-										 "text/calendar")) {
-						mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
+	if (!all_headers && mimeinfo
+			&& (mimeinfo->type != MIMETYPE_TEXT
+				|| strcasecmp(mimeinfo->subtype, "plain"))
+			&& (mimeinfo->type != MIMETYPE_MULTIPART
+				|| strcasecmp(mimeinfo->subtype, "signed"))) {
+		if (strcasecmp(mimeinfo->subtype, "html")) {
+			MimeInfoSearch context = {
+				.parent = root,
+				.current = mimeinfo,
+				.found = NULL
+			};
+			if (mimeview_has_viewer_for_content_type(messageview->mimeview, "text/calendar")) {
+				MimeInfoSearch cal_context = context;
+				messageview_find_part_depth_first(&cal_context, MIMETYPE_TEXT, "calendar");
+				if (cal_context.found) { /* calendar found */
+					mimeinfo = cal_context.found;
+					if (messageview_try_select_mimeinfo(messageview, msginfo, mimeinfo))
 						goto done;
-					} else if (mimeinfo->type == MIMETYPE_TEXT && 
-					    !strcasecmp(mimeinfo->subtype, "html") &&
-					    mimeinfo->disposition != DISPOSITIONTYPE_ATTACHMENT &&
-							(msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_ALWAYS ||
-							 (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_DEFAULT &&
-								prefs_common.promote_html_part))) {
-						mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
-						goto done;
-					}
 				}
 			}
-
-			/* if we now have a multipart/alternative part (possibly inside a
-			 * multipart/{related,mixed} part, look for an HTML part inside */
-			if (mimeinfo && mimeinfo->type == MIMETYPE_MULTIPART &&
-			    !strcasecmp(mimeinfo->subtype, "alternative")) {
-				for (; mimeinfo; mimeinfo = procmime_mimeinfo_next(mimeinfo)) {
-					if (mimeinfo->node->parent != alt_parent->node) {
-						/* only consider children of the 
-						 * multipart/alternative part, so as
-						 * not to show html attachments */
-						continue;
-					}
-					
-					if (mimeinfo->type == MIMETYPE_TEXT && 
-					    !strcasecmp(mimeinfo->subtype, "calendar") &&
-					    mimeview_has_viewer_for_content_type(messageview->mimeview,
-										 "text/calendar")) {
-						mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
-						goto done;
-					} else if (mimeinfo->type == MIMETYPE_TEXT && 
-					    !strcasecmp(mimeinfo->subtype, "html") &&
-					    mimeinfo->disposition != DISPOSITIONTYPE_ATTACHMENT &&
-							(msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_ALWAYS ||
-							 (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_DEFAULT &&
-								prefs_common.promote_html_part))) {
-						mimeview_select_mimepart_icon(messageview->mimeview, mimeinfo);
-						goto done;
-					}
-				}
-			}
-			
-			/* if we didn't find anything, go back to start */
-			if (!mimeinfo) 
-				mimeinfo = saved_mimeinfo;
+			messageview_find_part_depth_first(&context, MIMETYPE_TEXT, "html");
+			if (context.found &&
+			    (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_ALWAYS ||
+			     (msginfo->folder->prefs->promote_html_part == HTML_PROMOTE_DEFAULT &&
+			      prefs_common.promote_html_part))) { /* html found */
+				mimeinfo = context.found;
+				if (messageview_try_select_mimeinfo(messageview, msginfo, mimeinfo))
+					goto done;
+			} else
+				mimeinfo = root; /* nothing found */
 
 			if (!mimeview_show_part(messageview->mimeview, mimeinfo))
 				mimeview_select_mimepart_icon(messageview->mimeview, root);
@@ -1581,7 +1597,7 @@ void messageview_clear(MessageView *messageview)
 {
 	if (!messageview)
 		return;
-	procmsg_msginfo_free(messageview->msginfo);
+	procmsg_msginfo_free(&(messageview->msginfo));
 	messageview->msginfo = NULL;
 	messageview->filtered = FALSE;
 
@@ -1633,7 +1649,7 @@ void messageview_destroy(MessageView *messageview)
 	mimeview_destroy(messageview->mimeview);
 	noticeview_destroy(messageview->noticeview);
 
-	procmsg_msginfo_free(messageview->msginfo);
+	procmsg_msginfo_free(&(messageview->msginfo));
 	toolbar_clear_list(TOOLBAR_MSGVIEW);
 	if (messageview->toolbar) {
 		toolbar_destroy(messageview->toolbar);
@@ -1940,7 +1956,7 @@ static void return_receipt_show(NoticeView *noticeview, MsgInfo *msginfo)
 	if (from_me) {
 		noticeview_set_icon(noticeview, STOCK_PIXMAP_NOTICE_WARN);
 		if (MSG_IS_RETRCPT_GOT(msginfo->flags)) {
-			noticeview_set_text(noticeview, _("You got a return receipt for this message : "
+			noticeview_set_text(noticeview, _("You got a return receipt for this message: "
 							  "it has been displayed by the recipient."));
 		} else {
 			noticeview_set_text(noticeview, _("You asked for a return receipt in this message."));
@@ -1965,7 +1981,7 @@ static void return_receipt_send_clicked(NoticeView *noticeview, MsgInfo *msginfo
 
 	file = procmsg_get_message_file_path(msginfo);
 	if (!file) {
-		g_warning("can't get message file path.\n");
+		g_warning("can't get message file path.");
 		return;
 	}
 
@@ -1978,7 +1994,7 @@ static void return_receipt_send_clicked(NoticeView *noticeview, MsgInfo *msginfo
 		noticeview_hide(noticeview);
 	}		
 
-	procmsg_msginfo_free(tmpmsginfo);
+	procmsg_msginfo_free(&tmpmsginfo);
 	g_free(file);
 }
 
@@ -2119,6 +2135,8 @@ gchar *messageview_get_selection(MessageView *msgview)
 	GtkTextView *edit = NULL;
 	GtkTextBuffer *textbuf;
 	gint body_pos = 0;
+	GtkTextIter start_iter, end_iter;
+	GtkTextMark *body_start, *body_end;
 	
 	cm_return_val_if_fail(msgview != NULL, NULL);
 
@@ -2140,15 +2158,35 @@ gchar *messageview_get_selection(MessageView *msgview)
 
 	textbuf = gtk_text_view_get_buffer(edit);
 
-	if (gtk_text_buffer_get_selection_bounds(textbuf, NULL, NULL))
+	if (gtk_text_buffer_get_selection_bounds(textbuf, NULL, NULL)) {
 		return gtkut_text_view_get_selection(edit);
-	else if (msgview->filtered) {
-		GtkTextIter start_iter, end_iter;
-		gtk_text_buffer_get_iter_at_offset(textbuf, &start_iter, body_pos);
-		gtk_text_buffer_get_end_iter(textbuf, &end_iter);
-		gtk_text_buffer_get_text(textbuf, &start_iter, &end_iter, FALSE);
-	} else
-		text = NULL;
+	} else {
+		if (msgview->filtered) {
+			gtk_text_buffer_get_iter_at_offset(textbuf, &start_iter, body_pos);
+			gtk_text_buffer_get_end_iter(textbuf, &end_iter);
+		} else {
+			body_start = gtk_text_buffer_get_mark(textbuf, "body_start");
+
+			/* If there is no body_start mark, an attachment is likely
+			 * selected, and we're looking at instructions on what to do
+			 * with it. No point in quoting that, so we'll just return NULL,
+			 * so that original message body is quoted instead down the line.
+			 */
+			if (body_start == NULL) {
+				return NULL;
+			}
+
+			gtk_text_buffer_get_iter_at_mark(textbuf, &start_iter, body_start);
+
+			body_end = gtk_text_buffer_get_mark(textbuf, "body_end");
+			if (body_end != NULL) /* Just in case */
+				gtk_text_buffer_get_iter_at_mark(textbuf, &end_iter, body_end);
+			else
+				gtk_text_buffer_get_end_iter(textbuf, &end_iter);
+		}
+
+		return gtk_text_buffer_get_text(textbuf, &start_iter, &end_iter, FALSE);
+	}
 
 	return text;
 }
@@ -2277,7 +2315,7 @@ static void prev_cb(GtkAction *action, gpointer data)
 {
 	MessageView *messageview = (MessageView *)data;
 	messageview->updating = TRUE;
-	summary_step(messageview->mainwin->summaryview, GTK_SCROLL_STEP_BACKWARD);
+	summary_select_prev(messageview->mainwin->summaryview);
 	messageview->updating = FALSE;
 
 	if (messageview->deferred_destroy) {
@@ -2302,7 +2340,7 @@ static void next_cb(GtkAction *action, gpointer data)
 {
 	MessageView *messageview = (MessageView *)data;
 	messageview->updating = TRUE;
-	summary_step(messageview->mainwin->summaryview, GTK_SCROLL_STEP_FORWARD);
+	summary_select_next(messageview->mainwin->summaryview);
 	messageview->updating = FALSE;
 
 	if (messageview->deferred_destroy) {
@@ -2532,7 +2570,7 @@ static void prev_history_cb(GtkAction *action, gpointer data)
 		messageview_show(messageview, info, 
 					 messageview->all_headers);
 		messageview->updating = FALSE;
-		procmsg_msginfo_free(info);
+		procmsg_msginfo_free(&info);
 		if (messageview->deferred_destroy) {
 			debug_print("messageview got away!\n");
 			messageview_destroy(messageview);
@@ -2550,7 +2588,7 @@ static void next_history_cb(GtkAction *action, gpointer data)
 		messageview_show(messageview, info, 
 					 messageview->all_headers);
 		messageview->updating = FALSE;
-		procmsg_msginfo_free(info);
+		procmsg_msginfo_free(&info);
 		if (messageview->deferred_destroy) {
 			debug_print("messageview got away!\n");
 			messageview_destroy(messageview);
@@ -2589,7 +2627,7 @@ static void goto_unread_folder_cb(GtkAction *action, gpointer data)
 	MessageView *messageview = (MessageView *)data;
 
 	messageview->updating = TRUE;
-	folderview_select_next_with_flag(messageview->mainwin->folderview, MSG_UNREAD, FALSE);
+	folderview_select_next_with_flag(messageview->mainwin->folderview, MSG_UNREAD);
 	messageview->updating = FALSE;
 
 	if (messageview->deferred_destroy) {
@@ -2613,11 +2651,10 @@ static void goto_unread_folder_cb(GtkAction *action, gpointer data)
 static void goto_folder_cb(GtkAction *action, gpointer data)
 {
 	MessageView *messageview = (MessageView *)data;
-	messageview->updating = TRUE;
 	FolderItem *to_folder;
-	messageview->updating = FALSE;
 
-	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_ALL, NULL, FALSE);
+	to_folder = foldersel_folder_sel(NULL, FOLDER_SEL_ALL, NULL, FALSE,
+			_("Select folder to go to"));
 
 	if (to_folder) {
 		folderview_select(messageview->mainwin->folderview, to_folder);
@@ -2726,7 +2763,7 @@ static void show_all_header_cb(GtkToggleAction *action, gpointer data)
 	if (!msginfo) return;
 	messageview->msginfo = NULL;
 	messageview_show(messageview, msginfo, messageview->all_headers);
-	procmsg_msginfo_free(msginfo);
+	procmsg_msginfo_free(&msginfo);
 	main_window_set_menu_sensitive(messageview->mainwin);
 	summary_redisplay_msg(messageview->mainwin->summaryview);
 }
@@ -2758,7 +2795,7 @@ static void msg_hide_quotes_cb(GtkToggleAction *action, gpointer data)
 	messageview->msginfo = NULL;
 	messageview_show(messageview, msginfo,
 			 messageview->all_headers);
-	procmsg_msginfo_free(msginfo);
+	procmsg_msginfo_free(&msginfo);
 	
 	/* update main window */
 	main_window_set_menu_sensitive(messageview->mainwin);
@@ -2813,15 +2850,14 @@ static void reply_cb(GtkAction *gaction, gpointer data)
 
 static void addressbook_open_cb(GtkAction *action, gpointer data)
 {
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_open(NULL);
 #else
 	GError* error = NULL;
 	
 	addressbook_dbus_open(FALSE, &error);
 	if (error) {
-		g_warning("Failed to open address book");
-		g_warning("%s", error->message);
+		g_warning("Failed to open address book: %s", error->message);
 		g_error_free(error);
 	}
 #endif
@@ -2848,12 +2884,12 @@ static void add_address_cb(GtkAction *action, gpointer data)
 	avatarr = avatars_avatarrender_new(full_msginfo);
 	hooks_invoke(AVATAR_IMAGE_RENDER_HOOKLIST, avatarr);
 
-	procmsg_msginfo_free(full_msginfo);
+	procmsg_msginfo_free(&full_msginfo);
 
 	if (avatarr->image != NULL)
 		picture = gtk_image_get_pixbuf(GTK_IMAGE(avatarr->image));
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	addressbook_add_contact(msginfo->fromname, from, NULL, picture);
 #else
 	if (addressadd_selection(msginfo->fromname, from, NULL, picture)) {

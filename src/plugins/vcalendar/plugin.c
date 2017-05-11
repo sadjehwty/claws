@@ -36,32 +36,36 @@
 #include "plugin.h"
 
 #include "vcal_dbus.h"
+#include "vcal_prefs.h"
 
 gint plugin_init(gchar **error)
 {
-	if (!check_plugin_version(MAKE_NUMERIC_VERSION(3,8,1,46),
-				VERSION_NUMERIC, _("vCalendar"), error))
+	if (!check_plugin_version(MAKE_NUMERIC_VERSION(3,13,2,39),
+				VERSION_NUMERIC, PLUGIN_NAME, error))
 		return -1;
 
 	tzset();
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	vcalendar_init();
-	connect_dbus();
+	if (vcalprefs.calendar_server)
+		connect_dbus();
 
-	return 0;	
+	return 0;
 }
 
 gboolean plugin_done(void)
 {
-	disconnect_dbus();
+	if (vcalprefs.calendar_server)
+		disconnect_dbus();
 	vcalendar_done();
+
 	return TRUE;
 }
 
 const gchar *plugin_name(void)
 {
-	return _("vCalendar");
+	return _(PLUGIN_NAME);
 }
 
 const gchar *plugin_desc(void)
@@ -75,7 +79,7 @@ const gchar *plugin_desc(void)
 		 "appropriate form and you will be able to accept or decline them.\n"
 		 "To create a meeting right-click on the vCalendar or "
 		 "Meetings folder and choose \"New meeting...\".\n\n"
-		 "You will also be able to subscribe to remote webCal feeds,"
+		 "You will also be able to subscribe to remote Webcal feeds, "
 		 "export your meetings and calendars, publish your free/busy "
 		 "information and retrieve that information from others.");
 }

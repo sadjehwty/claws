@@ -22,7 +22,7 @@
 #define __VCAL_MANAGER_H__
 
 #include <glib.h>
-#include <ical.h>
+#include <libical/ical.h>
 #include "prefs_account.h"
 #include "folder.h"
 
@@ -53,7 +53,7 @@ struct _VCalEvent
 	gchar *url;
 	enum icalcomponent_kind type;
 	time_t postponed;
-	gboolean rec_occurence;
+	gboolean rec_occurrence;
 };
 
 typedef struct _Answer Answer;

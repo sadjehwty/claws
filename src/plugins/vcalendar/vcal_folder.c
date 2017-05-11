@@ -60,6 +60,7 @@
 #include "mainwindow.h"
 #include "statusbar.h"
 #include "msgcache.h"
+#include "passwordstore.h"
 #include "timing.h"
 #include "messageview.h"
 
@@ -130,6 +131,7 @@ static void update_subscription(const gchar *uri, gboolean verbose);
 static void vcal_folder_set_batch	(Folder		*folder,
 					 FolderItem	*item,
 					 gboolean	 batch);
+static void convert_to_utc(icalcomponent *calendar);
 
 gboolean vcal_subscribe_uri(Folder *folder, const gchar *uri);
 
@@ -163,7 +165,7 @@ static char *vcal_popup_labels[] =
 {
 	N_("_New meeting..."),
 	N_("_Export calendar..."),
-	N_("_Subscribe to webCal..."),
+	N_("_Subscribe to Webcal..."),
 	N_("_Unsubscribe..."),
 	N_("_Rename..."),
 	N_("U_pdate subscriptions"),
@@ -234,7 +236,7 @@ static void vcal_fill_popup_menu_labels(void)
 
 static FolderViewPopup vcal_popup =
 {
-	"vCalendar",
+	PLUGIN_NAME,
 	"<vCalendar>",
 	vcal_popup_entries,
 	G_N_ELEMENTS(vcal_popup_entries),
@@ -329,7 +331,7 @@ static void vcal_item_opened(FolderItem *item)
 
 void vcal_folder_refresh_cal(FolderItem *item)
 {
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (item->folder != folder)
 		return;
 	if (((VCalFolderItem *)(item))->dw)
@@ -355,8 +357,8 @@ FolderClass *vcal_folder_get_class()
 	if (vcal_class.idstr == NULL) {
 		debug_print("register class\n");
 		vcal_class.type = F_UNKNOWN;
-		vcal_class.idstr = "vCalendar";
-		vcal_class.uistr = "vCalendar";
+		vcal_class.idstr = PLUGIN_NAME;
+		vcal_class.uistr = PLUGIN_NAME;
 
 		/* Folder functions */
 		vcal_class.new_folder = vcal_folder_new;
@@ -608,7 +610,8 @@ add_new:
 			}
 			if (rprop && ritr) {
 				struct icaldurationtype ical_dur;
-				struct icaltimetype dtstart, dtend;
+				struct icaltimetype dtstart = icaltime_null_time();
+				struct icaltimetype dtend = icaltime_null_time();
 				evt = icalcomponent_new_clone(evt);
 				prop = icalcomponent_get_first_property(evt, ICAL_RRULE_PROPERTY);
 				if (prop) {
@@ -618,9 +621,13 @@ add_new:
 				prop = icalcomponent_get_first_property(evt, ICAL_DTSTART_PROPERTY);
 				if (prop)
 					dtstart = icalproperty_get_dtstart(prop);
+				else
+					debug_print("event has no DTSTART!\n");
 				prop = icalcomponent_get_first_property(evt, ICAL_DTEND_PROPERTY);
 				if (prop)
 					dtend = icalproperty_get_dtend(prop);
+				else
+					debug_print("event has no DTEND!\n");
 				ical_dur = icaltime_subtract(dtend, dtstart);
 				next = icalrecur_iterator_next(ritr);
 				if (!icaltime_is_null_time(next) &&
@@ -745,7 +752,7 @@ GSList *vcal_get_events_list(FolderItem *item)
 		event = vcal_manager_load_event(d);
 		if (!event)
 			continue;
-		if (event->rec_occurence) {
+		if (event->rec_occurrence) {
 			vcal_manager_free_event(event);
 			claws_unlink(d);
 			continue;
@@ -789,7 +796,7 @@ GSList *vcal_get_events_list(FolderItem *item)
 					next = icalrecur_iterator_next(ritr);
 				debug_print("next time is %snull\n", icaltime_is_null_time(next)?"":"not ");
         			while (!icaltime_is_null_time(next) && i < 100) {
-					gchar *new_start = NULL, *new_end = NULL;
+					const gchar *new_start = NULL, *new_end = NULL;
 					VCalEvent *nevent = NULL;
 					gchar *uid = g_strdup_printf("%s-%d", event->uid, i);
 					new_start = icaltime_as_ical_string(next);
@@ -803,7 +810,7 @@ GSList *vcal_get_events_list(FolderItem *item)
 								event->sequence, event->type);
 					g_free(uid);
 					vcal_manager_copy_attendees(event, nevent);
-					nevent->rec_occurence = TRUE;
+					nevent->rec_occurrence = TRUE;
 					vcal_manager_save_event(nevent, FALSE);
 					account = vcal_manager_get_account_from_event(event);
 					status =
@@ -862,7 +869,7 @@ static gint vcal_get_num_list(Folder *folder, FolderItem *item,
 			continue;
 		g_hash_table_insert(hash_uids, GINT_TO_POINTER(n_msg), g_strdup(event->uid));
 		
-		if (event->rec_occurence) {
+		if (event->rec_occurrence) {
 			vcal_manager_free_event(event);
 			continue;
 		}
@@ -1053,7 +1060,7 @@ static gint vcal_remove_msg(Folder *folder, FolderItem *_item, gint num)
 	if (_item == folder->inbox)
 		vcal_remove_event(folder, msginfo);
 
-	procmsg_msginfo_free(msginfo);
+	procmsg_msginfo_free(&msginfo);
 	return 0;
 }
 
@@ -1161,7 +1168,8 @@ static void vcal_set_mtime(Folder *folder, FolderItem *item)
 	}
 
 	item->mtime = s.st_mtime;
-	debug_print("VCAL: forced mtime of %s to %ld\n", item->name?item->name:"(null)", item->mtime);
+	debug_print("VCAL: forced mtime of %s to %lld\n",
+			item->name?item->name:"(null)", (long long)item->mtime);
 	g_free(path);
 }
 
@@ -1169,31 +1177,45 @@ void vcal_folder_export(Folder *folder)
 {	
 	FolderItem *item = folder?folder->inbox:NULL;
 	gboolean need_scan = folder?vcal_scan_required(folder, item):TRUE;
+	gchar *export_pass = NULL;
+	gchar *export_freebusy_pass = NULL;
 
 	if (vcal_folder_lock_count) /* blocked */
 		return;
 	vcal_folder_lock_count++;
+	
+	export_pass = vcal_passwd_get("export");
+	export_freebusy_pass = vcal_passwd_get("export_freebusy");
+
 	if (vcal_meeting_export_calendar(vcalprefs.export_path, 
 			vcalprefs.export_user, 
-			vcalprefs.export_pass,
+			export_pass,
 			TRUE)) {
 		debug_print("exporting calendar\n");
 		if (vcalprefs.export_enable &&
 		    vcalprefs.export_command &&
 		    strlen(vcalprefs.export_command))
 			execute_command_line(
-				vcalprefs.export_command, TRUE);
+				vcalprefs.export_command, TRUE, NULL);
 	}
+	if (export_pass != NULL) {
+		memset(export_pass, 0, strlen(export_pass));
+	}
+	g_free(export_pass);
 	if (vcal_meeting_export_freebusy(vcalprefs.export_freebusy_path,
 			vcalprefs.export_freebusy_user,
-			vcalprefs.export_freebusy_pass)) {
+			export_freebusy_pass)) {
 		debug_print("exporting freebusy\n");
 		if (vcalprefs.export_freebusy_enable &&
 		    vcalprefs.export_freebusy_command &&
 		    strlen(vcalprefs.export_freebusy_command))
 			execute_command_line(
-				vcalprefs.export_freebusy_command, TRUE);
+				vcalprefs.export_freebusy_command, TRUE, NULL);
 	}
+	if (export_freebusy_pass != NULL) {
+		memset(export_freebusy_pass, 0, strlen(export_freebusy_pass));
+	}
+	g_free(export_freebusy_pass);
 	vcal_folder_lock_count--;
 	if (!need_scan && folder) {
 		vcal_set_mtime(folder, folder->inbox);
@@ -1331,7 +1353,7 @@ static void new_meeting_cb(GtkAction *action, gpointer data)
 
 GSList * vcal_folder_get_waiting_events(void)
 {
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	return vcal_get_events_list(folder->inbox);
 }
 
@@ -1365,7 +1387,7 @@ static gboolean get_webcal_events_func(GNode *node, gpointer user_data)
 GSList * vcal_folder_get_webcal_events(void)
 {
 	GetWebcalData *data = g_new0(GetWebcalData, 1);
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	GSList *list = NULL;
 	data->item = NULL;
 	g_node_traverse(folder->node, G_PRE_ORDER,
@@ -1401,7 +1423,7 @@ static gboolean vcal_free_data_func(GNode *node, gpointer user_data)
 
 void vcal_folder_free_data(void)
 {
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 
 	g_node_traverse(folder->node, G_PRE_ORDER,
 			G_TRAVERSE_ALL, -1, vcal_free_data_func, NULL);
@@ -1410,7 +1432,7 @@ void vcal_folder_free_data(void)
 GSList * vcal_folder_get_webcal_events_for_folder(FolderItem *item)
 {
 	GetWebcalData *data = g_new0(GetWebcalData, 1);
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	GSList *list = NULL;
 	data->item = item;
 	g_node_traverse(folder->node, G_PRE_ORDER,
@@ -1717,7 +1739,7 @@ gboolean vcal_curl_put(gchar *url, FILE *fp, gint filesize, const gchar *user, c
 
 	curl_easy_getinfo(curl_ctx, CURLINFO_RESPONSE_CODE, &response_code);
 	if (response_code < 200 || response_code >= 300) {
-		g_warning("Can't export calendar, got code %ld\n", response_code);
+		g_warning("Can't export calendar, got code %ld", response_code);
 		res = FALSE;
 	}
 	curl_easy_cleanup(curl_ctx);
@@ -1742,7 +1764,7 @@ static gboolean folder_item_find_func(GNode *node, gpointer data)
 
 static FolderItem *get_folder_item_for_uri(const gchar *uri)
 {
-	Folder *root = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *root = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	gpointer d[2];
 	
 	if (root == NULL)
@@ -1777,12 +1799,12 @@ static gchar *feed_get_title(const gchar *str)
 
 static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean verbose, gchar *error)
 {
-	Folder *root = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *root = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	FolderItem *item = NULL;
 	icalcomponent *cal = NULL;
 	
 	if (root == NULL) {
-		g_warning("can't get root folder\n");
+		g_warning("can't get root folder");
 		g_free(feed);
 		if (error)
 			g_free(error);
@@ -1790,9 +1812,10 @@ static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean v
 	}
 
 	if (feed == NULL) {
+		gchar *err_msg = _("Could not retrieve the Webcal URL:\n%s:\n\n%s");
+
 		if (verbose && manual_update) {
-			gchar *tmp; 
-			tmp = g_strdup(uri);
+			gchar *tmp = g_strdup(uri);
 			if (strlen(uri) > 61) {
 				tmp[55]='[';
 				tmp[56]='.';
@@ -1801,12 +1824,12 @@ static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean v
 				tmp[59]=']';
 				tmp[60]='\0';
 			} 
-			alertpanel_error(_("Could not retrieve the Webcal URL:\n%s:\n\n%s"),
-					tmp, error ? error:_("Unknown error"));
+			alertpanel_error(err_msg, tmp, error ? error:_("Unknown error"));
 			g_free(tmp);
 		} else  {
-			log_error(LOG_PROTOCOL, _("Could not retrieve the Webcal URL:\n%s:\n\n%s\n"),
-					uri, error ? error:_("Unknown error"));
+			gchar *msg = g_strdup_printf("%s\n", err_msg);
+			log_error(LOG_PROTOCOL, msg, uri, error ? error:_("Unknown error"));
+			g_free(msg);
 		}
 		main_window_cursor_normal(mainwindow_get_mainwindow());
 		g_free(feed);
@@ -1815,12 +1838,14 @@ static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean v
 		return;
 	}
 	if (strncmp(feed, "BEGIN:VCALENDAR", strlen("BEGIN:VCALENDAR"))) {
+		gchar *err_msg = _("This URL does not look like a Webcal URL:\n%s\n%s");
+
 		if (verbose && manual_update) {
-			alertpanel_error(_("This URL does not look like a WebCal URL:\n%s\n%s"),
-					uri, error ? error:_("Unknown error"));
+			alertpanel_error(err_msg, uri, error ? error:_("Unknown error"));
 		} else  {
-			log_error(LOG_PROTOCOL, _("This URL does not look like a WebCal URL:\n%s\n%s\n"),
-					uri, error ? error:_("Unknown error"));
+			gchar *msg = g_strdup_printf("%s\n", err_msg);
+			log_error(LOG_PROTOCOL, msg, uri, error ? error:_("Unknown error"));
+			g_free(msg);
 		}
 		g_free(feed);
 		main_window_cursor_normal(mainwindow_get_mainwindow());
@@ -1836,14 +1861,10 @@ static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean v
 		gchar *title = feed_get_title(feed);
 		if (title == NULL) {
 			if (strstr(uri, "://"))
-				title = g_strdup(strstr(uri,"://")+3);
+				title = g_path_get_basename(strstr(uri,"://")+3);
 			else
 				title = g_strdup(uri);
 			subst_for_filename(title);
-			if (strlen(title) > 32) {
-				title[29]=title[30]=title[31]='.';
-				title[32]='\0';
-			}
 		}
 		item = folder_create_folder(root->node->data, title);
 		if (!item) {
@@ -1871,6 +1892,8 @@ static void update_subscription_finish(const gchar *uri, gchar *feed, gboolean v
 		/* if title differs, update it */
 	}
 	cal = icalparser_parse_string(feed);
+
+	convert_to_utc(cal);
 	
 	if (((VCalFolderItem *)item)->cal)
 		icalcomponent_free(((VCalFolderItem *)item)->cal);
@@ -1908,7 +1931,7 @@ static void update_subscription(const gchar *uri, gboolean verbose)
 
 static void check_subs_cb(GtkAction *action, gpointer data)
 {
-	Folder *root = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *root = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 
 	if (prefs_common_get_prefs()->work_offline && 
 	    !inc_offline_should_override(TRUE,
@@ -1924,7 +1947,7 @@ static void subscribe_cal_cb(GtkAction *action, gpointer data)
 	gchar *uri = NULL;
 	gchar *tmp = NULL;
 
-	tmp = input_dialog(_("Subscribe to WebCal"), _("Enter the WebCal URL:"), NULL);
+	tmp = input_dialog(_("Subscribe to Webcal"), _("Enter the WebCal URL:"), NULL);
 	if (tmp == NULL)
 		return;
 	
@@ -1950,22 +1973,22 @@ static void subscribe_cal_cb(GtkAction *action, gpointer data)
 static void unsubscribe_cal_cb(GtkAction *action, gpointer data)
 {
 	FolderView *folderview = (FolderView *)data;
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
-	FolderItem *item;
+	FolderItem *item, *opened;
 	gchar *message;
 	AlertValue avalue;
 	gchar *old_id;
 
 	if (!folderview->selected) return;
 
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	item = folderview_get_selected_item(folderview);
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(item->path != NULL);
 	g_return_if_fail(item->folder != NULL);
+	opened = folderview_get_opened_item(folderview);
 
 	message = g_strdup_printf
 		(_("Do you really want to unsubscribe?"));
-	avalue = alertpanel_full(_("Delete folder"), message,
+	avalue = alertpanel_full(_("Delete subscription"), message,
 		 		 GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, 
 				 FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT);
 	g_free(message);
@@ -1975,12 +1998,10 @@ static void unsubscribe_cal_cb(GtkAction *action, gpointer data)
 
 	vcal_item_closed(item);
 
-	if (folderview->opened == folderview->selected ||
-	    gtk_cmctree_is_ancestor(ctree,
-				  folderview->selected,
-				  folderview->opened)) {
+	if (item == opened ||
+			folder_is_child_of(item, opened)) {
 		summary_clear_all(folderview->summaryview);
-		folderview->opened = NULL;
+		folderview_close_opened(folderview, TRUE);
 	}
 
 	if (item->folder->klass->remove_folder(item->folder, item) < 0) {
@@ -2065,14 +2086,13 @@ static void set_view_cb(GtkAction *gaction, GtkRadioAction *current, gpointer da
 {
 	FolderView *folderview = (FolderView *)data;
 	gint action = gtk_radio_action_get_current_value (GTK_RADIO_ACTION (current));
-	GtkCMCTree *ctree = GTK_CMCTREE(folderview->ctree);
 	FolderItem *item = NULL, *oitem = NULL;
 
 	if (!folderview->selected) return;
 	if (setting_sensitivity) return;
 
-	oitem = gtk_cmctree_node_get_row_data(ctree, folderview->opened);
-	item = gtk_cmctree_node_get_row_data(ctree, folderview->selected);
+	oitem = folderview_get_opened_item(folderview);
+	item = folderview_get_selected_item(folderview);
 
 	if (!item)
 		return;
@@ -2098,7 +2118,7 @@ gchar *vcal_get_event_as_ical_str(VCalEvent *event)
             icalproperty_new_prodid(
                  "-//Claws Mail//NONSGML Claws Mail Calendar//EN"),
 	    icalproperty_new_calscale("GREGORIAN"),
-            0);
+            (void*)0);
 	vcal_manager_event_dump(event, FALSE, FALSE, calendar, FALSE);
 	ical = g_strdup(icalcomponent_as_ical_string(calendar));
 	icalcomponent_free(calendar);
@@ -2136,40 +2156,53 @@ static gchar *get_email_from_property(icalproperty *p)
 	return email;
 }
 
-static void adjust_for_local_time_zone(icalproperty *eventtime, icalproperty *tzoffsetto, int dtstart)
+static void convert_to_utc(icalcomponent *calendar)
 {
-	int tzoffset;
-	int loctzoffset;
-	time_t loctime, gmttime, evttime;
-	struct icaltimetype icaltime;
+	icalcomponent *event;
+	icaltimezone *tz, *tzutc = icaltimezone_get_utc_timezone();
+	icalproperty *prop;
+	icalparameter *tzid;
 
-	/* calculate local UTC offset */
-	loctime = time(NULL);
-	loctime = mktime(localtime(&loctime));
-	gmttime = mktime(gmtime(&loctime));
-	loctzoffset = loctime - gmttime;
+	cm_return_if_fail(calendar != NULL);
 
-	if (eventtime && tzoffsetto) {
-		tzoffset = icalproperty_get_tzoffsetto(tzoffsetto);
-		if (dtstart) {
-			evttime = icaltime_as_timet(icalproperty_get_dtstart(eventtime));
+	for (
+			event = icalcomponent_get_first_component(calendar,
+				ICAL_VEVENT_COMPONENT);
+			event != NULL;
+			event = icalcomponent_get_next_component(calendar,
+				ICAL_VEVENT_COMPONENT)) {
+
+		/* DTSTART */
+		if ((prop = icalcomponent_get_first_property(event, ICAL_DTSTART_PROPERTY)) != NULL
+				&& (tzid = icalproperty_get_first_parameter(prop, ICAL_TZID_PARAMETER)) != NULL) {
+			/* Event has its DTSTART with a timezone specification, let's convert
+			 * to UTC and remove the TZID parameter. */
+
+			tz = icalcomponent_get_timezone(calendar, icalparameter_get_iana_value(tzid));
+			if (tz != NULL) {
+				debug_print("Converting DTSTART to UTC.\n");
+				icaltimetype t = icalproperty_get_dtstart(prop);
+				icaltimezone_convert_time(&t, tz, tzutc);
+				icalproperty_set_dtstart(prop, t);
+				icalproperty_remove_parameter_by_ref(prop, tzid);
+			}
 		}
-		else {
-			evttime = icaltime_as_timet(icalproperty_get_dtend(eventtime));
-		}
 
-		/* convert to UTC */
-		evttime -= tzoffset;
-		/* and adjust for local time zone */
-		evttime += loctzoffset;
-		icaltime = icaltime_from_timet(evttime, 0);
+		/* DTEND */
+		if ((prop = icalcomponent_get_first_property(event, ICAL_DTEND_PROPERTY)) != NULL
+				&& (tzid = icalproperty_get_first_parameter(prop, ICAL_TZID_PARAMETER)) != NULL) {
+			/* Event has its DTEND with a timezone specification, let's convert
+			 * to UTC and remove the TZID parameter. */
 
-		if (dtstart) {
-			icalproperty_set_dtstart(eventtime, icaltime);
+			tz = icalcomponent_get_timezone(calendar, icalparameter_get_iana_value(tzid));
+			if (tz != NULL) {
+				debug_print("Converting DTEND to UTC.\n");
+				icaltimetype t = icalproperty_get_dtend(prop);
+				icaltimezone_convert_time(&t, tz, tzutc);
+				icalproperty_set_dtend(prop, t);
+				icalproperty_remove_parameter_by_ref(prop, tzid);
+			}
 		}
-		else {
-			icalproperty_set_dtend(eventtime, icaltime);
-		} 
 	}
 }
 
@@ -2212,7 +2245,6 @@ VCalEvent *vcal_get_event_from_ical(const gchar *ical, const gchar *charset)
 	gchar *int_ical = g_strdup(ical);
 	icalcomponent *comp = icalcomponent_new_from_string(int_ical);
 	icalcomponent *inner = NULL;
-	icalcomponent *tzcomp = NULL;
 	icalproperty *prop = NULL;
 	GSList *list = NULL, *cur = NULL;
 	gchar *uid = NULL;
@@ -2256,31 +2288,9 @@ VCalEvent *vcal_get_event_from_ical(const gchar *ical, const gchar *charset)
 		TO_UTF8(summary);
 		icalproperty_free(prop);
 	}
-	tzcomp = icalcomponent_get_first_component(comp, ICAL_VTIMEZONE_COMPONENT);
-	if (tzcomp) {
-		icalproperty *evtstart = NULL;
-		icalproperty *evtend = NULL;
-		icalproperty *tzoffsetto = NULL;
-		icalcomponent *tzstd = NULL;
 
-		tzstd = icalcomponent_get_first_component(tzcomp, ICAL_XSTANDARD_COMPONENT);
-		tzoffsetto = icalcomponent_get_first_property(tzstd, ICAL_TZOFFSETTO_PROPERTY);
+	convert_to_utc(comp);
 
-		GET_PROP(comp, evtstart, ICAL_DTSTART_PROPERTY);
-		adjust_for_local_time_zone(evtstart, tzoffsetto, TRUE);
-
-		GET_PROP(comp, evtend, ICAL_DTEND_PROPERTY);
-		adjust_for_local_time_zone(evtend, tzoffsetto, FALSE);
-
-		if (tzoffsetto)
-			icalproperty_free(tzoffsetto);
-		if (evtstart)
-			icalproperty_free(evtstart);
-		if (evtend)
-			icalproperty_free(evtend);
-		if (tzstd)
-			icalcomponent_free(tzstd);
-	}
 	GET_PROP(comp, prop, ICAL_DTSTART_PROPERTY);
 	if (prop) {
 		dtstart = g_strdup(icaltime_as_ical_string(icalproperty_get_dtstart(prop)));
@@ -2411,13 +2421,13 @@ VCalEvent *vcal_get_event_from_ical(const gchar *ical, const gchar *charset)
 gboolean vcal_event_exists(const gchar *id)
 {
 	MsgInfo *info = NULL;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (!folder)
 		return FALSE;
 
 	info = folder_item_get_msginfo_by_msgid(folder->inbox, id);
 	if (info != NULL) {
-		procmsg_msginfo_free(info);
+		procmsg_msginfo_free(&info);
 		return TRUE;
 	}
 	return FALSE;
@@ -2447,7 +2457,7 @@ void vcal_foreach_event(gboolean (*cb_func)(const gchar *vevent))
 gboolean vcal_delete_event(const gchar *id)
 {
 	MsgInfo *info = NULL;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (!folder)
 		return FALSE;
 
@@ -2455,7 +2465,7 @@ gboolean vcal_delete_event(const gchar *id)
 	if (info != NULL) {
 		debug_print("removing event %s\n", id);
 		vcal_remove_event(folder, info);
-		procmsg_msginfo_free(info);
+		procmsg_msginfo_free(&info);
 		folder_item_scan(folder->inbox);
 		return TRUE;
 	}
@@ -2469,7 +2479,7 @@ gchar* vcal_add_event(const gchar *vevent)
 {
 	VCalEvent *event = vcal_get_event_from_ical(vevent, NULL);
 	gchar *retVal = NULL;
-	Folder *folder = folder_find_from_name ("vCalendar", vcal_folder_get_class());
+	Folder *folder = folder_find_from_name (PLUGIN_NAME, vcal_folder_get_class());
 	if (!folder)
 		return NULL;
 

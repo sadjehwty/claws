@@ -48,6 +48,7 @@
 #include "statusbar.h"
 #include "codeconv.h"
 #include "utils.h"
+#include "passwordstore.h"
 #include "prefs_common.h"
 #include "prefs_account.h"
 #include "inputdialog.h"
@@ -388,8 +389,8 @@ static Session *news_session_new_for_folder(Folder *folder)
 	if (ac->ssl_nntp != SSL_NONE) {
 		if (alertpanel_full(_("Insecure connection"),
 			_("This connection is configured to be secured "
-			  "using SSL, but SSL is not available in this "
-			  "build of Claws Mail. \n\n"
+			  "using SSL/TLS, but SSL/TLS is not available "
+			  "in this build of Claws Mail. \n\n"
 			  "Do you want to continue connecting to this "
 			  "server? The communication would not be "
 			  "secure."),
@@ -406,12 +407,12 @@ static Session *news_session_new_for_folder(Folder *folder)
 		userid = ac->userid;
 		if (password_get(userid, ac->nntp_server, "nntp", port, &passwd)) {
 			/* NOP */;
-		} else if (ac->passwd && ac->passwd[0])
-			passwd = g_strdup(ac->passwd);
-		else
+		} else if ((passwd = passwd_store_get_account(ac->account_id,
+					PWS_ACCOUNT_RECV)) == NULL) {
 			passwd = input_dialog_query_password_keep(ac->nntp_server,
 								  userid,
 								  &(ac->session_passwd));
+		}
 	}
 
 	if (session != NULL)
@@ -586,7 +587,7 @@ static gchar *news_fetch_msg(Folder *folder, FolderItem *item, gint num)
 	ok = news_get_article(folder,
 			      num, filename);
 	if (ok != NEWSNNTP_NO_ERROR) {
-		g_warning("can't read article %d\n", num);
+		g_warning("can't read article %d", num);
 		if (ok == NEWSNNTP_ERROR_STREAM) {
 			session_destroy(SESSION(session));
 			REMOTE_FOLDER(folder)->session = NULL;
@@ -921,7 +922,7 @@ static MsgInfo *news_parse_xover(struct newsnntp_xover_resp_item *item)
                                 msginfo->inreplyto = g_strdup(p);
                 }
 		g_free(tmp);
-        } 
+	} 
 
 	return msginfo;
 }
@@ -930,7 +931,7 @@ gint news_cancel_article(Folder * folder, MsgInfo * msginfo)
 {
 	gchar * tmp;
 	FILE * tmpfp;
-	gchar buf[BUFFSIZE];
+	gchar date[RFC822_DATE_BUFFSIZE];
 
 	tmp = g_strdup_printf("%s%ccancel%p", get_tmp_dir(),
 			      G_DIR_SEPARATOR, msginfo);
@@ -943,10 +944,13 @@ gint news_cancel_article(Folder * folder, MsgInfo * msginfo)
 	}
 	if (change_file_mode_rw(tmpfp, tmp) < 0) {
 		FILE_OP_ERROR(tmp, "chmod");
-		g_warning("can't change file mode\n");
+		g_warning("can't change file mode");
 	}
 	
-	get_rfc822_date(buf, sizeof(buf));
+	if (prefs_common.hide_timezone)
+		get_rfc822_date_hide_tz(date, sizeof(date));
+	else
+		get_rfc822_date(date, sizeof(date));
 	if (fprintf(tmpfp, "From: %s\r\n"
 		       "Newsgroups: %s\r\n"
 		       "Subject: cmsg cancel <%s>\r\n"
@@ -962,7 +966,7 @@ gint news_cancel_article(Folder * folder, MsgInfo * msginfo)
 		       msginfo->msgid,
 		       msginfo->from,
 		       msginfo->from,
-		       buf) < 0) {
+		       date) < 0) {
 		FILE_OP_ERROR(tmp, "fprintf");
 		fclose(tmpfp);
 		claws_unlink(tmp);
@@ -1377,7 +1381,7 @@ static gint news_remove_folder(Folder *folder, FolderItem *item)
 
 	path = folder_item_get_path(item);
 	if (remove_dir_recursive(path) < 0) {
-		g_warning("can't remove directory `%s'\n", path);
+		g_warning("can't remove directory '%s'", path);
 		g_free(path);
 		return -1;
 	}
@@ -1447,7 +1451,7 @@ static void warn_etpan(void)
 			_("You have one or more News accounts "
 			  "defined. However this version of "
 			  "Claws Mail has been built without "
-			  "News support; your News account(s) are "
+			  "News support; your News accounts are "
 			  "disabled.\n\n"
 			  "You probably need to "
 			  "install libetpan and recompile "

@@ -4,6 +4,7 @@ Contents of the tools directory:
 --------------------------------------------------------------------------------
 
 Action scripts:
+  cm-reparent.pl                Fix thread parenting for two or more messages
   freshmeat_search.pl           Search freshmeat.net for selected text
   google_msgid.pl               Search groups.google.com for selected message-id
   google_search.pl              Search google.com for selected text
@@ -59,10 +60,10 @@ Detailed Descriptions:
 Action scripts
 --------------
 
-* freshmeat_search.pl
-  WORKS ON: selection
-  COMMAND: |freshmeat_search.pl
-  Search freshmeat.net for selected text using the default Claws Mail browser
+* cm-reparent.pl
+  WORKS ON: selected messages (two or more)
+  COMMAND: cm-reparent.pl %F
+  Thread the selected messages based on date, old to new
 
 * google_msgid.pl
   WORKS ON: selection

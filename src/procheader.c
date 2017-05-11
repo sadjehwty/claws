@@ -49,15 +49,15 @@ static gchar monthstr[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 typedef char *(*getlinefunc) (char *, size_t, void *);
 typedef int (*peekcharfunc) (void *);
 typedef int (*getcharfunc) (void *);
-typedef gint (*get_one_field_func) (gchar *, size_t, void *, HeaderEntry[]);
+typedef gint (*get_one_field_func) (gchar **, void *, HeaderEntry[]);
 
-static gint string_get_one_field(gchar *buf, size_t len, char **str,
+static gint string_get_one_field(gchar **buf, char **str,
 				 HeaderEntry hentry[]);
 
 static char *string_getline(char *buf, size_t len, char **str);
 static int string_peekchar(char **str);
 static int file_peekchar(FILE *fp);
-static gint generic_get_one_field(gchar *buf, size_t len, void *data,
+static gint generic_get_one_field(gchar **bufptr, void *data,
 				  HeaderEntry hentry[],
 				  getlinefunc getline, 
 				  peekcharfunc peekchar,
@@ -66,18 +66,18 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 			     gboolean full, gboolean decrypted);
 
 
-gint procheader_get_one_field(gchar *buf, size_t len, FILE *fp,
+gint procheader_get_one_field(gchar **buf, FILE *fp,
 			      HeaderEntry hentry[])
 {
-	return generic_get_one_field(buf, len, fp, hentry,
+	return generic_get_one_field(buf, fp, hentry,
 				     (getlinefunc)fgets_crlf, (peekcharfunc)file_peekchar,
 				     TRUE);
 }
 
-static gint string_get_one_field(gchar *buf, size_t len, char **str,
+static gint string_get_one_field(gchar **buf, char **str,
 				 HeaderEntry hentry[])
 {
-	return generic_get_one_field(buf, len, str, hentry,
+	return generic_get_one_field(buf, str, hentry,
 				     (getlinefunc)string_getline,
 				     (peekcharfunc)string_peekchar,
 				     TRUE);
@@ -119,23 +119,44 @@ static int file_peekchar(FILE *fp)
 	return ungetc(getc(fp), fp);
 }
 
-static gint generic_get_one_field(gchar *buf, size_t len, void *data,
+static gint generic_get_one_field(gchar **bufptr, void *data,
 			  HeaderEntry *hentry,
 			  getlinefunc getline, peekcharfunc peekchar,
 			  gboolean unfold)
 {
+	/* returns -1 in case of failure of any kind, whatever it's a parsing error
+	   or an allocation error. if returns -1, *bufptr is always NULL, and vice-versa,
+	   and if returning 0 (OK), *bufptr is always non-NULL, so callers just have to
+	   test the return value
+	*/
 	gint nexthead;
 	gint hnum = 0;
 	HeaderEntry *hp = NULL;
+	size_t len;
+	gchar *buf;
+
+	cm_return_val_if_fail(bufptr != NULL, -1);
+
+	len = BUFFSIZE;
+	buf = g_malloc(len);
 
 	if (hentry != NULL) {
 		/* skip non-required headers */
+		/* and get hentry header line */
 		do {
 			do {
-				if (getline(buf, len, data) == NULL)
+				if (getline(buf, len, data) == NULL) {
+					debug_print("generic_get_one_field: getline\n");
+					g_free(buf);
+					*bufptr = NULL;
 					return -1;
-				if (buf[0] == '\r' || buf[0] == '\n')
+				}
+				if (buf[0] == '\r' || buf[0] == '\n') {
+					debug_print("generic_get_one_field: empty line\n");
+					g_free(buf);
+					*bufptr = NULL;
 					return -1;
+				}
 			} while (buf[0] == ' ' || buf[0] == '\t');
 
 			for (hp = hentry, hnum = 0; hp->name != NULL;
@@ -146,8 +167,27 @@ static gint generic_get_one_field(gchar *buf, size_t len, void *data,
 			}
 		} while (hp->name == NULL);
 	} else {
-		if (getline(buf, len, data) == NULL) return -1;
-		if (buf[0] == '\r' || buf[0] == '\n') return -1;
+		/* read first line */
+		if (getline(buf, len, data) == NULL) {
+			debug_print("generic_get_one_field: getline\n");
+			g_free(buf);
+			*bufptr = NULL;
+			return -1;
+		}
+		if (buf[0] == '\r' || buf[0] == '\n') {
+			debug_print("generic_get_one_field: empty line\n");
+			g_free(buf);
+			*bufptr = NULL;
+			return -1;
+		}
+	}
+	/* reduce initial buffer to its useful part */
+	len = strlen(buf)+1;
+	buf = g_realloc(buf, len);
+	if (buf == NULL) {
+		debug_print("generic_get_one_field: reallocation error\n");
+		*bufptr = NULL;
+		return -1;
 	}
 
 	/* unfold line */
@@ -156,6 +196,9 @@ static gint generic_get_one_field(gchar *buf, size_t len, void *data,
 		/* ([*WSP CRLF] 1*WSP) */
 		if (nexthead == ' ' || nexthead == '\t') {
 			size_t buflen;
+			gchar *tmpbuf;
+			size_t tmplen;
+
 			gboolean skiptab = (nexthead == '\t');
 			/* trim previous trailing \n if requesting one header or
 			 * unfolding was requested */
@@ -164,15 +207,29 @@ static gint generic_get_one_field(gchar *buf, size_t len, void *data,
 
 			buflen = strlen(buf);
 			
-			/* concatenate next line */
-			if ((len - buflen) > 2) {
-				if (getline(buf + buflen, len - buflen, data) == NULL)
-					break;
-				if (skiptab) { /* replace tab with space */
-					*(buf + buflen) = ' ';
-				}
-			} else
+			/* read next line */
+			tmpbuf = g_malloc(BUFFSIZE);
+
+			if (getline(tmpbuf, BUFFSIZE, data) == NULL) {
+				g_free(tmpbuf);
 				break;
+			}
+			tmplen = strlen(tmpbuf)+1;
+
+			/* extend initial buffer and concatenate next line */
+			len += tmplen;
+			buf = g_realloc(buf, len);
+			if (buf == NULL) {
+				debug_print("generic_get_one_field: reallocation error\n");
+				g_free(buf);
+				*bufptr = NULL;
+				return -1;
+			}
+			memcpy(buf+buflen, tmpbuf, tmplen);
+			g_free(tmpbuf);
+			if (skiptab) { /* replace tab with space */
+				*(buf + buflen) = ' ';
+			}
 		} else {
 			/* remove trailing new line */
 			strretchomp(buf);
@@ -180,12 +237,14 @@ static gint generic_get_one_field(gchar *buf, size_t len, void *data,
 		}
 	}
 
+	*bufptr = buf;
+
 	return hnum;
 }
 
-gint procheader_get_one_field_asis(gchar *buf, size_t len, FILE *fp)
+gint procheader_get_one_field_asis(gchar **buf, FILE *fp)
 {
-	return generic_get_one_field(buf, len, fp, NULL,
+	return generic_get_one_field(buf, fp, NULL,
 				     (getlinefunc)fgets_crlf, 
 				     (peekcharfunc)file_peekchar,
 				     FALSE);
@@ -193,7 +252,7 @@ gint procheader_get_one_field_asis(gchar *buf, size_t len, FILE *fp)
 
 GPtrArray *procheader_get_header_array_asis(FILE *fp)
 {
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
 	GPtrArray *headers;
 	Header *header;
 
@@ -201,9 +260,11 @@ GPtrArray *procheader_get_header_array_asis(FILE *fp)
 
 	headers = g_ptr_array_new();
 
-	while (procheader_get_one_field_asis(buf, sizeof(buf), fp) != -1) {
+	while (procheader_get_one_field_asis(&buf, fp) != -1) {
 		if ((header = procheader_parse_header(buf)) != NULL)
 			g_ptr_array_add(headers, header);
+		g_free(buf);
+		buf = NULL;
 	}
 
 	return headers;
@@ -213,6 +274,8 @@ void procheader_header_array_destroy(GPtrArray *harray)
 {
 	gint i;
 	Header *header;
+
+	cm_return_if_fail(harray != NULL);
 
 	for (i = 0; i < harray->len; i++) {
 		header = g_ptr_array_index(harray, i);
@@ -290,6 +353,8 @@ Header * procheader_parse_header(gchar * buf)
 	Header * header;
 	gboolean addr_field = FALSE;
 
+	cm_return_val_if_fail(buf != NULL, NULL);
+
 	if ((*buf == ':') || (*buf == ' '))
 		return NULL;
 
@@ -309,15 +374,14 @@ Header * procheader_parse_header(gchar * buf)
 
 void procheader_get_header_fields(FILE *fp, HeaderEntry hentry[])
 {
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
 	HeaderEntry *hp;
 	gint hnum;
 	gchar *p;
 
 	if (hentry == NULL) return;
 
-	while ((hnum = procheader_get_one_field(buf, sizeof(buf), fp, hentry))
-	       != -1) {
+	while ((hnum = procheader_get_one_field(&buf, fp, hentry)) != -1) {
 		hp = hentry + hnum;
 
 		p = buf + strlen(hp->name);
@@ -331,6 +395,8 @@ void procheader_get_header_fields(FILE *fp, HeaderEntry hentry[])
 			hp->body = g_strconcat(tp, ", ", p, NULL);
 			g_free(tp);
 		}
+		g_free(buf);
+		buf = NULL;
 	}
 }
 
@@ -490,7 +556,7 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 			     gboolean full, gboolean decrypted)
 {
 	MsgInfo *msginfo;
-	gchar buf[BUFFSIZE];
+	gchar *buf = NULL;
 	gchar *p, *tmp;
 	gchar *hp;
 	HeaderEntry *hentry;
@@ -504,7 +570,7 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 	hentry = procheader_get_headernames(full);
 
 	if (MSG_IS_QUEUED(flags) || MSG_IS_DRAFT(flags)) {
-		while (get_one_field(buf, sizeof(buf), data, NULL) != -1) {
+		while (get_one_field(&buf, data, NULL) != -1) {
 			if ((!strncmp(buf, "X-Claws-End-Special-Headers: 1",
 				strlen("X-Claws-End-Special-Headers:"))) ||
 			    (!strncmp(buf, "X-Sylpheed-End-Special-Headers: 1",
@@ -519,8 +585,12 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 					data = orig_data;
 				else 
 					rewind((FILE *)data);
+				g_free(buf);
+				buf = NULL;
 				break;
 			}
+			g_free(buf);
+			buf = NULL;
 		}
 	}
 
@@ -540,8 +610,7 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 		avatar_hook_id = 0;
 	}
 
-	while ((hnum = get_one_field(buf, sizeof(buf), data, hentry))
-	       != -1) {
+	while ((hnum = get_one_field(&buf, data, hentry)) != -1) {
 		hp = buf + strlen(hentry[hnum].name);
 		while (*hp == ' ' || *hp == '\t') hp++;
 
@@ -743,6 +812,8 @@ static MsgInfo *parse_stream(void *data, gboolean isstring, MsgFlags flags,
 			hooks_invoke(AVATAR_HEADER_UPDATE_HOOKLIST, (gpointer)acd);
 			g_free(acd);
 		}
+		g_free(buf);
+		buf = NULL;
 	}
 
 	if (!msginfo->inreplyto && msginfo->references)
@@ -841,9 +912,8 @@ static gint procheader_scan_date_string(const gchar *str,
 	*weekday = '\0';
 
 	/* RFC3339 subset, with fraction of second */
-	result = sscanf(str, "%4d-%2d-%2d%c%2d:%2d:%2d.%1d%6s",
+	result = sscanf(str, "%4d-%2d-%2d%c%2d:%2d:%2d.%d%6s",
 			year, &month_n, day, &sep1, hh, mm, ss, &secfract, zonestr);
-	debug_print("str |%s|, result %d\n", str, result);
 	if (result == 9
 			&& (sep1 == 'T' || sep1 == 't' || sep1 == ' ')) {
 		if (month_n >= 1 && month_n <= 12) {
@@ -861,7 +931,6 @@ static gint procheader_scan_date_string(const gchar *str,
 	/* RFC3339 subset, no fraction of second */
 	result = sscanf(str, "%4d-%2d-%2d%c%2d:%2d:%2d%6s",
 			year, &month_n, day, &sep1, hh, mm, ss, zonestr);
-	debug_print("str |%s|, result %d\n", str, result);
 	if (result == 8
 			&& (sep1 == 'T' || sep1 == 't' || sep1 == ' ')) {
 		if (month_n >= 1 && month_n <= 12) {
@@ -878,11 +947,22 @@ static gint procheader_scan_date_string(const gchar *str,
 
 	*zone = '\0';
 
-	/* RFC3339 subset */
-	/* This particular "subset" is invalid, RFC requires the time offset */
+	/* RFC3339 subset, no fraction of second, and no timezone offset */
+	/* This particular "subset" is invalid, RFC requires the offset */
 	result = sscanf(str, "%4d-%2d-%2d %2d:%2d:%2d",
 			year, &month_n, day, hh, mm, ss);
 	if (result == 6) {
+		if (1 <= month_n && month_n <= 12) {
+			strncpy2(month, monthstr+((month_n-1)*3), 4);
+			return 0;
+		}
+	}
+
+	/* ISO8601 format with just date (YYYY-MM-DD) */
+	result = sscanf(str, "%4d-%2d-%2d",
+			year, &month_n, day);
+	if (result == 3) {
+		*hh = *mm = *ss = 0;
 		if (1 <= month_n && month_n <= 12) {
 			strncpy2(month, monthstr+((month_n-1)*3), 4);
 			return 0;
@@ -913,7 +993,7 @@ gboolean procheader_date_parse_to_tm(const gchar *src, struct tm *t, char *zone)
 
 	if (procheader_scan_date_string(src, weekday, &day, month, &year,
 					&hh, &mm, &ss, zone) < 0) {
-		g_warning("Invalid date: %s\n", src);
+		g_warning("Invalid date: %s", src);
 		return FALSE;
 	}
 
@@ -929,7 +1009,7 @@ gboolean procheader_date_parse_to_tm(const gchar *src, struct tm *t, char *zone)
 	if ((p = strstr(monthstr, month)) != NULL)
 		dmonth = (gint)(p - monthstr) / 3 + 1;
 	else {
-		g_warning("Invalid month: %s\n", month);
+		g_warning("Invalid month: %s", month);
 		dmonth = G_DATE_BAD_MONTH;
 	}
 
@@ -957,10 +1037,8 @@ time_t procheader_date_parse(gchar *dest, const gchar *src, gint len)
 	gint hh, mm, ss;
 	gchar zone[7];
 	GDateMonth dmonth = G_DATE_BAD_MONTH;
-	struct tm t;
 	gchar *p;
 	time_t timer;
-	time_t tz_offset;
 
 	if (procheader_scan_date_string(src, weekday, &day, month, &year,
 					&hh, &mm, &ss, zone) < 0) {
@@ -969,20 +1047,37 @@ time_t procheader_date_parse(gchar *dest, const gchar *src, gint len)
 		return 0;
 	}
 
-	/* Y2K compliant :) */
-	if (year < 1000) {
-		if (year < 50)
-			year += 2000;
-		else
-			year += 1900;
-	}
-
 	month[3] = '\0';
 	for (p = monthstr; *p != '\0'; p += 3) {
 		if (!g_ascii_strncasecmp(p, month, 3)) {
 			dmonth = (gint)(p - monthstr) / 3 + 1;
 			break;
 		}
+	}
+
+#ifdef G_OS_WIN32
+	GTimeZone *tz;
+	GDateTime *dt, *dt2;
+
+	tz = g_time_zone_new(zone); // can't return NULL no need to check for it
+	dt = g_date_time_new(tz, 1, 1, 1, 0, 0, 0);
+	g_time_zone_unref(tz);
+	dt2 = g_date_time_add_full(dt, year-1, dmonth-1, day-1, hh, mm, ss);
+	g_date_time_unref(dt);
+
+	timer = g_date_time_to_unix(dt2);
+	g_date_time_unref(dt2);
+
+#else
+	struct tm t;
+	time_t tz_offset;
+
+	/* Y2K compliant :) */
+	if (year < 1000) {
+		if (year < 50)
+			year += 2000;
+		else
+			year += 1900;
 	}
 
 	t.tm_sec = ss;
@@ -1002,6 +1097,7 @@ time_t procheader_date_parse(gchar *dest, const gchar *src, gint len)
 
 	if (dest)
 		procheader_date_get_localtime(dest, len, timer);
+#endif
 
 	return timer;
 }
@@ -1039,34 +1135,44 @@ void procheader_date_get_localtime(gchar *dest, gint len, const time_t timer)
 
 /* Added by Mel Hadasht on 27 Aug 2001 */
 /* Get a header from msginfo */
-gint procheader_get_header_from_msginfo(MsgInfo *msginfo, gchar *buf, gint len, gchar *header)
+gint procheader_get_header_from_msginfo(MsgInfo *msginfo, gchar **buf, gchar *header)
 {
 	gchar *file;
 	FILE *fp;
 	HeaderEntry hentry[]={ { NULL, NULL, TRUE  },
-                               { NULL, NULL, FALSE } };
+						   { NULL, NULL, FALSE } };
 	gint val;
 
-        hentry[0].name = header;
-       
 	cm_return_val_if_fail(msginfo != NULL, -1);
+	cm_return_val_if_fail(buf != NULL, -1);
+	cm_return_val_if_fail(header != NULL, -1);
+
+	hentry[0].name = header;
+
 	file = procmsg_get_message_file_path(msginfo);
 	if ((fp = g_fopen(file, "rb")) == NULL) {
-               FILE_OP_ERROR(file, "fopen");
-               g_free(file);
-               return -1;
+		FILE_OP_ERROR(file, "fopen");
+		g_free(file);
+		g_free(*buf);
+		*buf = NULL;
+		return -1;
 	}
-	val = procheader_get_one_field(buf,len, fp, hentry);
+	val = procheader_get_one_field(buf, fp, hentry);
+
 	if (fclose(fp) == EOF) {
 		FILE_OP_ERROR(file, "fclose");
 		claws_unlink(file);
 		g_free(file);
+		g_free(*buf);
+		*buf = NULL;
 		return -1;
 	}
 
 	g_free(file);
-        if (val == -1)
+	if (val == -1) {
+		/* *buf is already NULL in that case, see procheader_get_one_field() */
 		return -1;
+	}
 
 	return 0;
 }

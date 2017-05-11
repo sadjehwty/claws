@@ -55,6 +55,7 @@
 #include "gtkutils.h"
 #include "inc.h"
 #include "log.h"
+#include "passwordstore.h"
 
 typedef struct _SendProgressDialog	SendProgressDialog;
 
@@ -145,7 +146,6 @@ gint send_message_local(const gchar *command, FILE *fp)
 	gint child_stdin;
 	gchar buf[BUFFSIZE];
 	gboolean err = FALSE;
-	gint status;
 
 	cm_return_val_if_fail(command != NULL, -1);
 	cm_return_val_if_fail(fp != NULL, -1);
@@ -190,6 +190,7 @@ gint send_message_local(const gchar *command, FILE *fp)
 	fd_close(child_stdin);
 
 #ifndef G_OS_WIN32
+	gint status;
 	waitpid(pid, &status, 0);
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
 		err = TRUE;
@@ -238,7 +239,10 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 		return -1;
 	}
 	tmp_msginfo = procheader_parse_stream(fp, flags, TRUE, FALSE);
-	fseek(fp, fp_pos, SEEK_SET);
+	if (fseek(fp, fp_pos, SEEK_SET) < 0) {
+		perror("fseek");
+		return -1;
+	}
 
 	if (tmp_msginfo && tmp_msginfo->extradata && tmp_msginfo->extradata->resent_from) {
 		strncpy2(spec_from, tmp_msginfo->extradata->resent_from, BUFFSIZE-1);
@@ -250,7 +254,7 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 		strncpy2(spec_from, ac_prefs->address, BUFFSIZE-1);
 	}
 	if (tmp_msginfo) {
-		procmsg_msginfo_free(tmp_msginfo);
+		procmsg_msginfo_free(&tmp_msginfo);
 	}
 
 	if (!ac_prefs->session) {
@@ -279,8 +283,8 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 		if (ac_prefs->ssl_smtp != SSL_NONE) {
 			if (alertpanel_full(_("Insecure connection"),
 				_("This connection is configured to be secured "
-				  "using SSL, but SSL is not available in this "
-				  "build of Claws Mail. \n\n"
+				  "using SSL/TLS, but SSL/TLS is not available "
+				  "in this build of Claws Mail. \n\n"
 				  "Do you want to continue connecting to this "
 				  "server? The communication would not be "
 				  "secure."),
@@ -302,10 +306,9 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 							ac_prefs->smtp_server, "smtp", port,
 							&(smtp_session->pass))) {
 					/* NOP */;
-				} else if (ac_prefs->smtp_passwd)
-					smtp_session->pass =
-						g_strdup(ac_prefs->smtp_passwd);
-				else {
+				} else if ((smtp_session->pass =
+						passwd_store_get_account(ac_prefs->account_id,
+								PWS_ACCOUNT_SEND)) == NULL) {
 					smtp_session->pass =
 						input_dialog_query_password_keep
 							(ac_prefs->smtp_server,
@@ -322,9 +325,8 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 							ac_prefs->smtp_server, "smtp", port,
 							&(smtp_session->pass))) {
 					/* NOP */;
-				} else if (ac_prefs->passwd)
-					smtp_session->pass = g_strdup(ac_prefs->passwd);
-				else {
+				} else if ((smtp_session->pass = passwd_store_get_account(
+							ac_prefs->account_id, PWS_ACCOUNT_RECV)) == NULL) {
 					smtp_session->pass =
 						input_dialog_query_password_keep
 							(ac_prefs->smtp_server,
@@ -350,7 +352,7 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 					 _("Connecting"));
 
 		if (ac_prefs->pop_before_smtp
-		    && (ac_prefs->protocol == A_APOP || ac_prefs->protocol == A_POP3)
+		    && (ac_prefs->protocol == A_POP3)
 		    && (time(NULL) - ac_prefs->last_pop_login_time) > (60 * ac_prefs->pop_before_smtp_timeout)) {
 			g_snprintf(buf, sizeof(buf), _("Doing POP before SMTP..."));
 			log_message(LOG_PROTOCOL, "%s\n", buf);
@@ -525,7 +527,7 @@ static gint send_recv_message(Session *session, const gchar *msg, gpointer data)
 		state_str = _("Quitting");
 		break;
 	case SMTP_ERROR:
-		g_warning("send: error: %s\n", msg);
+		g_warning("send: error: %s", msg);
 		return 0;
 	default:
 		return 0;

@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2003-2012 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2003-2015 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -174,8 +173,7 @@ static GList *ldaputil_test_v2( LDAP *ld, gint tov ) {
 							ch = ( char * ) strchr( tmp, ':' );
 							if( ch ) {
 								gchar *bn = g_strdup( ++ch );
-								g_strchomp( bn );
-								g_strchug( bn );
+								g_strstrip( bn );
 								baseDN = g_list_append(
 									baseDN, g_strdup( bn ) );
 								g_free( bn );
@@ -200,6 +198,8 @@ static GList *ldaputil_test_v2( LDAP *ld, gint tov ) {
 
 int claws_ldap_simple_bind_s( LDAP *ld, LDAP_CONST char *dn, LDAP_CONST char *passwd )
 {
+	debug_print("binding: DN->%s\n", dn?dn:"null");
+#ifdef G_OS_UNIX
 	struct berval cred;
 
 	if ( passwd != NULL ) {
@@ -210,12 +210,10 @@ int claws_ldap_simple_bind_s( LDAP *ld, LDAP_CONST char *dn, LDAP_CONST char *pa
 		cred.bv_len = 0;
 	}
 
-	debug_print("binding: DN->%s\n", dn?dn:"null");
-#ifdef G_OS_UNIX
 	return ldap_sasl_bind_s( ld, dn, LDAP_SASL_SIMPLE, &cred,
 		NULL, NULL, NULL );
 #else
-	return ldap_simple_bind_s(ld, dn, passwd);
+	return ldap_simple_bind_s(ld, (PCHAR)dn, (PCHAR)passwd);
 #endif
 }
 
@@ -249,7 +247,6 @@ GList *ldaputil_read_basedn(
 	ldapctl_set_host(ctl, host);
 	ldapctl_set_timeout(ctl, tov);
 	ldapctl_set_bind_dn(ctl, bindDN);
-	ldapctl_set_bind_password(ctl, bindPW, FALSE, FALSE);
 
 	ld = ldapsvr_connect(ctl);
 	if (ld == NULL) {

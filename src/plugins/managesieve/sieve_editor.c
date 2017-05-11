@@ -106,8 +106,9 @@ static GtkActionEntry sieve_editor_entries[] =
 void sieve_editors_close()
 {
 	if (editors) {
-		g_slist_free_full(editors, (GDestroyNotify)sieve_editor_close);
+		GSList *list = editors;
 		editors = NULL;
+		g_slist_free_full(list, (GDestroyNotify)sieve_editor_close);
 	}
 }
 
@@ -139,7 +140,8 @@ static gint sieve_editor_get_text(SieveEditorPage *page, gchar **text)
 	gtk_text_buffer_get_start_iter(buffer, &start);
 	gtk_text_buffer_get_end_iter(buffer, &end);
 	*text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
-	return gtk_text_iter_get_offset(&end) - gtk_text_iter_get_offset(&start);
+	/* return length in bytes */
+	return strlen(*text);
 }
 
 static void sieve_editor_set_status(SieveEditorPage *page, const gchar *status)
@@ -157,12 +159,14 @@ static void sieve_editor_set_status_icon(SieveEditorPage *page, const gchar *img
 }
 
 static void sieve_editor_append_status(SieveEditorPage *page,
-		const gchar *status)
+		const gchar *new_status)
 {
 	GtkLabel *label = GTK_LABEL(page->status_text);
 	const gchar *prev_status = gtk_label_get_text(label);
 	const gchar *sep = prev_status && prev_status[0] ? "\n" : "";
-	gtk_label_set_text(label, g_strconcat(prev_status, sep, status, NULL));
+	gchar *status = g_strconcat(prev_status, sep, new_status, NULL);
+	gtk_label_set_text(label, status);
+	g_free(status);
 }
 
 /* Update the status icon and text from a response. */
@@ -309,7 +313,6 @@ static void got_data_reverting(SieveSession *session, gboolean abort,
 		/* append data */
 		gtk_text_buffer_insert(buffer, &end, contents, strlen(contents));
 	} else {
-		sieve_editor_append_text(page, "\n", 1);
 		sieve_editor_append_text(page, contents, strlen(contents));
 	}
 }
@@ -427,7 +430,7 @@ static gboolean sieve_editor_confirm_close(SieveEditorPage *page)
 	if (page->modified) {
 		switch (alertpanel(_("Save changes"),
 				_("This script has been modified. Save the latest changes?"),
-				_("_Discard"), _("+_Save"), GTK_STOCK_CANCEL)) {
+				_("_Discard"), g_strconcat("+", _("_Save"), NULL), GTK_STOCK_CANCEL)) {
 			case G_ALERTDEFAULT:
 				return TRUE;
 			case G_ALERTALTERNATE:
@@ -725,8 +728,6 @@ static void got_data_loading(SieveSession *session, gboolean aborted,
 	if (page->first_line) {
 		page->first_line = FALSE;
 		sieve_editor_show(page);
-	} else {
-		sieve_editor_append_text(page, "\n", 1);
 	}
 	sieve_editor_append_text(page, contents, strlen(contents));
 }

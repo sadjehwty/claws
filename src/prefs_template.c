@@ -317,7 +317,7 @@ static void prefs_template_window_create(void)
 	CLAWS_SET_TIP(subst_btn,
 			_("Replace the selected template in list with the template above"));
 
-	del_btn = gtk_button_new_with_mnemonic (_("Re_move"));
+	del_btn = gtk_button_new_with_mnemonic (_("D_elete"));
 	gtk_button_set_image(GTK_BUTTON(del_btn),
 			gtk_image_new_from_stock(GTK_STOCK_REMOVE,GTK_ICON_SIZE_BUTTON));
 	gtk_widget_show(del_btn);
@@ -571,7 +571,7 @@ static void prefs_template_ok_cb(gpointer action, gpointer data)
 
 	if (modified && alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"), 
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	} 
@@ -596,12 +596,12 @@ static void prefs_template_cancel_cb(gpointer action, gpointer data)
 
 	if (modified && alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"),
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	} else if (modified_list && alertpanel(_("Templates list not saved"),
 				 _("The templates list has been modified. Close anyway?"),
-				 GTK_STOCK_CLOSE, _("+_Continue editing"), 
+				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
 				 NULL) != G_ALERTDEFAULT) {
 		return;
 	}
@@ -715,16 +715,6 @@ gboolean prefs_template_string_is_valid(gchar *string, gint *line, gboolean esca
 			if (line)
 				*line = quote_fmt_get_line();
 			return FALSE;
-		}
-		if (email) {
-			const gchar *start = strrchr(parsed_buf, '<');
-			const gchar *end = strrchr(parsed_buf, '>');
-			const gchar *at = strrchr(parsed_buf, '@');
-			const gchar *space = strrchr(parsed_buf, ' ');
-			if (!at)
-				result = FALSE;
-			if (at && space && (!start || !end || end < start || start < space))
-				result = FALSE;
 		}
 		quote_fmt_reset_vartable();
 	}

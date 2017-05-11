@@ -1,6 +1,6 @@
 /*
  * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 1999-2012 the Claws Mail Team
+ * Copyright (C) 1999-2015 the Claws Mail Team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 #ifdef HAVE_CONFIG_H
@@ -93,7 +92,7 @@ struct Transport transports[] = {
 	{ N_("Unix Socket"),	SPAMASSASSIN_TRANSPORT_UNIX,		PAGE_UNIX,    0 },
 };
 
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 static void spamassassin_whitelist_ab_select_cb(GtkWidget *widget, gpointer data)
 {
 	struct SpamAssassinPage *page = (struct SpamAssassinPage *) data;
@@ -116,7 +115,8 @@ static void foldersel_cb(GtkWidget *widget, gpointer data)
 	gchar *item_id;
 	gint newpos = 0;
 	
-	item = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE);
+	item = foldersel_folder_sel(NULL, FOLDER_SEL_MOVE, NULL, FALSE,
+			_("Select folder to save spam to"));
 	if (item && (item_id = folder_item_get_identifier(item)) != NULL) {
 		gtk_editable_delete_text(GTK_EDITABLE(page->save_folder), 0, -1);
 		gtk_editable_insert_text(GTK_EDITABLE(page->save_folder), item_id, strlen(item_id), &newpos);
@@ -459,14 +459,14 @@ static void spamassassin_create_widget_func(PrefsPage * _page,
 	SET_TOGGLE_SENSITIVITY(enable_sa_checkbtn, hbox_process_emails);
 	SET_TOGGLE_SENSITIVITY(save_spam_checkbtn, mark_as_read_checkbtn);
 	SET_TOGGLE_SENSITIVITY(whitelist_ab_checkbtn, whitelist_ab_folder_combo);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	SET_TOGGLE_SENSITIVITY(whitelist_ab_checkbtn, whitelist_ab_select_btn);
 #endif
 	config = spamassassin_get_config();
 
 	g_signal_connect(G_OBJECT(save_spam_folder_select), "clicked",
 			G_CALLBACK(foldersel_cb), page);
-#ifndef USE_NEW_ADDRBOOK
+#ifndef USE_ALT_ADDRBOOK
 	g_signal_connect(G_OBJECT (whitelist_ab_select_btn), "clicked",
 			 G_CALLBACK(spamassassin_whitelist_ab_select_cb), page);
 #else
