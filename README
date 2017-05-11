@@ -634,6 +634,11 @@ http://www.claws-mail.org/plugins.php
 	Use NetworkManager to switch offline automatically.
 	0: off  1: on
 
+    use_socks_for_recv			(default: 1)
+	Use an account's SOCKS proxy settings for receiving mail,
+	when SOCKS is enabled for that account.
+	0: off  1: on
+
     use_stripes_everywhere		(default: 1)
 	Enable alternately coloured lines in GtkTreeView components.
 	0: off  1: on

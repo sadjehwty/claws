@@ -30,6 +30,7 @@
 #include <unistd.h>
 
 #include "socket.h"
+#include "socks.h"
 
 #define SESSION_BUFFSIZE	4096
 
@@ -158,6 +159,8 @@ struct _Session
 	gboolean ssl_cert_auto_accept;
 	gint ping_tag;
 
+	SocksInfo *socks_info;
+
 #ifdef USE_GNUTLS
 	SSLType ssl_type;
 	gchar *gnutls_priority;
@@ -170,6 +173,10 @@ void session_init		(Session	*session,
 gint session_connect		(Session	*session,
 				 const gchar	*server,
 				 gushort	 port);
+gint session_connect_full	(Session	*session,
+				 const gchar	*server,
+				 gushort	 port,
+				 SocksInfo	*socks_info);
 gint session_disconnect		(Session	*session);
 void session_destroy		(Session	*session);
 gboolean session_is_running	(Session	*session);

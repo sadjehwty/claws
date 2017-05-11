@@ -41,6 +41,7 @@
 #include "account.h"
 #include "procmsg.h"
 #include "socket.h"
+#include "socks.h"
 #include "ssl.h"
 #include "pop.h"
 #include "recv.h"
@@ -789,32 +790,34 @@ static IncState inc_pop3_session_do(IncSession *session)
 {
 	Pop3Session *pop3_session = POP3_SESSION(session->session);
 	IncProgressDialog *inc_dialog = (IncProgressDialog *)session->data;
+	PrefsAccount *ac = pop3_session->ac_prefs;
+	SocksInfo *socks_info = NULL;
 	gchar *server;
 	gchar *account_name;
 	gushort port;
 	gchar *buf;
 
 	debug_print("getting new messages of account %s...\n",
-		    pop3_session->ac_prefs->account_name);
+		    ac->account_name);
 		    
-	pop3_session->ac_prefs->last_pop_login_time = time(NULL);
+	ac->last_pop_login_time = time(NULL);
 
 	buf = g_strdup_printf(_("%s: Retrieving new messages"),
-			      pop3_session->ac_prefs->recv_server);
+			      ac->recv_server);
 	gtk_window_set_title(GTK_WINDOW(inc_dialog->dialog->window), buf);
 	g_free(buf);
 
-	server = pop3_session->ac_prefs->recv_server;
-	account_name = pop3_session->ac_prefs->account_name;
+	server = ac->recv_server;
+	account_name = ac->account_name;
 	port = pop3_get_port(pop3_session);
 
 #ifdef USE_GNUTLS
-	SESSION(pop3_session)->ssl_type = pop3_session->ac_prefs->ssl_pop;
-	if (pop3_session->ac_prefs->ssl_pop != SSL_NONE)
+	SESSION(pop3_session)->ssl_type = ac->ssl_pop;
+	if (ac->ssl_pop != SSL_NONE)
 		SESSION(pop3_session)->nonblocking =
-			pop3_session->ac_prefs->use_nonblocking_ssl;
+			ac->use_nonblocking_ssl;
 #else
-	if (pop3_session->ac_prefs->ssl_pop != SSL_NONE) {
+	if (ac->ssl_pop != SSL_NONE) {
 		if (alertpanel_full(_("Insecure connection"),
 			_("This connection is configured to be secured "
 			  "using SSL, but SSL is not available in this "
@@ -835,13 +838,18 @@ static IncState inc_pop3_session_do(IncSession *session)
 	log_message(LOG_PROTOCOL, "%s\n", buf);
 
 	progress_dialog_set_label(inc_dialog->dialog, buf);
+
+	if (ac->use_socks && ac->use_socks_for_recv) {
+		socks_info = socks_info_new(ac->socks_type, ac->proxy_host, ac->proxy_port, ac->use_proxy_auth ? ac->proxy_name : NULL, ac->use_proxy_auth ? ac->proxy_pass : NULL);
+	}
+
 	GTK_EVENTS_FLUSH();
 	g_free(buf);
 
 	session_set_timeout(SESSION(pop3_session),
 			    prefs_common.io_timeout_secs * 1000);
 	
-	if (session_connect(SESSION(pop3_session), server, port) < 0) {
+	if (session_connect_full(SESSION(pop3_session), server, port, socks_info) < 0) {
 		if(!prefs_common.no_recv_err_panel) {
 			if((prefs_common.recv_dialog_mode == RECV_DIALOG_ALWAYS) ||
 			    ((prefs_common.recv_dialog_mode == RECV_DIALOG_MANUAL) && focus_window)) {

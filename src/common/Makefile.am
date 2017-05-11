@@ -32,6 +32,7 @@ libclawscommon_la_SOURCES = $(arch_sources) \
 	session.c \
 	smtp.c \
 	socket.c \
+	socks.c \
 	ssl.c \
 	ssl_certificate.c \
 	string_match.c \

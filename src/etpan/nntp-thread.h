@@ -31,8 +31,8 @@ void nntp_main_done(gboolean have_connectivity);
 void nntp_init(Folder * folder);
 void nntp_done(Folder * folder);
 
-int nntp_threaded_connect(Folder * folder, const char * server, int port);
-int nntp_threaded_connect_ssl(Folder * folder, const char * server, int port);
+int nntp_threaded_connect(Folder * folder, const char * server, int port, SocksInfo *socks_info);
+int nntp_threaded_connect_ssl(Folder * folder, const char * server, int port, SocksInfo *socks_info);
 
 void nntp_threaded_disconnect(Folder * folder);
 

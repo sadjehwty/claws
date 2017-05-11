@@ -838,11 +838,19 @@ static void sieve_connect_finished(Session *session, gboolean success)
 
 static gint sieve_session_connect(SieveSession *session)
 {
+	SocksInfo *socks_info = NULL;
+	PrefsAccount *ac = session->account;
+
 	session->state = SIEVE_CAPABILITIES;
 	session->authenticated = FALSE;
 	session->tls_init_done = FALSE;
-	return session_connect(SESSION(session), session->host,
-			session->port);
+
+	if (ac->use_socks && ac->use_socks_for_recv) {
+		socks_info = socks_info_new(ac->socks_type, ac->proxy_host, ac->proxy_port, ac->use_proxy_auth ? ac->proxy_name : NULL, ac->use_proxy_auth ? ac->proxy_pass : NULL);
+	}
+
+	return session_connect_full(SESSION(session), session->host,
+			session->port, socks_info);
 }
 
 static SieveSession *sieve_session_new(PrefsAccount *account)

@@ -1113,6 +1113,7 @@ static IMAPSession *imap_session_new(Folder * folder,
 				     const PrefsAccount *account)
 {
 	IMAPSession *session;
+	SocksInfo *socks_info = NULL;
 	gushort port;
 	int r;
 	int authenticated = FALSE;
@@ -1161,18 +1162,23 @@ static IMAPSession *imap_session_new(Folder * folder,
 	else 
 #endif
 	{
+		if (account->use_socks && account->use_socks_for_recv) {
+			socks_info = socks_info_new(account->socks_type, account->proxy_host, account->proxy_port, account->use_proxy_auth ? account->proxy_name : NULL, account->use_proxy_auth ? account->proxy_pass : NULL);
+		}
 #ifdef USE_GNUTLS
 		if (ssl_type == SSL_TUNNEL) {
 			r = imap_threaded_connect_ssl(folder,
 						      account->recv_server,
-						      port);
+						      port,
+						      socks_info);
 		}
 		else 
 #endif
 		{
 			r = imap_threaded_connect(folder,
 						  account->recv_server,
-						  port);
+						  port,
+						  socks_info);
 		}
 	}
 	
@@ -1208,6 +1214,7 @@ static IMAPSession *imap_session_new(Folder * folder,
 	SESSION(session)->server           = g_strdup(account->recv_server);
 	SESSION(session)->port		   = port;
  	SESSION(session)->sock             = NULL;
+	SESSION(session)->socks_info       = socks_info;
 	
 	SESSION(session)->destroy          = imap_session_destroy;
 

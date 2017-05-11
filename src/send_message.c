@@ -50,6 +50,7 @@
 #include "manage_window.h"
 #include "logwindow.h"
 #include "socket.h"
+#include "socks.h"
 #include "utils.h"
 #include "gtkutils.h"
 #include "inc.h"
@@ -212,6 +213,7 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 {
 	Session *session;
 	SMTPSession *smtp_session;
+	SocksInfo *socks_info = NULL;
 	gushort port = 0;
 	gchar buf[BUFFSIZE];
 	gint ret = 0;
@@ -387,10 +389,21 @@ gint send_message_smtp_full(PrefsAccount *ac_prefs, GSList *to_list, FILE *fp, g
 	smtp_session->send_data = (guchar *)get_outgoing_rfc2822_str(fp);
 	smtp_session->send_data_len = strlen((gchar *)smtp_session->send_data);
 
+	if (ac_prefs->use_socks && ac_prefs->use_socks_for_send) {
+		socks_info = socks_info_new(ac_prefs->socks_type,
+					    ac_prefs->proxy_host,
+					    ac_prefs->proxy_port,
+					    ac_prefs->use_proxy_auth
+						? ac_prefs->proxy_name : NULL,
+					    ac_prefs->use_proxy_auth
+						? ac_prefs->proxy_pass : NULL);
+	}
+
 	session_set_timeout(session,
 			    prefs_common.io_timeout_secs * 1000);
 	/* connect if necessary */
-	if (!was_inited && session_connect(session, ac_prefs->smtp_server, port) < 0) {
+	if (!was_inited && session_connect_full(session, ac_prefs->smtp_server,
+				port, socks_info) < 0) {
 		session_destroy(session);
 		send_progress_dialog_destroy(send_dialog);
 		ac_prefs->session = NULL;
