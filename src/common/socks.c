@@ -26,7 +26,6 @@
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
 #endif
-
 #include "socket.h"
 #include "socks.h"
 #include "utils.h"
@@ -97,7 +96,7 @@ gint socks4_connect(SockInfo *sock, const gchar *hostname, gushort port)
 	*((gushort *)(socks_req + 2)) = htons(port);
 
 	/* lookup */
-	if ((hp = my_gethostbyname(hostname)) == NULL) {
+	if ((hp = gethostbyname(hostname)) == NULL) {
 		g_warning("socks4_connect: cannot lookup host: %s", hostname);
 		return -1;
 	}
