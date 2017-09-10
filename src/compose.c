@@ -2981,7 +2981,9 @@ static gint compose_parse_header(Compose *compose, MsgInfo *msginfo)
 		if (msginfo->inreplyto && *msginfo->inreplyto)
 			compose->inreplyto = g_strdup(msginfo->inreplyto);
 
-		if (msginfo->msgid && *msginfo->msgid)
+		if (msginfo->msgid && *msginfo->msgid &&
+				compose->folder != NULL &&
+				compose->folder->stype ==  F_DRAFT)
 			compose->msgid = g_strdup(msginfo->msgid);
 	} else {
 		if (msginfo->msgid && *msginfo->msgid)
@@ -5461,7 +5463,7 @@ static gint compose_redirect_write_headers(Compose *compose, FILE *fp)
 		get_rfc822_date_hide_tz(date, sizeof(date));
 	else
 		get_rfc822_date(date, sizeof(date));
-	err |= (fprintf(fp, "Resent-Date: %s\n", buf) < 0);
+	err |= (fprintf(fp, "Resent-Date: %s\n", date) < 0);
 
 	/* Resent-From */
 	if (compose->account->name && *compose->account->name) {

@@ -500,7 +500,7 @@ case $host_os in
 	*dragonfly*)
 		AC_SEARCH_LIBS(encrypt, cipher, [], AC_MSG_ERROR(['encrypt'-function not found.]))
 	;;
-	*freebsd*)
+	freebsd*)
 	;; # not used
 	*)
 		AC_SEARCH_LIBS(encrypt, crypt, [], AC_MSG_ERROR(['encrypt'-function not found.]))
@@ -1010,9 +1010,9 @@ AC_ARG_ENABLE(clamd-plugin,
 		[  --disable-clamd-plugin          Do not build clamd plugin],
 		[enable_clamd_plugin=$enableval], [enable_clamd_plugin=auto])
 
-AC_ARG_ENABLE(dillo-plugin,
-		[  --disable-dillo-plugin          Do not build dillo plugin],
-		[enable_dillo_plugin=$enableval], [enable_dillo_plugin=auto])
+dnl AC_ARG_ENABLE(dillo-plugin,
+dnl 		[  --disable-dillo-plugin          Do not build dillo plugin],
+dnl 		[enable_dillo_plugin=$enableval], [enable_dillo_plugin=auto])
 
 AC_ARG_ENABLE(fancy-plugin,
 		[  --disable-fancy-plugin          Do not build fancy plugin],
@@ -1174,7 +1174,7 @@ AC_SUBST(ARCHIVE_CFLAGS)
 AC_CHECK_LIB([archive], [archive_read_new],
 		       ARCHIVE_LIBS=-larchive
 		       HAVE_ARCHIVE=yes
-		       AC_SUBST(ARCHIVE_LIBS,ARCHIVE_CFLAGS),
+		       AC_SUBST(ARCHIVE_LIBS,$ARCHIVE_CFLAGS),
 		       HAVE_ARCHIVE=no
 		       )
 
@@ -1222,10 +1222,10 @@ if test x"$HAVE_PERL" = xyes; then
 	AC_MSG_CHECKING(for Perl compile flags)
 	PERL_CFLAGS=`perl -MExtUtils::Embed -e ccopts`
 	PERL_CFLAGS=`echo $PERL_CFLAGS | sed 's/-D_FILE_OFFSET_BITS=[[0-9]]*//'`
-	PERL_LDFLAGS=`perl -MExtUtils::Embed -e ldopts |sed 's/-lgdbm//'`
-	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-ldb//'`
-	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-lndbm//'`
-	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-lc//'`
+	PERL_LDFLAGS=`perl -MExtUtils::Embed -e ldopts |sed 's/-lgdbm\>//'`
+	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-ldb\>//'`
+	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-lndbm\>//'`
+	PERL_LDFLAGS=`echo $PERL_LDFLAGS |sed 's/-lc\>//'`
 	AC_MSG_RESULT(ok)
 	AC_MSG_NOTICE([Adding perl LIBS ${PERL_CFLAGS}])
 	
@@ -1488,14 +1488,14 @@ else
 	AC_MSG_RESULT(no)
 fi
 
-AC_MSG_CHECKING([whether to build Dillo plugin])
-if test x"$enable_dillo_plugin" != xno; then
-	PLUGINS="$PLUGINS dillo"
-	AC_MSG_RESULT(yes)
-else
-	DISABLED_PLUGINS="$DISABLED_PLUGINS dillo"
-	AC_MSG_RESULT(no)
-fi
+dnl AC_MSG_CHECKING([whether to build Dillo plugin])
+dnl if test x"$enable_dillo_plugin" != xno; then
+dnl 	PLUGINS="$PLUGINS dillo"
+dnl 	AC_MSG_RESULT(yes)
+dnl else
+dnl 	DISABLED_PLUGINS="$DISABLED_PLUGINS dillo"
+dnl 	AC_MSG_RESULT(no)
+dnl fi
 
 AC_MSG_CHECKING([whether to build fancy plugin])
 if test x"$enable_fancy_plugin" != xno; then
@@ -1970,7 +1970,7 @@ AM_CONDITIONAL(BUILD_BOGOFILTER_PLUGIN,		test x"$enable_bogofilter_plugin" != xn
 AM_CONDITIONAL(BUILD_BSFILTER_PLUGIN,		test x"$enable_bsfilter_plugin" != xno)
 AM_CONDITIONAL(BUILD_CLAMD_PLUGIN,		test x"$enable_clamd_plugin" != xno)
 AM_CONDITIONAL(BUILD_DEMO_PLUGIN,		test x"$enable_demo_plugin" != xno)
-AM_CONDITIONAL(BUILD_DILLO_PLUGIN,		test x"$enable_dillo_plugin" != xno)
+dnl AM_CONDITIONAL(BUILD_DILLO_PLUGIN,		test x"$enable_dillo_plugin" != xno)
 AM_CONDITIONAL(BUILD_FANCY_PLUGIN,		test x"$enable_fancy_plugin" != xno)
 AM_CONDITIONAL(BUILD_FETCHINFO_PLUGIN,		test x"$enable_fetchinfo_plugin" != xno)
 AM_CONDITIONAL(BUILD_GDATA_PLUGIN,		test x"$enable_gdata_plugin" != xno)
@@ -2019,7 +2019,6 @@ src/plugins/bsfilter/Makefile
 src/plugins/clamd/Makefile
 src/plugins/clamd/libclamd/Makefile
 src/plugins/demo/Makefile
-src/plugins/dillo/Makefile
 src/plugins/fancy/Makefile
 src/plugins/fetchinfo/Makefile
 src/plugins/gdata/Makefile
