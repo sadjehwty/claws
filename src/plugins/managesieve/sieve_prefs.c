@@ -338,6 +338,8 @@ static void sieve_prefs_account_create_widget_func(PrefsPage *_page,
 
 	/* Free things */
 	g_object_unref(G_OBJECT(size_group));
+
+	sieve_prefs_account_free_config(config);
 }
 
 static void sieve_prefs_account_destroy_widget_func(PrefsPage *_page)
@@ -375,9 +377,10 @@ static gint sieve_prefs_account_apply(struct SieveAccountPage *page)
 
 	config->host = gtk_editable_get_chars(GTK_EDITABLE(page->host_entry), 0, -1);
 	config->userid = gtk_editable_get_chars(GTK_EDITABLE(page->uid_entry), 0, -1);
-	passwd_store_set_account(page->account->account_id, "sieve",
-			gtk_editable_get_chars(GTK_EDITABLE(page->pass_entry), 0, -1),
-			FALSE);
+	gchar *pwd = gtk_editable_get_chars(GTK_EDITABLE(page->pass_entry), 0, -1);
+	passwd_store_set_account(page->account->account_id, "sieve", pwd, FALSE);
+	memset(pwd, 0, strlen(pwd));
+	g_free(pwd);
 	config->auth_type = combobox_get_active_data(GTK_COMBO_BOX(page->auth_menu));
 
 	sieve_prefs_account_set_config(page->account, config);
@@ -477,7 +480,7 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	gchar enable, use_host, use_port;
 	guchar tls_type, auth, auth_type;
 	gsize len;
-#if defined(G_OS_WIN32) || defined(__OpenBSD__)
+#if defined(G_OS_WIN32) || defined(__OpenBSD__) || defined(__FreeBSD__)
 	/* Windows sscanf() does not understand the %ms format yet, so we
 	 * have to do the allocation of target buffer ourselves before
 	 * calling sscanf(), and copy the host string to config->host.
@@ -501,13 +504,15 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	if (confstr == NULL)
 		return config;
 
-#if defined(G_OS_WIN32) || defined(__OpenBSD__)
+	enc_userid[0] = '\0';
+	enc_passwd[0] = '\0';
+#if defined(G_OS_WIN32) || defined(__OpenBSD__) || defined(__FreeBSD__)
 	sscanf(confstr, "%c%c %255s %c%hu %hhu %hhu %hhu %255s %255s",
 #else
 	sscanf(confstr, "%c%c %ms %c%hu %hhu %hhu %hhu %255s %255s",
 #endif
 			&enable, &use_host,
-#if defined(G_OS_WIN32) || defined(__OpenBSD__)
+#if defined(G_OS_WIN32) || defined(__OpenBSD__) || defined(__FreeBSD__)
 			tmphost,
 #else
 			&config->host,
@@ -524,7 +529,7 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	config->auth = auth;
 	config->auth_type = auth_type;
 
-#if defined(G_OS_WIN32) || defined(__OpenBSD__)
+#if defined(G_OS_WIN32) || defined(__OpenBSD__) || defined(__FreeBSD__)
 	config->host = g_strndup(tmphost, 255);
 #endif
 
@@ -532,7 +537,7 @@ struct SieveAccountConfig *sieve_prefs_account_get_config(
 	config->use_host = use_host == 'y';
 	config->use_port = use_port == 'y';
 
-	if (config->host[0] == '!' && !config->host[1]) {
+	if (config->host != NULL && config->host[0] == '!' && !config->host[1]) {
 		g_free(config->host);
 		config->host = NULL;
 	}

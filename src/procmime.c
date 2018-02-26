@@ -323,13 +323,13 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 	gint state = 0;
 	guint save = 0;
 
+	cm_return_val_if_fail(mimeinfo != NULL, FALSE);
+
 	EncodingType encoding = forced_encoding 
 				? forced_encoding
 				: mimeinfo->encoding_type;
 	gchar lastline[BUFFSIZE];
 	memset(lastline, 0, BUFFSIZE);
-
-	cm_return_val_if_fail(mimeinfo != NULL, FALSE);
 
 	if (prefs_common.respect_flowed_format &&
 	    mimeinfo->type == MIMETYPE_TEXT && 
@@ -459,8 +459,9 @@ gboolean procmime_decode_content(MimeInfo *mimeinfo)
 				if (SC_FPUTS(buf, outfp) == EOF)
 					err = TRUE;
 			}
-			procmime_fclose(tmpfp);
 		}
+		if (tmpfp != outfp)
+			procmime_fclose(tmpfp);
 	} else if (encoding == ENC_X_UUENCODE) {
 		gchar outbuf[BUFFSIZE];
 		gint len;
@@ -1119,7 +1120,8 @@ gchar *procmime_get_mime_type(const gchar *filename)
 		debug_print("got type %s for %s\n", str, ext);
 		g_free(ext);
 		return str;
-	} 
+	}
+	g_free(ext);
 	return NULL;
 #else
 	gchar *str = get_content_type_from_registry_with_ext(ext);

@@ -213,65 +213,36 @@ void ssl_manager_create(void)
 	gtk_widget_show(window);
 }
 
-static char *get_server(const char *str)
+static gboolean get_serverport(const gchar *str, gchar **server, gchar **port)
 {
-	char *ret = NULL, *tmp = g_strdup(str);
-	char *first_pos = NULL, *last_pos = NULL;
-	char *previous_pos = NULL, *pre_previous_pos = NULL;
-	int previous_dot_pos;
+	const gchar *pos, *prevpos;
 
-	if (!strchr(tmp, ':')) {
-		/* no fingerprint */
-		if (strstr(tmp, ".cert"))
-			*(strstr(tmp, ".cert")+1) = '.';
+	g_return_val_if_fail(str != NULL, FALSE);
+
+	/* We expect 'host.name.port.cert' here, only set
+	 * server and port if we find that.
+	 * Validity of string in port should be checked by caller. */
+	for (prevpos = str, pos = strstr(str, ".");
+			pos != NULL;
+			prevpos = pos, pos = strstr(pos+1, ".")) {
+		if (!strcmp(pos, ".cert")) {
+			if (prevpos > str) {
+				*server = g_strndup(str, prevpos - str);
+				*port = g_strndup(prevpos+1, pos - prevpos - 1);
+			} else {
+				*server = *port = NULL;
+			}
+
+			return TRUE;
+		}
 	}
 
-	first_pos = tmp;
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
-		pre_previous_pos = previous_pos;
-		previous_pos = last_pos;
-		last_pos = tmp;
-	}
-	previous_dot_pos = (pre_previous_pos - first_pos);
-	if (previous_dot_pos - 1 > 0)
-		ret = g_strndup(first_pos, previous_dot_pos - 1);
-	else 
-		ret = g_strdup(first_pos);
-	g_free(first_pos);
-	return ret;
-}
-
-static char *get_port(const char *str)
-{
-	char *ret = NULL, *tmp = g_strdup(str);
-	char *last_pos = NULL;
-	char *previous_pos = NULL, *pre_previous_pos = NULL;
-
-	if (!strchr(tmp, ':')) {
-		/* no fingerprint */
-		if (strstr(tmp, ".cert"))
-			*(strstr(tmp, ".cert")+1) = '.';
-	}
-
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
-		pre_previous_pos = previous_pos;
-		previous_pos = last_pos;
-		last_pos = tmp;
-	}
-	if (previous_pos && pre_previous_pos && (int)(previous_pos - pre_previous_pos - 1) > 0)
-		ret = g_strndup(pre_previous_pos, (int)(previous_pos - pre_previous_pos - 1));
-	else
-		ret = g_strdup("0");
-	g_free(tmp);
-	return ret;
-	
+	return FALSE;
 }
 
 static char *get_fingerprint(const char *str)
 {
-	char *ret = NULL, *tmp = g_strdup(str);
+	char *ret = NULL, *tmp = g_strdup(str), *tmp2 = tmp;
 	char *previous_pos = NULL, *last_pos = NULL;
 
 	if (!strchr(tmp, ':')) {
@@ -280,10 +251,10 @@ static char *get_fingerprint(const char *str)
 			*(strstr(tmp, ".cert")+1) = '.';
 	}
 
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
+	while (tmp2 && (tmp2 = strstr(tmp2,".")) != NULL) {
+		tmp2++;
 		previous_pos = last_pos;
-		last_pos = tmp;
+		last_pos = tmp2;
 	}
 	if (last_pos && previous_pos && (int)(last_pos - previous_pos - 1) > 0)
 		ret = g_strndup(previous_pos, (int)(last_pos - previous_pos - 1));
@@ -346,20 +317,23 @@ static void ssl_manager_load_certs (void)
 	}
 	
 	while ((d = g_dir_read_name(dir)) != NULL) {
-		gchar *server, *port, *fp;
+		gchar *server = NULL, *port = NULL, *fp = NULL;
 		SSLCertificate *cert;
 
 		if(strstr(d, ".cert") != d + (strlen(d) - strlen(".cert"))) 
 			continue;
 
-		server = get_server(d);
-		port = get_port(d);
+		get_serverport(d, &server, &port);
 		fp = get_fingerprint(d);
-		
-		cert = ssl_certificate_find(server, atoi(port), fp);
 
-		ssl_manager_list_view_insert_cert(manager.certlist, NULL, 
-						  server, port, cert);
+		if (server != NULL && port != NULL) {
+			gint portnum = atoi(port);
+			if (portnum > 0 && portnum <= 65535) {
+				cert = ssl_certificate_find(server, portnum, fp);
+				ssl_manager_list_view_insert_cert(manager.certlist, NULL,
+						server, port, cert);
+			}
+		}
 		
 		g_free(server);
 		g_free(port);
@@ -435,8 +409,8 @@ static void ssl_manager_delete_cb(GtkWidget *widget,
 
 	val = alertpanel_full(_("Delete certificate"),
 			      _("Do you really want to delete this certificate?"),
-		 	      GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, FALSE,
-			      NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		 	      GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_FIRST,
+						FALSE, NULL, ALERT_WARNING);
 
 			     
 	if (val != G_ALERTALTERNATE)

@@ -853,8 +853,8 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		    "It is advised to not send the return receipt."),
 		  to, buf);
 		val = alertpanel_full(_("Warning"), message,
-				_("_Don't Send"), _("_Send"), NULL, FALSE,
-				NULL, ALERT_WARNING, G_ALERTDEFAULT);
+				_("_Don't Send"), _("_Send"), NULL, ALERTFOCUS_FIRST, FALSE,
+				NULL, ALERT_WARNING);
 		g_free(message);				
 		if (val != G_ALERTALTERNATE) {
 			g_free(buf);
@@ -881,8 +881,8 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 		  prefs_common_translated_header_name("Cc"));
 		val = alertpanel_full(_("Warning"),
 		  text,
-		  _("_Don't Send"), _("_Send"), NULL, FALSE,
-		  NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		  _("_Don't Send"), _("_Send"), NULL, ALERTFOCUS_FIRST, FALSE,
+		  NULL, ALERT_WARNING);
 		g_free(text);
 		g_free(tr);
 		if (val != G_ALERTALTERNATE)
@@ -966,7 +966,7 @@ static gint disposition_notification_send(MsgInfo *msginfo)
 
 	/* Date */
 	get_rfc822_date(buf_date, sizeof(buf_date));
-	if (fprintf(fp, "Date: %s\n", buf) < 0)
+	if (fprintf(fp, "Date: %s\n", buf_date) < 0)
 		goto FILE_ERROR;
 
 	/* From */
@@ -1382,13 +1382,13 @@ gint messageview_show(MessageView *messageview, MsgInfo *msginfo,
 	messageview->updating = TRUE;
 
 	if (msginfo->size > 1024*1024)
-		statuswindow_print_all(_("Fetching message (%s)..."),
+		statusbar_print_all(_("Fetching message (%s)..."),
 			to_human_readable(msginfo->size));
 	
 	file = procmsg_get_message_file_path(msginfo);
 
 	if (msginfo->size > 1024*1024)
-		statuswindow_pop_all();
+		statusbar_pop_all();
 
 	if (!file) {
 		g_warning("can't get message file path.");
@@ -1863,7 +1863,7 @@ static void messageview_save_as(MessageView *messageview)
 
 		aval = alertpanel(_("Overwrite"),
 				  _("Overwrite existing file?"),
-				  GTK_STOCK_CANCEL, GTK_STOCK_OK, NULL);
+				  GTK_STOCK_CANCEL, GTK_STOCK_OK, NULL, ALERTFOCUS_FIRST);
 		if (G_ALERTALTERNATE != aval) return;
 	}
 
@@ -2114,8 +2114,8 @@ static PrefsAccount *select_account_from_list(GList *ac_list)
 				  "address that this message was sent to.\n"
 				  "Please choose which account you want to "
 				  "use for sending the receipt notification:"),
-			        _("_Cancel"), _("_Send Notification"), NULL,
-			        FALSE, G_ALERTDEFAULT, optmenu) != G_ALERTALTERNATE)
+			        _("_Cancel"), _("_Send Notification"), NULL, ALERTFOCUS_FIRST,
+			        FALSE, optmenu) != G_ALERTALTERNATE)
 		return NULL;
 	return account_find_from_id(account_id);
 }

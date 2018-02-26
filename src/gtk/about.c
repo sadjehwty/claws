@@ -118,7 +118,7 @@ static GtkWidget *about_create_child_page_info(void)
 	gtk_text_buffer_get_iter_at_offset(buffer, &iter, 0);
 
 	/* textview link style (based upon main prefs) */
-	gtkut_convert_int_to_gdk_color(prefs_common.uri_col,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_URI],
 				(GdkColor*)&uri_color);
 	tag = gtk_text_buffer_create_tag(buffer, "link",
 				"foreground-gdk", &uri_color,
@@ -160,7 +160,7 @@ static GtkWidget *about_create_child_page_info(void)
 #ifdef GENERIC_UMPC
 	ADD_TEXT("\n\n");
 	ADD_TEXT(_("Copyright (C) 1999-2017\nThe Claws Mail Team\n"
-				" and Hiroyuki Yamamoto"));
+				"and Hiroyuki Yamamoto"));
 #endif
 	ADD_TEXT("\n\n");
 	gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
@@ -569,7 +569,7 @@ static GtkWidget *about_create_child_page_license(void)
 	ADD_TEXT("\n\n");
 
 	/* textview link style (based upon main prefs) */
-	gtkut_convert_int_to_gdk_color(prefs_common.uri_col,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_URI],
 			(GdkColor*)&uri_color);
 
 	tag = gtk_text_buffer_create_tag(buffer, "link",
@@ -839,7 +839,7 @@ static void about_create(void)
 	gtk_box_pack_start(GTK_BOX(vbox2), label, FALSE, FALSE, 0);
 	markup = g_markup_printf_escaped
 		("<span weight=\"bold\" size=\"xx-large\">Claws Mail</span>\nversion %s",
-		 VERSION_GIT_FULL);
+		 VERSION);
 	gtk_label_set_markup(GTK_LABEL(label), markup);
 	g_free(markup);
 

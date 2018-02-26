@@ -565,31 +565,31 @@ static void textview_update_message_colors(TextView *textview)
 
 	if (prefs_common.enable_color) {
 		/* grab the quote colors, converting from an int to a GdkColor */
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level1_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL1],
 					       &quote_colors[0]);
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level2_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL2],
 					       &quote_colors[1]);
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level3_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL3],
 					       &quote_colors[2]);
-		gtkut_convert_int_to_gdk_color(prefs_common.uri_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_URI],
 					       &uri_color);
-		gtkut_convert_int_to_gdk_color(prefs_common.signature_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_SIGNATURE],
 					       &signature_color);
-		gtkut_convert_int_to_gdk_color(prefs_common.emphasis_col,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_EMPHASIS],
 					       &emphasis_color);
-		gtkut_convert_int_to_gdk_color(prefs_common.diff_added_color,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_DIFF_ADDED],
 					       &diff_added_color);
-		gtkut_convert_int_to_gdk_color(prefs_common.diff_deleted_color,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_DIFF_DELETED],
 					       &diff_deleted_color);
-		gtkut_convert_int_to_gdk_color(prefs_common.diff_hunk_color,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_DIFF_HUNK],
 					       &diff_hunk_color);
 	}
 	if (prefs_common.enable_color && prefs_common.enable_bgcolor) {
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level1_bgcol,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL1_BG],
 						   &quote_bgcolors[0]);
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level2_bgcol,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL2_BG],
 						   &quote_bgcolors[1]);
-		gtkut_convert_int_to_gdk_color(prefs_common.quote_level3_bgcol,
+		gtkut_convert_int_to_gdk_color(prefs_common.color[COL_QUOTE_LEVEL3_BG],
 						   &quote_bgcolors[2]);
 		CHANGE_TAG_COLOR("quote0", &quote_colors[0], &quote_bgcolors[0]);
 		CHANGE_TAG_COLOR("quote1", &quote_colors[1], &quote_bgcolors[1]);
@@ -610,9 +610,9 @@ static void textview_update_message_colors(TextView *textview)
 	CHANGE_TAG_COLOR("diff-del-file", &diff_deleted_color, NULL);
 	CHANGE_TAG_COLOR("diff-hunk", &diff_hunk_color, NULL);
 
-	gtkut_convert_int_to_gdk_color(prefs_common.tags_bgcolor,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_TAGS_BG],
 					   &tags_bgcolor);
-	gtkut_convert_int_to_gdk_color(prefs_common.tags_color,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_TAGS],
 					   &tags_color);
 }
 #undef CHANGE_TAG_COLOR
@@ -1074,6 +1074,7 @@ static void textview_write_body(TextView *textview, MimeInfo *mimeinfo)
 	
 	textview->is_in_signature = FALSE;
 	textview->is_diff = FALSE;
+	textview->is_attachment = FALSE;;
 
 	procmime_decode_content(mimeinfo);
 
@@ -1173,6 +1174,13 @@ textview_default:
 		if (!g_ascii_strcasecmp(mimeinfo->subtype, "x-patch")
 				|| !g_ascii_strcasecmp(mimeinfo->subtype, "x-diff"))
 			textview->is_diff = TRUE;
+
+		/* Displayed part is an attachment, but not an attached
+		 * e-mail. Set a flag, so that elsewhere in the code we
+		 * know not to try making collapsible quotes in it. */
+		if (mimeinfo->disposition == DISPOSITIONTYPE_ATTACHMENT &&
+				mimeinfo->type != MIMETYPE_MESSAGE)
+			textview->is_attachment = TRUE;
 
 		if (mimeinfo->content == MIMECONTENT_MEM)
 			tmpfp = str_open_as_stream(mimeinfo->data.mem);
@@ -1597,7 +1605,8 @@ static void textview_write_line(TextView *textview, const gchar *str,
 	   >, foo>, _> ... ok, <foo>, foo bar>, foo-> ... ng
 	   Up to 3 levels of quotations are detected, and each
 	   level is colored using a different color. */
-	if (prefs_common.enable_color 
+	if (prefs_common.enable_color
+	    && !textview->is_attachment
 	    && line_has_quote_char(buf, prefs_common.quote_chars)) {
 		real_quotelevel = get_quote_level(buf, prefs_common.quote_chars);
 		quotelevel = real_quotelevel;
@@ -1640,7 +1649,7 @@ static void textview_write_line(TextView *textview, const gchar *str,
 		}
 	}
 
-	if (real_quotelevel > -1 && do_quote_folding) {
+	if (!textview->is_attachment && real_quotelevel > -1 && do_quote_folding) {
 		if (!g_utf8_validate(buf, -1, NULL)) {
 			gchar *utf8buf = NULL;
 			utf8buf = g_malloc(BUFFSIZE);
@@ -2907,8 +2916,8 @@ gboolean textview_uri_security_check(TextView *textview, ClickableText *uri)
 						_("Real URL:"), uri->uri,
 						_("Open it anyway?"));
 		aval = alertpanel_full(_("Phishing attempt warning"), msg,
-				       GTK_STOCK_CANCEL, _("_Open URL"), NULL, FALSE,
-				       NULL, ALERT_WARNING, G_ALERTDEFAULT);
+				       GTK_STOCK_CANCEL, _("_Open URL"), NULL, ALERTFOCUS_FIRST,
+							 FALSE, NULL, ALERT_WARNING);
 		g_free(msg);
 		if (aval == G_ALERTALTERNATE)
 			retval = TRUE;
@@ -3084,7 +3093,7 @@ static void save_file_cb (GtkAction *action, TextView *textview)
 		res = g_strdup_printf(_("Overwrite existing file '%s'?"),
 				      filename);
 		aval = alertpanel(_("Overwrite"), res, GTK_STOCK_CANCEL, 
-				  GTK_STOCK_OK, NULL);
+				  GTK_STOCK_OK, NULL, ALERTFOCUS_FIRST);
 		g_free(res);					  
 		if (G_ALERTALTERNATE != aval)
 			return;

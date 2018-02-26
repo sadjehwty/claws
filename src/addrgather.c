@@ -1,6 +1,6 @@
 /*
- * Sylpheed -- a GTK+ based, lightweight, and fast e-mail client
- * Copyright (C) 2002-2012 Match Grun and the Claws Mail team
+ * Claws Mail -- a GTK+ based, lightweight, and fast e-mail client
+ * Copyright (C) 2002-2018 Match Grun and the Claws Mail team
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- * 
  */
 
 /*
@@ -90,7 +89,7 @@ static struct _AddrHarvest {
 	gboolean  cancelled;
 	gboolean  done;
 	gchar     *folderPath;
-	GtkWidget *clistCount;
+	GtkWidget *viewCount;
 } addrgather_dlg;
 
 #ifndef USE_ALT_ADDRBOOK
@@ -106,6 +105,12 @@ static gchar *_harv_headerNames_[] = {
 	HEADER_ERRORS_TO
 };
 static GList *_harv_messageList_;
+
+enum {
+	ADDRGATHER_COL_HEADER,
+	ADDRGATHER_COL_COUNT,
+	N_ADDRGATHER_COLS
+};
 
 static void addrgather_dlg_status_show( gchar *msg ) {
 	if( addrgather_dlg.statusbar != NULL ) {
@@ -149,8 +154,9 @@ static void addrgather_size_allocate(
 #define FMT_BUFSIZE 32
 
 static gboolean addrgather_dlg_harvest() {
-	GtkCMCList *clist;
-	gchar *text[ FIELDS_N_COLS ];
+	GtkWidget *view;
+	GtkTreeModel *model;
+	GtkTreeIter iter;
 	AddressHarvester *harvester;
 	gchar *name;
 #ifndef USE_ALT_ADDRBOOK
@@ -256,19 +262,22 @@ static gboolean addrgather_dlg_harvest() {
 #endif
 
 	/* Update summary count */
-	clist = GTK_CMCLIST(addrgather_dlg.clistCount);
-	gtk_cmclist_clear( clist );
+	view = addrgather_dlg.viewCount;
+	model = gtk_tree_view_get_model(GTK_TREE_VIEW(view));
+	gtk_list_store_clear( GTK_LIST_STORE(model) );
 	for( i = 0; i < NUM_FIELDS; i++ ) {
 		cnt = addrharvest_get_count( harvester, _harv_headerNames_[i] );
 		if( cnt < 1 ) {
 			strcpy( str, "-" );
 		}
 		else {
-			sprintf( str, "%d", cnt );
+			snprintf( str, FMT_BUFSIZE, "%d", cnt );
 		}
-		text[ FIELD_COL_HEADER ] = _harv_headerNames_[i];
-		text[ FIELD_COL_COUNT  ] = str;
-		gtk_cmclist_append( clist, text );
+		gtk_list_store_append(GTK_LIST_STORE(model), &iter);
+		gtk_list_store_set(GTK_LIST_STORE(model), &iter,
+				ADDRGATHER_COL_HEADER, _harv_headerNames_[i],
+				ADDRGATHER_COL_COUNT, str,
+				-1);
 	}
 
 	addrharvest_free( harvester );
@@ -367,17 +376,17 @@ static void addrgather_page_fields(gint pageNum, gchar *pageLbl)
 	entryBook = gtk_entry_new();
 #else
         books = addressbook_dbus_get_books(&error);
-        entryBook = gtk_combo_box_new_text();
+        entryBook = gtk_combo_box_text_new();
         if (books) {
             for (cur = books; cur; cur = g_slist_next(cur)) {
                 gchar* book = (gchar *) cur->data;
-                gtk_combo_box_prepend_text(GTK_COMBO_BOX(entryBook), book);
+                gtk_combo_box_text_prepend_text(GTK_COMBO_BOX_TEXT(entryBook), book);
                 g_free(book);
             }
             g_slist_free(books);
        	}
         else
-            gtk_combo_box_prepend_text(GTK_COMBO_BOX(entryBook), "");
+            gtk_combo_box_text_prepend_text(GTK_COMBO_BOX_TEXT(entryBook), "");
         gtk_combo_box_set_active(GTK_COMBO_BOX(entryBook), 0);
 #endif
 	gtk_table_attach( GTK_TABLE(table), entryBook, 1, 2, top, (top + 1),
@@ -396,7 +405,6 @@ static void addrgather_page_fields(gint pageNum, gchar *pageLbl)
 	adjFolder = GTK_ADJUSTMENT(gtk_adjustment_new(DFL_FOLDER_SIZE, MIN_FOLDER_SIZE, G_MAXINT, 1, 10, 0));
 	spinbtnFolder = gtk_spin_button_new(GTK_ADJUSTMENT(adjFolder), 1, 0);
 	gtk_box_pack_start(GTK_BOX(hboxs), spinbtnFolder, FALSE, FALSE, 0);
-	gtk_widget_set_size_request(spinbtnFolder, 100, -1);
 	gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(spinbtnFolder), TRUE);
 	gtk_table_attach(GTK_TABLE(table), hboxs, 1, 2, top, (top + 1), GTK_FILL, 0, 0, 0);
 	CLAWS_SET_TIP(spinbtnFolder,
@@ -443,12 +451,12 @@ static void addrgather_page_fields(gint pageNum, gchar *pageLbl)
 static void addrgather_page_finish( gint pageNum, gchar *pageLbl ) {
 	GtkWidget *label;
 	GtkWidget *vbox;
-	GtkWidget *clistSWin;
-	GtkWidget *clistCount;
-	gchar *titles[ FIELDS_N_COLS ];
-	gint i;
-	titles[ FIELD_COL_HEADER ] = _("Header Name");
-	titles[ FIELD_COL_COUNT  ] = _("Address Count");
+	GtkWidget *scrollwin;
+	GtkWidget *viewCount;
+	GtkTreeViewColumn *col;
+	GtkCellRenderer *rdr;
+	GtkTreeSelection *sel;
+	GtkTreeModel *model;
 
 	vbox = gtk_vbox_new(FALSE, 8);
 	gtk_container_add( GTK_CONTAINER( addrgather_dlg.notebook ), vbox );
@@ -462,24 +470,40 @@ static void addrgather_page_finish( gint pageNum, gchar *pageLbl ) {
 		label );
 
 	/* Summary count */
-	clistSWin = gtk_scrolled_window_new( NULL, NULL );
-	gtk_container_add( GTK_CONTAINER(vbox), clistSWin );
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(clistSWin),
+	scrollwin = gtk_scrolled_window_new( NULL, NULL );
+	gtk_container_add( GTK_CONTAINER(vbox), scrollwin );
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrollwin),
 				       GTK_POLICY_AUTOMATIC,
 				       GTK_POLICY_AUTOMATIC);
 
-	clistCount = gtk_cmclist_new_with_titles( FIELDS_N_COLS, titles );
-	gtk_container_add( GTK_CONTAINER(clistSWin), clistCount );
-	gtk_cmclist_set_selection_mode( GTK_CMCLIST(clistCount), GTK_SELECTION_BROWSE );
-	gtk_cmclist_set_column_width(
-			GTK_CMCLIST(clistCount), FIELD_COL_HEADER, FIELDS_COL_WIDTH_HEADER );
-	gtk_cmclist_set_column_width(
-			GTK_CMCLIST(clistCount), FIELD_COL_COUNT, FIELDS_COL_WIDTH_COUNT );
+	/* Treeview */
+	model = GTK_TREE_MODEL(gtk_list_store_new(N_ADDRGATHER_COLS,
+			G_TYPE_STRING, G_TYPE_STRING, -1));
 
-	for( i = 0; i < FIELDS_N_COLS; i++ )
-		gtkut_widget_set_can_focus(GTK_CMCLIST(clistCount)->column[i].button, FALSE);
+	viewCount = gtk_tree_view_new_with_model(GTK_TREE_MODEL(model));
+	g_object_unref(model);
+	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(viewCount), TRUE);
+	gtk_tree_view_set_reorderable(GTK_TREE_VIEW(viewCount), FALSE);
+	sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(viewCount));
+	gtk_tree_selection_set_mode(sel, GTK_SELECTION_NONE);
 
-	addrgather_dlg.clistCount = clistCount;
+	/* Columns for the treeview */
+	rdr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Header Name"), rdr,
+			"markup", ADDRGATHER_COL_HEADER,
+			NULL);
+	gtk_tree_view_column_set_min_width(col, FIELDS_COL_WIDTH_HEADER);
+	gtk_tree_view_append_column(GTK_TREE_VIEW(viewCount), col);
+
+	col = gtk_tree_view_column_new_with_attributes(_("Address Count"), rdr,
+			"text", ADDRGATHER_COL_COUNT,
+			NULL);
+	gtk_tree_view_column_set_min_width(col, FIELDS_COL_WIDTH_COUNT);
+	gtk_tree_view_append_column(GTK_TREE_VIEW(viewCount), col);
+
+	gtk_container_add( GTK_CONTAINER(scrollwin), viewCount );
+
+	addrgather_dlg.viewCount = viewCount;
 }
 
 /*

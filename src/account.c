@@ -223,8 +223,7 @@ void account_read_config_all(void)
 	/* read config data from file */
 	cur_account = NULL;
 	for (cur = ac_label_list; cur != NULL; cur = cur->next) {
-		ac_prefs = prefs_account_new();
-		prefs_account_read_config(ac_prefs, (gchar *)cur->data);
+		ac_prefs = prefs_account_new_from_config((gchar *)cur->data);
 		account_list = g_list_append(account_list, ac_prefs);
 		if (ac_prefs->is_default)
 			cur_account = ac_prefs;
@@ -1053,6 +1052,8 @@ static void account_clone(GtkWidget *widget, gpointer data)
 	ac_clon->is_default = FALSE;
 	ACP_FASSIGN(folder);
 
+	ACP_FASSIGN(config_version);
+
 	account_list = g_list_append(account_list, ac_clon);
 	account_list_view_set();
 }
@@ -1097,8 +1098,8 @@ static void account_delete(GtkWidget *widget, gpointer data)
 		   ac_prefs->account_name ? ac_prefs->account_name :
 		   _("(Untitled)"));
 	if (alertpanel_full(_("Delete account"), buf,
-		 	    GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, FALSE,
-			    NULL, ALERT_WARNING, G_ALERTDEFAULT) != G_ALERTALTERNATE)
+		 	    GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_FIRST, FALSE,
+			    NULL, ALERT_WARNING) != G_ALERTALTERNATE)
 		return;
 	account_list_dirty = TRUE;
 

@@ -1054,7 +1054,7 @@ void subst_for_filename(gchar *str)
 	if (!str)
 		return;
 #ifdef G_OS_WIN32
-	subst_chars(str, "\t\r\n\\/*:", '_');
+	subst_chars(str, "\t\r\n\\/*?:", '_');
 #else
 	subst_chars(str, "\t\r\n\\/*", '_');
 #endif
@@ -2028,6 +2028,27 @@ const gchar *get_domain_name(void)
 
 off_t get_file_size(const gchar *file)
 {
+#ifdef G_OS_WIN32
+	GFile *f;
+	GFileInfo *fi;
+	GError *error = NULL;
+	goffset size;
+
+	f = g_file_new_for_path(file);
+	fi = g_file_query_info(f, "standard::size",
+			G_FILE_QUERY_INFO_NONE, NULL, &error);
+	if (error != NULL) {
+		debug_print("get_file_size error: %s\n", error->message);
+		g_error_free(error);
+		g_object_unref(f);
+		return -1;
+	}
+	size = g_file_info_get_size(fi);
+	g_object_unref(fi);
+	g_object_unref(f);
+	return size;
+
+#else
 	GStatBuf s;
 
 	if (g_stat(file, &s) < 0) {
@@ -2036,6 +2057,7 @@ off_t get_file_size(const gchar *file)
 	}
 
 	return s.st_size;
+#endif
 }
 
 time_t get_file_mtime(const gchar *file)
@@ -4121,7 +4143,7 @@ gboolean get_uri_part(const gchar *start, const gchar *scanpos,
 	 * should pass some URI type to this function and decide on that whether
 	 * to perform punctuation stripping */
 
-#define IS_REAL_PUNCT(ch)	(g_ascii_ispunct(ch) && !strchr("/?=-_)", ch))
+#define IS_REAL_PUNCT(ch)	(g_ascii_ispunct(ch) && !strchr("/?=-_~)", ch))
 
 	for (; ep_ - 1 > scanpos + 1 &&
 	       IS_REAL_PUNCT(*(ep_ - 1));
@@ -4333,7 +4355,7 @@ search_again:
 		ep_ += 3;
 
 		/* go to matching '>' (or next non-rfc822 char, like \n) */
-		for (; *ep_ != '>' && *ep != '\0' && IS_RFC822_CHAR(*ep_); ep_++)
+		for (; *ep_ != '>' && *ep_ != '\0' && IS_RFC822_CHAR(*ep_); ep_++)
 			;
 
 		/* include the bracket */

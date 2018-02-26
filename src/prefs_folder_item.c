@@ -367,7 +367,7 @@ static void prefs_folder_item_general_create_widget_func(PrefsPage * page_,
 	rowcount++;
 
 	/* Test string */
-	label_regexp_test = gtk_label_new(_("Test string:"));
+	label_regexp_test = gtk_label_new(_("Test string"));
 	gtk_misc_set_alignment(GTK_MISC(label_regexp_test), 1, 0.5);
 	gtk_table_attach(GTK_TABLE(table), label_regexp_test, 0, 1, 
 			 rowcount, rowcount + 1, GTK_SHRINK | GTK_FILL, GTK_FILL, 0, 0);
@@ -384,7 +384,7 @@ static void prefs_folder_item_general_create_widget_func(PrefsPage * page_,
 	rowcount++;
 	
 	/* Test result */
-	label_regexp_result = gtk_label_new(_("Result:"));
+	label_regexp_result = gtk_label_new(_("Result"));
 	gtk_misc_set_alignment(GTK_MISC(label_regexp_result), 1, 0.5);
 	gtk_table_attach(GTK_TABLE(table), label_regexp_result, 0, 1, 
 			 rowcount, rowcount + 1, GTK_SHRINK | GTK_FILL, GTK_FILL, 0, 0);
@@ -434,8 +434,7 @@ static void prefs_folder_item_general_create_widget_func(PrefsPage * page_,
 	gtk_table_attach(GTK_TABLE(table), hbox, 1, 2, 
 			 rowcount, rowcount + 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 0);
 
-	folder_color_btn = gtk_button_new_with_label("");
-	gtk_widget_set_size_request(folder_color_btn, 36, 26);
+	folder_color_btn = GTKUT_COLOR_BUTTON();
   	gtk_box_pack_start (GTK_BOX(hbox), folder_color_btn, FALSE, FALSE, 0);
 	CLAWS_SET_TIP(folder_color_btn,
 			     _("Pick color for folder"));
@@ -1691,8 +1690,8 @@ static void clean_cache_cb(GtkWidget *widget, gpointer data)
 	if (alertpanel_full(_("Discard cache"), 
 			    _("Do you really want to discard the local cached "
 			      "data for this folder?"),
-		 		 GTK_STOCK_CANCEL, g_strconcat("+", _("Discard"), NULL),
-				 NULL, FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT)
+		 		 GTK_STOCK_CANCEL, _("Discard"), NULL, ALERTFOCUS_SECOND,
+				 FALSE, NULL, ALERT_WARNING)
 		!= G_ALERTALTERNATE)
 		return;
 	
@@ -1764,9 +1763,10 @@ static void folder_regexp_test_cb(GtkWidget *widget, gpointer data)
 	if (!colors_initialised) {
 		if (!gdk_color_parse("#ff7070", &red)) {
 	        g_warning("color parse failed: red");
-			colors_initialised = gdk_colormap_alloc_color(
-				gdk_colormap_get_system(), &red, FALSE, TRUE);
+					return;
 		}
+		colors_initialised = gdk_colormap_alloc_color(
+				gdk_colormap_get_system(), &red, FALSE, TRUE);
 	}
 #endif
 

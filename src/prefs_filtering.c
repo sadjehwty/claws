@@ -957,16 +957,18 @@ static void prefs_filtering_set_list(void)
 					filtering.cond_list_view, row,
 					&enabled, &name, &account_id);
 			prop = matcher_parser_get_filtering(filtering_str);
-			g_free(filtering_str);
 			if (prop) {
 				prop->enabled = enabled;
+				if (prop->name != NULL)
+					g_free(prop->name);
 				prop->name = name;
 				prop->account_id = account_id;
 				prefs_filtering = 
 					g_slist_append(prefs_filtering, prop);
 			}
 		}
-		
+
+		g_free(filtering_str);
 		row++;
 	}				
 	
@@ -1181,6 +1183,7 @@ static void prefs_filtering_substitute_cb(gpointer action, gpointer data)
 	prefs_filtering_list_view_get_rule_info(
 			filtering.cond_list_view, selected_row,
 			&enabled, &name, &account_id);
+	g_free(name); /* We're not using this. */
 	prop->enabled = enabled;
 
 	prefs_filtering_list_view_set_row(selected_row, prop);
@@ -1206,7 +1209,7 @@ static void prefs_filtering_delete_cb(gpointer action, gpointer data)
 
 	if (alertpanel(_("Delete rule"),
 		       _("Do you really want to delete this rule?"),
-		       GTK_STOCK_CANCEL, "+"GTK_STOCK_DELETE, NULL) == G_ALERTDEFAULT)
+		       GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND) == G_ALERTDEFAULT)
 		return;
 
 	model = gtk_tree_view_get_model(list_view);	
@@ -1225,7 +1228,7 @@ static void prefs_filtering_delete_all_cb(gpointer action, gpointer data)
 	
 	if (alertpanel(_("Delete all rules"),
 		       _("Do you really want to delete all the rules?"),
-		       GTK_STOCK_CANCEL, "+"GTK_STOCK_DELETE, NULL) == G_ALERTDEFAULT)
+		       GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND) == G_ALERTDEFAULT)
 		return;
 
 	list_store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(filtering.cond_list_view)));
@@ -1261,6 +1264,7 @@ static void prefs_filtering_duplicate_cb(gpointer action, gpointer data)
 	prefs_filtering_list_view_get_rule_info(
 			filtering.cond_list_view, selected_row,
 			&enabled, &name, &account_id);
+	g_free(name); /* We're not using this. */
 	prop->enabled = enabled;
 
 	prefs_filtering_list_view_set_row(-selected_row-2, prop);
@@ -1476,8 +1480,8 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 	if (check_changed_list) {
 		if (modified && alertpanel(_("Filtering rules not saved"),
 					 _("The list of filtering rules have been modified. Close anyway?"),
-					 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL),
-					 NULL) != G_ALERTDEFAULT) {
+					 GTK_STOCK_CLOSE, _("_Continue editing"), NULL,
+					 ALERTFOCUS_SECOND) != G_ALERTDEFAULT) {
 			return TRUE;
 		}
 	}
@@ -1498,7 +1502,7 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 		if (!filtering_str) {
 			val = alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"),NULL), NULL);
+				 GTK_STOCK_CLOSE, _("_Continue editing"), NULL, ALERTFOCUS_SECOND);
 			if (G_ALERTDEFAULT != val) {
 				g_free(filtering_str);
 				g_free(str); /* fixed two leaks: huzzah! */
@@ -1520,7 +1524,7 @@ static gboolean prefs_filtering_check_mod(gboolean check_changed_list)
 		    strlen(action)) {
 			val = alertpanel(_("Entry not saved"),
 				 _("The entry was not saved. Close anyway?"),
-				 GTK_STOCK_CLOSE, g_strconcat("+", _("_Continue editing"), NULL), NULL);
+				 GTK_STOCK_CLOSE, _("_Continue editing"), NULL, ALERTFOCUS_SECOND);
 			if (G_ALERTDEFAULT != val) {
 				g_free(name);
 				g_free(condition);
@@ -1796,9 +1800,11 @@ static GtkWidget *prefs_filtering_list_view_create(void)
 {
 	GtkTreeView *list_view;
 	GtkTreeSelection *selector;
+	GtkListStore *store = prefs_filtering_create_data_store();
 
-	list_view = GTK_TREE_VIEW(gtk_tree_view_new_with_model(GTK_TREE_MODEL
-		(prefs_filtering_create_data_store())));
+	list_view = GTK_TREE_VIEW(gtk_tree_view_new_with_model(
+				GTK_TREE_MODEL(store)));
+	g_object_unref(store);
 #ifdef GENERIC_UMPC
 	g_object_set(list_view, "allow-checkbox-mode", FALSE, NULL);
 #endif
@@ -1926,16 +1932,14 @@ static void prefs_filtering_select_row(GtkTreeView *list_view, GtkTreePath *path
 
 			gtk_tree_model_get(model, &iter,
 					   PREFS_FILTERING_RULE, &filtering_str,
-					   -1);
-			gtk_tree_model_get(model, &iter,
 					   PREFS_FILTERING_NAME, &name,
-					   -1);
-			gtk_tree_model_get(model, &iter,
 					   PREFS_FILTERING_ACCOUNT_ID, &account_id,
 					   -1);
 
 			prop = matcher_parser_get_filtering(filtering_str);
 			if (prop) {
+				if (prop->name != NULL)
+					g_free(prop->name);
 				prop->name = g_strdup(name);
 				prop->account_id = account_id;
 				prefs_filtering_select_set(prop);

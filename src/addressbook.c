@@ -49,6 +49,7 @@
 #include "codeconv.h"
 #include "about.h"
 #include "addr_compl.h"
+#include "password.h"
 
 #include "mgutils.h"
 #include "addressitem.h"
@@ -654,6 +655,7 @@ void addressbook_destroy( void ) {
 	}
 	if( _clipBoard_ != NULL ) {
 		addrclip_free( _clipBoard_ );
+		_clipBoard_ = NULL;
 	}
 	if( _addressIndex_ != NULL ) {
 		addrindex_free_index( _addressIndex_ );
@@ -1007,7 +1009,7 @@ static void addressbook_create(void)
 
 	/* Address index */
 	ctree = gtk_sctree_new_with_titles(N_INDEX_COLS, 0, index_titles);
-	gtkut_widget_set_can_focus(GTK_CMCLIST(ctree)->column[0].button, FALSE);
+	gtk_widget_set_can_focus(GTK_CMCLIST(ctree)->column[0].button, FALSE);
 
 	gtk_container_add(GTK_CONTAINER(ctree_swin), ctree);
 	gtk_cmclist_set_selection_mode(GTK_CMCLIST(ctree), GTK_SELECTION_BROWSE);
@@ -1085,7 +1087,7 @@ static void addressbook_create(void)
 		G_CALLBACK(addressbook_address_list_focus_evt_out), NULL);
 
 	for (i = 0; i < N_LIST_COLS; i++)
-		gtkut_widget_set_can_focus(GTK_CMCLIST(clist)->column[i].button,
+		gtk_widget_set_can_focus(GTK_CMCLIST(clist)->column[i].button,
 					 FALSE);
 
 	g_signal_connect(G_OBJECT(clist), "tree_select_row",
@@ -1156,18 +1158,18 @@ static void addressbook_create(void)
 	gtkut_stock_button_add_help(hbbox, &help_btn);
 
 	edit_btn = gtk_button_new_from_stock(GTK_STOCK_EDIT);
-	gtkut_widget_set_can_default(edit_btn, TRUE);
+	gtk_widget_set_can_default(edit_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), edit_btn, TRUE, TRUE, 0);
 	del_btn = gtk_button_new_from_stock(GTK_STOCK_DELETE);
-	gtkut_widget_set_can_default(del_btn, TRUE);
+	gtk_widget_set_can_default(del_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), del_btn, TRUE, TRUE, 0);
 	reg_btn = gtk_button_new_from_stock(GTK_STOCK_NEW);
-	gtkut_widget_set_can_default(reg_btn, TRUE);
+	gtk_widget_set_can_default(reg_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), reg_btn, TRUE, TRUE, 0);
 
 
 	lup_btn = gtk_button_new_from_stock(GTK_STOCK_FIND);
-	gtkut_widget_set_can_default(lup_btn, TRUE);
+	gtk_widget_set_can_default(lup_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbox), lup_btn, TRUE, TRUE, 0);
 
 	g_signal_connect(G_OBJECT(help_btn), "clicked",
@@ -1185,19 +1187,19 @@ static void addressbook_create(void)
 
 	to_btn = gtk_button_new_with_label
 		(prefs_common_translated_header_name("To:"));
-	gtkut_widget_set_can_default(to_btn, TRUE);
+	gtk_widget_set_can_default(to_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), to_btn, TRUE, TRUE, 0);
 	cc_btn = gtk_button_new_with_label
 		(prefs_common_translated_header_name("Cc:"));
-	gtkut_widget_set_can_default(cc_btn, TRUE);
+	gtk_widget_set_can_default(cc_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), cc_btn, TRUE, TRUE, 0);
 	bcc_btn = gtk_button_new_with_label
 		(prefs_common_translated_header_name("Bcc:"));
-	gtkut_widget_set_can_default(bcc_btn, TRUE);
+	gtk_widget_set_can_default(bcc_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), bcc_btn, TRUE, TRUE, 0);
 
 	close_btn = gtk_button_new_from_stock(GTK_STOCK_CLOSE);
-	gtkut_widget_set_can_default(close_btn, TRUE);
+	gtk_widget_set_can_default(close_btn, TRUE);
 	gtk_box_pack_start(GTK_BOX(hbbox), close_btn, TRUE, TRUE, 0);
 
 	g_signal_connect(G_OBJECT(to_btn), "clicked",
@@ -1437,7 +1439,7 @@ static void addressbook_del_clicked(GtkButton *button, gpointer data)
 	if( iface->readOnly ) {
 		alertpanel( _("Delete address(es)"),
 			_("This address data is readonly and cannot be deleted."),
-			GTK_STOCK_CLOSE, NULL, NULL );
+			GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST);
 		return;
 	}
 
@@ -1483,14 +1485,14 @@ static void addressbook_del_clicked(GtkButton *button, gpointer data)
 			aval = alertpanel( _("Delete group"),
 					_("Really delete the group(s)?\n"
 					  "The addresses it contains will not be lost."),
-					GTK_STOCK_CANCEL, "+"GTK_STOCK_DELETE, NULL );
+					GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND );
 			if( aval != G_ALERTALTERNATE ) {
 				goto thaw_ret;
 			}
 		} else {
 			aval = alertpanel( _("Delete address(es)"),
 					_("Really delete the address(es)?"),
-					GTK_STOCK_CANCEL, "+"GTK_STOCK_DELETE, NULL );
+					GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND );
 			if( aval != G_ALERTALTERNATE ) {
 				goto thaw_ret;
 			}
@@ -2911,7 +2913,7 @@ static void addressbook_treenode_delete_cb(GtkAction *action, gpointer data)
 				"results and addresses in '%s'?" ),
 				obj->name );
 			aval = alertpanel( _("Delete"), message,
-				GTK_STOCK_CANCEL, "+"GTK_STOCK_DELETE, NULL );
+				GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND );
 			g_free(message);
 			if( aval == G_ALERTALTERNATE ) {
 				delType = ADDRTREE_DEL_FOLDER_ADDR;
@@ -2923,7 +2925,7 @@ static void addressbook_treenode_delete_cb(GtkAction *action, gpointer data)
 			    	     "If you delete the folder only, the addresses it contains will be moved into the parent folder." ),
 			 	 obj->name );
 			aval = alertpanel( _("Delete folder"), message,
-				GTK_STOCK_CANCEL, g_strconcat("+",_("Delete _folder only"), NULL), _("Delete folder and _addresses"));
+				GTK_STOCK_CANCEL, _("Delete _folder only"), _("Delete folder and _addresses"), ALERTFOCUS_SECOND);
 			g_free(message);
 			if( aval == G_ALERTALTERNATE ) {
 				delType = ADDRTREE_DEL_FOLDER_ONLY;
@@ -2937,14 +2939,14 @@ static void addressbook_treenode_delete_cb(GtkAction *action, gpointer data)
 		message = g_strdup_printf(_("Do you want to delete '%s'?\n"
 					    "The addresses it contains will not be lost."), obj->name);
 		aval = alertpanel(_("Delete"), message, GTK_STOCK_CANCEL, 
-				"+" GTK_STOCK_DELETE, NULL);
+				GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND);
 		g_free(message);
 		if( aval == G_ALERTALTERNATE ) delType = ADDRTREE_DEL_FOLDER_ONLY;
 	} else {
 		message = g_strdup_printf(_("Do you want to delete '%s'?\n"
 					    "The addresses it contains will be lost."), obj->name);
 		aval = alertpanel(_("Delete"), message, GTK_STOCK_CANCEL, 
-				"+" GTK_STOCK_DELETE, NULL);
+				GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND);
 		g_free(message);
 		if( aval == G_ALERTALTERNATE ) delType = ADDRTREE_DEL_DATA;
 	}
@@ -3212,7 +3214,7 @@ static void addressbook_new_address_cb( GtkAction *action, gpointer data ) {
 				if (server->retVal != LDAPRC_SUCCESS) {
 					alertpanel( _("Add address(es)"),
 						addressbook_err2string(_lutErrorsLDAP_, server->retVal),
-						GTK_STOCK_CLOSE, NULL, NULL );
+						GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST );
 					server->retVal = LDAPRC_SUCCESS;
 					return;
 				}
@@ -3263,7 +3265,7 @@ static void addressbook_new_address_cb( GtkAction *action, gpointer data ) {
 			if (server->retVal != LDAPRC_SUCCESS) {
 				alertpanel( _("Add address(es)"),
 						addressbook_err2string(_lutErrorsLDAP_, server->retVal),
-					GTK_STOCK_CLOSE, NULL, NULL );
+					GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST );
 				return;
 			}
 		}
@@ -3690,7 +3692,7 @@ static void addressbook_folder_load_one_person(
 }
 
 static void addressbook_folder_load_person( GtkCMCTree *clist, ItemFolder *itemFolder ) {
-	GList *items;
+	GList *items, *cur;
 	AddressTypeControlItem *atci = addrbookctl_lookup( ADDR_ITEM_PERSON );
 	AddressTypeControlItem *atciMail = addrbookctl_lookup( ADDR_ITEM_EMAIL );
 	const gchar *search_str;
@@ -3702,12 +3704,12 @@ static void addressbook_folder_load_person( GtkCMCTree *clist, ItemFolder *itemF
 
 	/* Load email addresses */
 	items = addritem_folder_get_person_list( itemFolder );
-	for( ; items != NULL; items = g_list_next( items ) ) {
+	for(cur = items ; cur != NULL; cur = g_list_next( cur ) ) {
 		ItemPerson *person;
 		GList *node;
 		ItemEMail *email;
 
-		person = (ItemPerson *)items->data;
+		person = (ItemPerson *)cur->data;
 		if (!person)
 			continue;
 		node = person->listEMail;
@@ -3720,7 +3722,7 @@ static void addressbook_folder_load_person( GtkCMCTree *clist, ItemFolder *itemF
 				continue;
 		}
 
-		addressbook_folder_load_one_person( clist, items->data, atci, atciMail );
+		addressbook_folder_load_one_person( clist, cur->data, atci, atciMail );
 	}
 	/* Free up the list */
 	mgu_clear_list( items );
@@ -4132,14 +4134,14 @@ static gboolean addressbook_convert( AddressIndex *addrIndex ) {
 	if( errFlag ) {
 		debug_print( "Error\n%s\n", msg );
 		alertpanel_full(_("Addressbook conversion error"), msg,
-				GTK_STOCK_CLOSE, NULL, NULL, FALSE,
-				NULL, ALERT_ERROR, G_ALERTDEFAULT);
+				GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST, FALSE,
+				NULL, ALERT_ERROR);
 	}
 	else if( msg ) {
 		debug_print( "Warning\n%s\n", msg );
 		alertpanel_full(_("Addressbook conversion error"), msg,
-				GTK_STOCK_CLOSE, NULL, NULL, FALSE,
-				NULL, ALERT_WARNING, G_ALERTDEFAULT);
+				GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST, FALSE,
+				NULL, ALERT_WARNING);
 	}
 
 	return retVal;
@@ -4206,10 +4208,11 @@ static gboolean migrate_addrbook(const gchar *origdir, const gchar *destdir)
 void addressbook_read_file( void ) {
 	AddressIndex *addrIndex = NULL;
 	gchar *indexdir = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, ADDRBOOK_DIR, NULL);
-	
+
 	debug_print( "Reading address index...\n" );
 	if( _addressIndex_ ) {
 		debug_print( "address book already read!!!\n" );
+		g_free(indexdir);
 		return;
 	}
 
@@ -4253,8 +4256,8 @@ void addressbook_read_file( void ) {
 		addrindex_print_index( addrIndex, stdout );
 		alertpanel_full(_("Addressbook Error"),
 				_("Could not read address index"),
-				GTK_STOCK_CLOSE, NULL, NULL, FALSE,
-				NULL, ALERT_ERROR, G_ALERTDEFAULT);
+				GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST, FALSE,
+				NULL, ALERT_ERROR);
 	}
 	debug_print( "done.\n" );
 }
@@ -4693,6 +4696,10 @@ static void addressbook_lup_clicked( GtkButton *button, gpointer data ) {
 	AddressInterface *iface;
 	gchar *searchTerm;
 	GtkCMCTreeNode *node, *parentNode;
+#ifdef USE_LDAP
+	LdapServer *ldap_server;
+	LdapControl *ldap_ctl;
+#endif
 
 	node = addrbook.treeSelected;
 	if( ! node ) return;
@@ -4717,6 +4724,23 @@ static void addressbook_lup_clicked( GtkButton *button, gpointer data ) {
 	iface = ds->interface;
 	if( ! iface->haveLibrary ) return;
 	if( ! iface->externalQuery ) return;
+
+#ifdef USE_LDAP
+	if (iface->type == ADDR_IF_LDAP) {
+		ldap_server = ds->rawDataSource;
+		ldap_ctl = ldap_server->control;
+		if (ldap_ctl != NULL &&
+				ldap_ctl->bindDN != NULL && strlen(ldap_ctl->bindDN) > 0) {
+#ifndef PASSWORD_CRYPTO_OLD
+			/* LDAP server is password-protected. */
+			if (master_passphrase() == NULL) {
+				/* User did not enter master passphrase, do not start a search. */
+				return;
+			}
+#endif /* PASSWORD_CRYPTO_OLD */
+		}
+	}
+#endif /* USE_LDAP */
 
 	searchTerm =
 		gtk_editable_get_chars( GTK_EDITABLE(addrbook.entry), 0, -1 );

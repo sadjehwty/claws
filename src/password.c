@@ -110,7 +110,7 @@ static guchar *_make_key_deriv(const gchar *passphrase, guint rounds,
 	return NULL;
 }
 
-static const gchar *master_passphrase()
+const gchar *master_passphrase()
 {
 	gchar *input;
 	gboolean end = FALSE;
@@ -145,7 +145,7 @@ static const gchar *master_passphrase()
 	return _master_passphrase;
 }
 
-const gboolean master_passphrase_is_set()
+gboolean master_passphrase_is_set()
 {
 	if (prefs_common_get_prefs()->master_passphrase == NULL
 			|| strlen(prefs_common_get_prefs()->master_passphrase) == 0)
@@ -154,7 +154,7 @@ const gboolean master_passphrase_is_set()
 	return TRUE;
 }
 
-const gboolean master_passphrase_is_correct(const gchar *input)
+gboolean master_passphrase_is_correct(const gchar *input)
 {
 	guchar *kd, *input_kd;
 	gchar **tokens;
@@ -356,7 +356,7 @@ gchar *password_encrypt_gnutls(const gchar *password,
 	/* Fill buf with one block of random data, our password, pad the
 	 * rest with zero bytes. */
 	buf = malloc(BUFSIZE + blocklen);
-	memset(buf, 0, BUFSIZE);
+	memset(buf, 0, BUFSIZE + blocklen);
 	if (!get_random_bytes(buf, blocklen)) {
 		g_free(buf);
 		g_free(key.data);
@@ -389,7 +389,7 @@ gchar *password_encrypt_gnutls(const gchar *password,
 
 	/* And finally prepare the resulting string:
 	 * "{algorithm,rounds}base64encodedciphertext" */
-	base = g_base64_encode(encbuf, BUFSIZE);
+	base = g_base64_encode(encbuf, BUFSIZE + blocklen);
 	g_free(encbuf);
 	output = g_strdup_printf("{%s,%d}%s",
 			gnutls_cipher_get_name(algo), rounds, base);
@@ -471,6 +471,15 @@ gchar *password_decrypt_gnutls(const gchar *password,
 	/* Prepare encrypted password string for decryption. */
 	tmp = g_base64_decode(tokens[2], &len);
 	g_strfreev(tokens);
+	if (tmp == NULL || len == 0) {
+		debug_print("Failed base64-decoding of stored password string\n");
+		g_free(key.data);
+		g_free(iv.data);
+		if (tmp != NULL)
+			g_free(tmp);
+		return NULL;
+	}
+	debug_print("Encrypted password string length: %lu\n", len);
 
 	/* Initialize the decryption */
 	ret = gnutls_cipher_init(&handle, algo, &key, &iv);
@@ -478,13 +487,18 @@ gchar *password_decrypt_gnutls(const gchar *password,
 		debug_print("Cipher init failed: %s\n", gnutls_strerror(ret));
 		g_free(key.data);
 		g_free(iv.data);
+		g_free(tmp);
 		return NULL;
 	}
 
-	buf = malloc(BUFSIZE + blocklen);
-	memset(buf, 0, BUFSIZE + blocklen);
+	/* Allocate the buffer to store decrypted plaintext in. */
+	buf = malloc(len);
+	memset(buf, 0, len);
+
+	/* Decrypt! */
 	ret = gnutls_cipher_decrypt2(handle, tmp, len,
-			buf, BUFSIZE + blocklen);
+			buf, len);
+	g_free(tmp);
 	if (ret < 0) {
 		debug_print("Decryption failed: %s\n", gnutls_strerror(ret));
 		g_free(key.data);
@@ -499,8 +513,12 @@ gchar *password_decrypt_gnutls(const gchar *password,
 	g_free(key.data);
 	g_free(iv.data);
 
+	/* 'buf+blocklen' should now be pointing to the plaintext
+	 * password string. The first block contains random data from the IV. */
 	tmp = g_strndup(buf + blocklen, MIN(strlen(buf + blocklen), BUFSIZE));
+	memset(buf, 0, len);
 	g_free(buf);
+
 	return tmp;
 }
 

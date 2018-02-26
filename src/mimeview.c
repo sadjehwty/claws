@@ -286,6 +286,7 @@ MimeView *mimeview_create(MainWindow *mainwin)
 				   G_TYPE_POINTER);
 
 	ctree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(model));
+	g_object_unref(model);
 	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(ctree), FALSE);
 	gtk_tree_view_set_rules_hint(GTK_TREE_VIEW(ctree),
 					prefs_common.use_stripes_everywhere);
@@ -299,9 +300,7 @@ MimeView *mimeview_create(MainWindow *mainwin)
 	column = gtk_tree_view_get_column(GTK_TREE_VIEW(ctree), cols-1);
 							   
 	renderer = gtk_cell_renderer_text_new();
-#if(GTK_CHECK_VERSION(2,18,0))
 	gtk_cell_renderer_set_alignment(renderer, 1, 0.5);
-#endif
 	cols = gtk_tree_view_insert_column_with_attributes(GTK_TREE_VIEW(ctree),
 					-1, titles[COL_SIZE], renderer,
 					"text", COL_SIZE, NULL);
@@ -334,7 +333,7 @@ MimeView *mimeview_create(MainWindow *mainwin)
 
 	mime_notebook = gtk_notebook_new();
         gtk_widget_show(mime_notebook);
-        gtkut_widget_set_can_focus(mime_notebook, FALSE);
+        gtk_widget_set_can_focus(mime_notebook, FALSE);
         gtk_notebook_set_show_tabs(GTK_NOTEBOOK(mime_notebook), FALSE);
         gtk_notebook_set_show_border(GTK_NOTEBOOK(mime_notebook), FALSE);
 	
@@ -1841,7 +1840,7 @@ static gboolean mimeview_write_part(const gchar *filename,
 				      tmp);
 		g_free(tmp);
 		aval = alertpanel(_("Overwrite"), res, GTK_STOCK_CANCEL,
-				  GTK_STOCK_OK, NULL);
+				  GTK_STOCK_OK, NULL, ALERTFOCUS_FIRST);
 		g_free(res);
 		if (G_ALERTALTERNATE != aval) return FALSE;
 	}
@@ -1866,7 +1865,7 @@ static AlertValue mimeview_save_all_error_ask(gint n)
 		"continue?"), n);
 	AlertValue av = alertpanel_full(_("Error saving all message parts"),
 		message, GTK_STOCK_CANCEL, _("Skip"), _("Skip all"),
-		FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		ALERTFOCUS_FIRST, FALSE, NULL, ALERT_WARNING);
 	g_free(message);
 	return av;
 }
@@ -1879,7 +1878,7 @@ static void mimeview_save_all_info(gint errors, gint total)
 					"%d files saved successfully.",
 					total),
 				total);
-		alertpanel_notice(msg);
+		alertpanel_notice("%s", msg);
 		g_free(msg);
 	} else {
 		gchar *msg1 = g_strdup_printf(
@@ -1892,7 +1891,7 @@ static void mimeview_save_all_info(gint errors, gint total)
 					"%s, %d files failed.",
 					errors),
 				msg1, errors);
-		alertpanel_warning(msg2);
+		alertpanel_warning("%s", msg2);
 		g_free(msg2);
 		g_free(msg1);
 	}

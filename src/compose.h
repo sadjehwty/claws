@@ -252,6 +252,12 @@ struct _Compose
         GtkAspell *gtkaspell;
 	GtkWidget *aspell_options_menu;
 #endif
+
+#ifdef USE_LDAP
+	/* List of addressbook ifaces which we disabled, and will
+	 * enable in compose_destroy. */
+	GSList *passworded_ldap_servers;
+#endif
 };
 
 struct _AttachInfo
@@ -262,6 +268,7 @@ struct _AttachInfo
 	gchar *name;
 	goffset size;
 	gchar *charset;
+	gboolean insert;
 };
 
 typedef enum
@@ -343,5 +350,8 @@ void compose_clear_exit_drafts		(void);
 void compose_reopen_exit_drafts		(void);
 void compose_attach_from_list (Compose *compose, GList *file_list, gboolean free_data);
 void compose_check_for_email_account(Compose *compose);
+
+void compose_use_signing(Compose *compose, gboolean use_signing);
+void compose_use_encryption(Compose *compose, gboolean use_encryption);
 
 #endif /* __COMPOSE_H__ */

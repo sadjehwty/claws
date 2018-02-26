@@ -331,7 +331,6 @@ static void addressbook_edit_ldap_dialog_create( gboolean *cancelled ) {
 
 	debug_print("creating edit_ldap_dialog\n");
 	window = gtkut_window_new(GTK_WINDOW_TOPLEVEL, "editldap");
-	gtk_widget_set_size_request(window, 450, -1);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 0);
 	gtk_window_set_title(GTK_WINDOW(window), _("Edit LDAP Server"));
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
@@ -463,7 +462,6 @@ static void addressbook_edit_ldap_page_basic( gint pageNum, gchar *pageLbl ) {
 	spinbtn_port_adj = GTK_ADJUSTMENT(gtk_adjustment_new (389, 1, 65535, 1, 1000, 0));
 	spinbtn_port = gtk_spin_button_new(GTK_ADJUSTMENT (spinbtn_port_adj), 1, 0);
 	gtk_box_pack_start (GTK_BOX (hbox_spin), spinbtn_port, TRUE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_port, 64, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_port), TRUE);
 	
 #if (defined USE_LDAP_TLS || defined G_OS_WIN32)
@@ -607,7 +605,6 @@ static void addressbook_edit_ldap_page_search( gint pageNum, gchar *pageLbl ) {
 		LDAPCTL_DFL_QUERY_AGE, 1, LDAPCTL_MAX_QUERY_AGE, 10, 1000, 0 ));
 	spinbtn_queryage = gtk_spin_button_new(GTK_ADJUSTMENT (spinbtn_queryage_adj), 1, 0);
 	gtk_box_pack_start (GTK_BOX (hbox_spin), spinbtn_queryage, FALSE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_queryage, 64, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_queryage), TRUE);
 	gtk_table_attach(GTK_TABLE(table), hbox_spin, 1, 2, top, (top + 1),
 		GTK_EXPAND|GTK_SHRINK|GTK_FILL, 0, 0, 0);
@@ -668,12 +665,22 @@ static void addressbook_edit_ldap_page_search( gint pageNum, gchar *pageLbl ) {
 	ldapedit.check_matchoption = check_matchoption;
 }
 
+static void showpwd_checkbtn_toggled(GtkToggleButton *button,
+		gpointer user_data)
+{
+	gboolean active = gtk_toggle_button_get_active(button);
+	GtkWidget *entry = GTK_WIDGET(user_data);
+
+	gtk_entry_set_visibility(GTK_ENTRY(entry), active);
+}
+
 static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) {
 	GtkWidget *vbox;
 	GtkWidget *table;
 	GtkWidget *label;
 	GtkWidget *entry_bindDN;
 	GtkWidget *entry_bindPW;
+	GtkWidget *showpwd_checkbtn;
 	GtkWidget *hbox_spin;
 	GtkAdjustment *spinbtn_timeout_adj;
 	GtkWidget *spinbtn_timeout;
@@ -704,7 +711,7 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
 
 	entry_bindDN = gtk_entry_new();
-	gtk_table_attach(GTK_TABLE(table), entry_bindDN, 1, 2, top, (top + 1),
+	gtk_table_attach(GTK_TABLE(table), entry_bindDN, 1, 3, top, (top + 1),
 		GTK_EXPAND|GTK_SHRINK|GTK_FILL, 0, 0, 0);
 
 	CLAWS_SET_TIP(entry_bindDN, _( 
@@ -728,6 +735,13 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 		"The password to be used when connecting as the \"Bind DN\" " \
 		"user." ));
 
+	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
+	g_signal_connect(G_OBJECT(showpwd_checkbtn), "toggled",
+			G_CALLBACK(showpwd_checkbtn_toggled), entry_bindPW);
+	gtk_table_attach(GTK_TABLE(table), showpwd_checkbtn, 2, 3, top, (top + 1),
+			0, 0, 0, 0);
+
 	/* Next row */
 	++top;
 	label = gtk_label_new(_("Timeout (secs)"));
@@ -738,7 +752,6 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 	spinbtn_timeout_adj = GTK_ADJUSTMENT(gtk_adjustment_new (0, 0, 300, 1, 10, 0));
 	spinbtn_timeout = gtk_spin_button_new(GTK_ADJUSTMENT (spinbtn_timeout_adj), 1, 0);
 	gtk_box_pack_start (GTK_BOX (hbox_spin), spinbtn_timeout, FALSE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_timeout, 64, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_timeout), TRUE);
 	gtk_table_attach(GTK_TABLE(table), hbox_spin, 1, 2, top, (top + 1),
 		GTK_EXPAND|GTK_SHRINK|GTK_FILL, 0, 0, 0);
@@ -756,7 +769,6 @@ static void addressbook_edit_ldap_page_extended( gint pageNum, gchar *pageLbl ) 
 	spinbtn_maxentry_adj = GTK_ADJUSTMENT(gtk_adjustment_new (0, 0, 500, 1, 10, 0));
 	spinbtn_maxentry = gtk_spin_button_new(GTK_ADJUSTMENT (spinbtn_maxentry_adj), 1, 0);
 	gtk_box_pack_start (GTK_BOX (hbox_spin), spinbtn_maxentry, FALSE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_maxentry, 64, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_maxentry), TRUE);
 	gtk_table_attach(GTK_TABLE(table), hbox_spin, 1, 2, top, (top + 1),
 		GTK_EXPAND|GTK_SHRINK|GTK_FILL, 0, 0, 0);
@@ -886,7 +898,7 @@ static void edit_ldap_clear_fields(void) {
  */
 static void edit_ldap_set_fields( LdapServer *server ) {
 	LdapControl *ctl;
-	gchar *crit;
+	gchar *crit, *pwd;
 
 	if( ldapsvr_get_name( server ) )
 		gtk_entry_set_text(GTK_ENTRY(ldapedit.entry_name),
@@ -902,8 +914,15 @@ static void edit_ldap_set_fields( LdapServer *server ) {
 	if( ctl->bindDN )
 		gtk_entry_set_text(
 			GTK_ENTRY(ldapedit.entry_bindDN), ctl->bindDN );
+
+	pwd = passwd_store_get(PWS_CORE, "LDAP", ctl->hostName);
 	gtk_entry_set_text(	GTK_ENTRY(ldapedit.entry_bindPW),
-			passwd_store_get(PWS_CORE, "LDAP", ctl->hostName));
+			(pwd ? pwd : ""));
+	if (pwd != NULL) {
+		memset(pwd, 0, strlen(pwd));
+		g_free(pwd);
+	}
+
 	gtk_spin_button_set_value(
 		GTK_SPIN_BUTTON(ldapedit.spinbtn_timeout), ctl->timeOut );
 	gtk_spin_button_set_value(

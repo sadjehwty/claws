@@ -304,8 +304,6 @@ static GtkWidget *date_format_create(GtkButton *button, void *data)
 			 G_CALLBACK(date_format_entry_on_change),
 			 label3);
 
-	gtk_window_set_position(GTK_WINDOW(datefmt_win), GTK_WIN_POS_CENTER);
-
 	gtk_widget_show(datefmt_win);
 	manage_window_set_transient(GTK_WINDOW(datefmt_win));
 	gtk_window_set_modal(GTK_WINDOW(datefmt_win), TRUE);
@@ -402,7 +400,6 @@ static void prefs_summaries_create_widget(PrefsPage *_page, GtkWindow *window,
 	gtk_widget_show (spinbtn_ng_abbrev_len);
 	gtk_box_pack_start (GTK_BOX (hbox1), spinbtn_ng_abbrev_len,
 			    FALSE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_ng_abbrev_len, 56, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_ng_abbrev_len),
 				     TRUE);
 
@@ -537,7 +534,6 @@ static void prefs_summaries_create_widget(PrefsPage *_page, GtkWindow *window,
 			(GTK_ADJUSTMENT (spinbtn_mark_as_read_delay_adj), 1, 0);
 	gtk_box_pack_start (GTK_BOX (hbox1), spinbtn_mark_as_read_delay,
 			    FALSE, FALSE, 0);
-	gtk_widget_set_size_request (spinbtn_mark_as_read_delay, 56, -1);
 	gtk_spin_button_set_numeric (GTK_SPIN_BUTTON (spinbtn_mark_as_read_delay),
 				     TRUE);
 	gtk_box_pack_start (GTK_BOX (hbox1), gtk_label_new
@@ -570,7 +566,6 @@ static void prefs_summaries_create_widget(PrefsPage *_page, GtkWindow *window,
 
 	entry_datefmt = gtk_entry_new ();
 	gtk_widget_show (entry_datefmt);
-	gtk_widget_set_size_request(entry_datefmt, 200, -1);
 	gtk_box_pack_start (GTK_BOX (hbox2), entry_datefmt, FALSE, FALSE, 0);
 
 	button_datefmt = gtk_button_new_from_stock(GTK_STOCK_INFO);
@@ -894,6 +889,7 @@ static void date_format_select_row(GtkTreeView *list_view,
 	strncpy(new_format, old_format, cur_pos);
 	new_format[cur_pos] = '\0';
 	strcat(new_format, format);
+	g_free(format);
 	strcat(new_format, &old_format[cur_pos]);
 
 	gtk_entry_set_text(GTK_ENTRY(datefmt_sample), new_format);
