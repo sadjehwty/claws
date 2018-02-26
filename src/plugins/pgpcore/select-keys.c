@@ -42,17 +42,24 @@ enum col_titles {
     COL_ALGO,
     COL_KEYID,
     COL_NAME,
-    COL_EMAIL,
-    COL_VALIDITY,
+    COL_ADDRESS,
+    COL_TRUST,
+    COL_PTR,
 
     N_COL_TITLES
 };
+
+#define COL_ALGO_WIDTH 70
+#define COL_KEYID_WIDTH 120
+#define COL_NAME_WIDTH 115
+#define COL_ADDRESS_WIDTH 140
+#define COL_TRUST_WIDTH 20
 
 struct select_keys_s {
     int okay;
     GtkWidget *window;
     GtkLabel *toplabel;
-    GtkCMCList *clist;
+    GtkWidget *view;
     const char *pattern;
     unsigned int num_keys;
     gpgme_key_t *kset;
@@ -64,8 +71,8 @@ struct select_keys_s {
 };
 
 
-static void set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto);
-static gpgme_key_t fill_clist (struct select_keys_s *sk, const char *pattern,
+static void set_row (GtkListStore *store, gpgme_key_t key, gpgme_protocol_t proto);
+static gpgme_key_t fill_view (struct select_keys_s *sk, const char *pattern,
 			gpgme_protocol_t proto);
 static void create_dialog (struct select_keys_s *sk);
 static void open_dialog (struct select_keys_s *sk);
@@ -124,9 +131,13 @@ gpgmegtk_recipient_selection (GSList *recp_names, SelectionResult *result,
 
     do {
         sk.pattern = recp_names? recp_names->data:NULL;
-	sk.proto = proto;
-        gtk_cmclist_clear (sk.clist);
-        key = fill_clist (&sk, sk.pattern, proto);
+        sk.proto = proto;
+        if (sk.view != NULL) {
+            GtkTreeModel *model =
+                gtk_tree_view_get_model(GTK_TREE_VIEW(sk.view));
+            gtk_list_store_clear(GTK_LIST_STORE(model));
+        }
+        key = fill_view (&sk, sk.pattern, proto);
         update_progress (&sk, 0, sk.pattern ? sk.pattern : "NULL");
 	if (!key) {
     		gtk_widget_show_all (sk.window);
@@ -167,16 +178,18 @@ static void
 destroy_key (gpointer data)
 {
     gpgme_key_t key = data;
-    gpgme_key_release (key);
+
+    debug_print("unref key %p\n", key);
+
+    gpgme_key_unref (key);
 }
 
 static void
-set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto)
+set_row (GtkListStore *store, gpgme_key_t key, gpgme_protocol_t proto)
 {
-    const char *s;
-    const char *text[N_COL_TITLES];
-    char *algo_buf;
-    int row;
+    const gchar *s;
+    gchar *algo_buf, *name, *address;
+    GtkTreeIter iter;
     gsize by_read = 0, by_written = 0;
     gchar *ret_str = NULL;
 
@@ -188,9 +201,6 @@ set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto)
     algo_buf = g_strdup_printf ("%du/%s", 
          key->subkeys->length,
          gpgme_pubkey_algo_name(key->subkeys->pubkey_algo) );
-    text[COL_ALGO] = algo_buf;
-
-    text[COL_KEYID] = key->subkeys->keyid;
 
     s = key->uids->name;
     if (!s || !*s)
@@ -208,7 +218,7 @@ set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto)
     if (ret_str && by_written) {
         s = ret_str;
     }
-    text[COL_NAME] = s;
+    name = g_strdup(s);
 
     if (proto == GPGME_PROTOCOL_CMS && (!key->uids->email || !*key->uids->email)) {
 	gpgme_user_id_t uid = key->uids->next;
@@ -226,7 +236,7 @@ set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto)
     if (ret_str && by_written) {
         s = ret_str;
     }
-    text[COL_EMAIL] = s;
+    address = g_strdup(s);
 
     switch (key->uids->validity)
       {
@@ -250,18 +260,30 @@ set_row (GtkCMCList *clist, gpgme_key_t key, gpgme_protocol_t proto)
         s = _("Unknown");
         break;
       }
-    text[COL_VALIDITY] = s;
 
-    row = gtk_cmclist_append (clist, (gchar**)text);
+    gtk_list_store_append(store, &iter);
+    gtk_list_store_set(store, &iter,
+        COL_ALGO, algo_buf,
+        COL_KEYID, key->uids->name,
+        COL_NAME, name,
+        COL_ADDRESS, address,
+        COL_TRUST, s,
+        COL_PTR, key,
+        -1);
+    gpgme_key_ref(key);
+
+    g_free(name);
+    g_free(address);
     g_free (algo_buf);
-
-    gtk_cmclist_set_row_data_full (clist, row, key, destroy_key);
 }
 
 static gpgme_key_t 
-fill_clist (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t proto)
+fill_view (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t proto)
 {
-    GtkCMCList *clist;
+    GtkWidget *view;
+    GtkTreeModel *model;
+    GtkTreeSelection *sel;
+    GtkTreeIter iter;
     gpgme_ctx_t ctx;
     gpgme_error_t err;
     gpgme_key_t key;
@@ -270,13 +292,15 @@ fill_clist (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t prot
     gboolean exact_match = FALSE;
     gpgme_key_t last_key = NULL;
     gpgme_user_id_t last_uid = NULL;
+
     cm_return_val_if_fail (sk, NULL);
-    clist = sk->clist;
-    cm_return_val_if_fail (clist, NULL);
 
-    debug_print ("select_keys:fill_clist:  pattern '%s' proto %d\n", pattern != NULL ? pattern : "NULL", proto);
+    view = sk->view;
+    cm_return_val_if_fail (view, NULL);
+    model = gtk_tree_view_get_model(GTK_TREE_VIEW(view));
 
-    /*gtk_cmclist_freeze (select_keys.clist);*/
+    debug_print ("select_keys:fill_view:  pattern '%s' proto %d\n", pattern != NULL ? pattern : "NULL", proto);
+
     err = gpgme_new (&ctx);
     g_assert (!err);
 
@@ -298,10 +322,12 @@ fill_clist (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t prot
     update_progress (sk, ++running, pattern);
     while ( !(err = gpgme_op_keylist_next ( ctx, &key )) ) {
 	gpgme_user_id_t uid = key->uids;
-	if (!key->can_encrypt || key->revoked || key->expired || key->disabled)
+	if (!key->can_encrypt || key->revoked || key->expired || key->disabled) {
+		gpgme_key_unref(key);
 		continue;
+	}
         debug_print ("%% %s:%d:  insert\n", __FILE__ ,__LINE__ );
-        set_row (clist, key, proto ); 
+        set_row (GTK_LIST_STORE(model), key, proto );
 	for (; uid; uid = uid->next) {
 		gchar *raw_mail = NULL;
 
@@ -319,7 +345,15 @@ fill_clist (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t prot
 		}
 		g_free(raw_mail);
 	}
+
+	/* Select the first row */
+	sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+	if (gtk_tree_model_get_iter_first(model, &iter))
+		gtk_tree_selection_select_iter(sel, &iter);
+
 	num_results++;
+	if (last_key != NULL)
+		gpgme_key_unref(last_key);
 	last_key = key;
 	key = NULL;
         update_progress (sk, ++running, pattern);
@@ -343,8 +377,24 @@ fill_clist (struct select_keys_s *sk, const char *pattern, gpgme_protocol_t prot
 	    sk->select_ctx = NULL;
 	    gpgme_release (ctx);
     }
-    /*gtk_cmclist_thaw (select_keys.clist);*/
-    return (exact_match == TRUE && num_results == 1 ? last_key:NULL);
+
+    if (exact_match && num_results == 1)
+	    return last_key;
+
+    if (last_key != NULL)
+        gpgme_key_unref(last_key);
+
+    return NULL;
+}
+
+
+static void
+view_row_activated_cb(GtkTreeView *view,
+		GtkTreePath *path,
+		GtkTreeViewColumn *column,
+		gpointer user_data)
+{
+	select_btn_cb(NULL, user_data);
 }
 
 
@@ -355,10 +405,14 @@ create_dialog (struct select_keys_s *sk)
     GtkWidget *vbox, *vbox2, *hbox;
     GtkWidget *bbox;
     GtkWidget *scrolledwin;
-    GtkWidget *clist;
+    GtkWidget *view;
     GtkWidget *label;
     GtkWidget *select_btn, *cancel_btn, *dont_encrypt_btn, *other_btn;
-    const char *titles[N_COL_TITLES];
+    GtkListStore *store;
+    GtkCellRenderer *rdr;
+    GtkTreeViewColumn *col;
+    GtkTreeSelection *sel;
+    gint i = 0;
 
     g_assert (!sk->window);
     window = gtkut_window_new (GTK_WINDOW_TOPLEVEL, "select-keys");
@@ -390,26 +444,57 @@ create_dialog (struct select_keys_s *sk)
                                     GTK_POLICY_AUTOMATIC,
                                     GTK_POLICY_AUTOMATIC);
 
-    titles[COL_ALGO]     = _("Size");
-    titles[COL_KEYID]    = _("Key ID");
-    titles[COL_NAME]     = _("Name");
-    titles[COL_EMAIL]    = _("Address");
-    titles[COL_VALIDITY] = _("Trust");
+		store = gtk_list_store_new(N_COL_TITLES,
+				G_TYPE_STRING,
+				G_TYPE_STRING,
+				G_TYPE_STRING,
+				G_TYPE_STRING,
+				G_TYPE_STRING,
+				G_TYPE_POINTER,
+				-1);
 
-    clist = gtk_cmclist_new_with_titles (N_COL_TITLES, (char**)titles);
-    gtk_container_add (GTK_CONTAINER (scrolledwin), clist);
-    gtk_cmclist_set_column_width (GTK_CMCLIST(clist), COL_ALGO,      70);
-    gtk_cmclist_set_column_width (GTK_CMCLIST(clist), COL_KEYID,    120);
-    gtk_cmclist_set_column_width (GTK_CMCLIST(clist), COL_NAME,     115);
-    gtk_cmclist_set_column_width (GTK_CMCLIST(clist), COL_EMAIL,    140);
-    gtk_cmclist_set_column_width (GTK_CMCLIST(clist), COL_VALIDITY,  20);
-    gtk_cmclist_set_selection_mode (GTK_CMCLIST(clist), GTK_SELECTION_BROWSE);
-    g_signal_connect (G_OBJECT(GTK_CMCLIST(clist)->column[COL_NAME].button),
-		      "clicked",
-                      G_CALLBACK(sort_keys_name), sk);
-    g_signal_connect (G_OBJECT(GTK_CMCLIST(clist)->column[COL_EMAIL].button),
-		      "clicked",
-                      G_CALLBACK(sort_keys_email), sk);
+		view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+		g_object_unref(store);
+		gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(view), TRUE);
+		gtk_tree_view_set_reorderable(GTK_TREE_VIEW(view), FALSE);
+		sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+		gtk_tree_selection_set_mode(sel, GTK_SELECTION_BROWSE);
+
+		rdr = gtk_cell_renderer_text_new();
+		col = gtk_tree_view_column_new_with_attributes(_("Size"), rdr,
+				"markup", COL_ALGO, NULL);
+		gtk_tree_view_column_set_min_width(col, COL_ALGO_WIDTH);
+		gtk_tree_view_column_set_sort_column_id(col, i++);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+
+		col = gtk_tree_view_column_new_with_attributes(_("Key ID"), rdr,
+				"markup", COL_KEYID, NULL);
+		gtk_tree_view_column_set_min_width(col, COL_KEYID_WIDTH);
+		gtk_tree_view_column_set_sort_column_id(col, i++);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+
+		col = gtk_tree_view_column_new_with_attributes(_("Name"), rdr,
+				"markup", COL_NAME, NULL);
+		gtk_tree_view_column_set_min_width(col, COL_NAME_WIDTH);
+		gtk_tree_view_column_set_sort_column_id(col, i++);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+
+		col = gtk_tree_view_column_new_with_attributes(_("Address"), rdr,
+				"markup", COL_ADDRESS, NULL);
+		gtk_tree_view_column_set_min_width(col, COL_ADDRESS_WIDTH);
+		gtk_tree_view_column_set_sort_column_id(col, i++);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+
+		col = gtk_tree_view_column_new_with_attributes(_("Trust"), rdr,
+				"markup", COL_TRUST, NULL);
+		gtk_tree_view_column_set_min_width(col, COL_TRUST_WIDTH);
+		gtk_tree_view_column_set_sort_column_id(col, i++);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+
+		g_signal_connect(G_OBJECT(view), "row-activated",
+				G_CALLBACK(view_row_activated_cb), sk);
+
+    gtk_container_add (GTK_CONTAINER (scrolledwin), view);
 
     hbox = gtk_hbox_new (FALSE, 8);
     gtk_box_pack_end (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
@@ -423,7 +508,7 @@ create_dialog (struct select_keys_s *sk)
 		    		   &dont_encrypt_btn, _("Do_n't encrypt"));
     
     cancel_btn = gtk_button_new_from_stock(GTK_STOCK_CANCEL);
-    gtkut_widget_set_can_default(cancel_btn, TRUE);
+    gtk_widget_set_can_default(cancel_btn, TRUE);
     gtk_box_pack_start(GTK_BOX(bbox), cancel_btn, TRUE, TRUE, 0);
     gtk_widget_show(cancel_btn);
     gtk_box_pack_end (GTK_BOX (hbox), bbox, FALSE, FALSE, 0);
@@ -443,7 +528,23 @@ create_dialog (struct select_keys_s *sk)
 
     sk->window = window;
     sk->toplabel = GTK_LABEL (label);
-    sk->clist  = GTK_CMCLIST (clist);
+    sk->view  = view;
+}
+
+
+/* Function called by gtk_tree_model_foreach() upon dialog close,
+ * which unrefs the gpgme_key_t pointer from each model line */
+static gboolean
+close_dialog_foreach_func(GtkTreeModel *model,
+		GtkTreePath *path,
+		GtkTreeIter *iter,
+		gpointer user_data)
+{
+	gpgme_key_t key;
+
+	gtk_tree_model_get(model, iter, COL_PTR, &key, -1);
+	gpgme_key_unref(key);
+	return FALSE;
 }
 
 
@@ -462,7 +563,16 @@ open_dialog (struct select_keys_s *sk)
 static void
 close_dialog (struct select_keys_s *sk)
 {
+    GtkTreeModel *model;
     cm_return_if_fail (sk);
+
+    debug_print("pgpcore select-keys dialog closing\n");
+    if (sk->view != NULL) {
+        model = gtk_tree_view_get_model(GTK_TREE_VIEW(sk->view));
+        gtk_tree_model_foreach(model, close_dialog_foreach_func, NULL);
+        gtk_list_store_clear(GTK_LIST_STORE(model));
+    }
+
     gtk_widget_destroy (sk->window);
     sk->window = NULL;
 }
@@ -498,17 +608,20 @@ static void
 select_btn_cb (GtkWidget *widget, gpointer data)
 {
     struct select_keys_s *sk = data;
-    int row;
     gboolean use_key;
     gpgme_key_t key;
+    GtkTreeModel *model;
+    GtkTreeSelection *sel;
+    GtkTreeIter iter;
 
     cm_return_if_fail (sk);
-    if (!sk->clist->selection) {
+		sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(sk->view));
+    if (!gtk_tree_selection_get_selected(sel, &model, &iter)) {
         debug_print ("** nothing selected\n");
         return;
     }
-    row = GPOINTER_TO_INT(sk->clist->selection->data);
-    key = gtk_cmclist_get_row_data(sk->clist, row);
+
+    gtk_tree_model_get(model, &iter, COL_PTR, &key, -1);
     if (key) {
         gpgme_user_id_t uid;
 	for (uid = key->uids; uid; uid = uid->next) {
@@ -584,7 +697,7 @@ other_btn_cb (GtkWidget *widget, gpointer data)
                          NULL );
     if (!uid)
         return;
-    if (fill_clist (sk, uid, sk->proto) != NULL) {
+    if (fill_view (sk, uid, sk->proto) != NULL) {
 	    gpgme_release(sk->select_ctx);
 	    sk->select_ctx = NULL;
     }
@@ -609,89 +722,14 @@ use_untrusted (gpgme_key_t key, gpgme_user_id_t uid, gpgme_protocol_t proto)
 	       "Key details: ID %s, primary identity %s <%s>\n\n"
 	       "Do you trust this key enough to use it anyway?"), 
 	       key->subkeys->keyid, key->uids->name, key->uids->email);
-    aval = alertpanel
-	    (title, buf,
-	     GTK_STOCK_NO, GTK_STOCK_YES, NULL);
+    aval = alertpanel(title, buf,
+	     GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_FIRST);
     g_free(buf);
     g_free(title);
     if (aval == G_ALERTALTERNATE)
 	return TRUE;
     else
 	return FALSE;
-}
-
-
-static gint 
-cmp_name (GtkCMCList *clist, gconstpointer pa, gconstpointer pb)
-{
-    gpgme_key_t a = ((GtkCMCListRow *)pa)->data;
-    gpgme_key_t b = ((GtkCMCListRow *)pb)->data;
-    const char *sa, *sb;
-    
-    sa = a? a->uids->name : NULL;
-    sb = b? b->uids->name : NULL;
-    if (!sa)
-        return !!sb;
-    if (!sb)
-        return -1;
-    return g_ascii_strcasecmp(sa, sb);
-}
-
-static gint 
-cmp_email (GtkCMCList *clist, gconstpointer pa, gconstpointer pb)
-{
-    gpgme_key_t a = ((GtkCMCListRow *)pa)->data;
-    gpgme_key_t b = ((GtkCMCListRow *)pb)->data;
-    const char *sa, *sb;
-    
-    sa = a? a->uids->email : NULL;
-    sb = b? b->uids->email : NULL;
-    if (!sa)
-        return !!sb;
-    if (!sb)
-        return -1;
-    return g_ascii_strcasecmp(sa, sb);
-}
-
-static void
-sort_keys ( struct select_keys_s *sk, enum col_titles column)
-{
-    GtkCMCList *clist = sk->clist;
-
-    switch (column) {
-      case COL_NAME:
-        gtk_cmclist_set_compare_func (clist, cmp_name);
-        break;
-      case COL_EMAIL:
-        gtk_cmclist_set_compare_func (clist, cmp_email);
-        break;
-      default:
-        return;
-    }
-
-    /* column clicked again: toggle as-/decending */
-    if ( sk->sort_column == column) {
-        sk->sort_type = sk->sort_type == GTK_SORT_ASCENDING ?
-                        GTK_SORT_DESCENDING : GTK_SORT_ASCENDING;
-    }
-    else
-        sk->sort_type = GTK_SORT_ASCENDING;
-
-    sk->sort_column = column;
-    gtk_cmclist_set_sort_type (clist, sk->sort_type);
-    gtk_cmclist_sort (clist);
-}
-
-static void
-sort_keys_name (GtkWidget *widget, gpointer data)
-{
-    sort_keys ((struct select_keys_s*)data, COL_NAME);
-}
-
-static void
-sort_keys_email (GtkWidget *widget, gpointer data)
-{
-    sort_keys ((struct select_keys_s*)data, COL_EMAIL);
 }
 
 #endif /*USE_GPGME*/

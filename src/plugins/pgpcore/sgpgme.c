@@ -281,9 +281,7 @@ gchar *sgpgme_sigstat_info_short(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 			if (key) {
 				result = g_strdup_printf(_("Good signature from \"%s\""), uname);
 			} else {
-				gchar *id = g_strdup(sig->fpr + strlen(sig->fpr)-8);
-				result = g_strdup_printf(_("Key 0x%s not available to verify this signature"), id);
-				g_free(id);
+				result = g_strdup_printf(_("Key 0x%s not available to verify this signature"), sig->fpr);
 			}
 			break;
                }
@@ -301,9 +299,7 @@ gchar *sgpgme_sigstat_info_short(gpgme_ctx_t ctx, gpgme_verify_result_t status)
 		result = g_strdup_printf(_("Bad signature from \"%s\""), uname);
 		break;
 	case GPG_ERR_NO_PUBKEY: {
-		gchar *id = g_strdup(sig->fpr + strlen(sig->fpr)-8);
-		result = g_strdup_printf(_("Key 0x%s not available to verify this signature"), id);
-		g_free(id);
+		result = g_strdup_printf(_("Key 0x%s not available to verify this signature"), sig->fpr);
 		break;
 		}
 	default:
@@ -572,14 +568,30 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 {
 	GPGAccountConfig *config;
 	const gchar *signer_addr = account->address;
+	SignKeyType sk;
+	gchar *skid;
+	gboolean smime = FALSE;
 
 	gpgme_signers_clear(ctx);
+
+	if (gpgme_get_protocol(ctx) == GPGME_PROTOCOL_CMS)
+		smime = TRUE;
 
 	if (from_addr)
 		signer_addr = from_addr;
 	config = prefs_gpg_account_get_config(account);
 
-	switch(config->sign_key) {
+	if(smime) {
+		debug_print("sgpgme_setup_signers: S/MIME protocol\n");
+		sk = config->smime_sign_key;
+		skid = config->smime_sign_key_id;
+	} else {
+		debug_print("sgpgme_setup_signers: OpenPGP protocol\n");
+		sk = config->sign_key;
+		skid = config->sign_key_id;
+	}
+
+	switch(sk) {
 	case SIGN_KEY_DEFAULT:
 		debug_print("using default gnupg key\n");
 		break;
@@ -587,19 +599,19 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 		debug_print("using key for %s\n", signer_addr);
 		break;
 	case SIGN_KEY_CUSTOM:
-		debug_print("using key for %s\n", config->sign_key_id);
+		debug_print("using key for %s\n", skid);
 		break;
 	}
 
-	if (config->sign_key != SIGN_KEY_DEFAULT) {
+	if (sk != SIGN_KEY_DEFAULT) {
 		const gchar *keyid;
 		gpgme_key_t key, found_key;
 		gpgme_error_t err;
 
-		if (config->sign_key == SIGN_KEY_BY_FROM)
+		if (sk == SIGN_KEY_BY_FROM)
 			keyid = signer_addr;
-		else if (config->sign_key == SIGN_KEY_CUSTOM)
-			keyid = config->sign_key_id;
+		else if (sk == SIGN_KEY_CUSTOM)
+			keyid = skid;
 		else
 			goto bail;
 
@@ -607,37 +619,43 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 		/* Look for any key, not just private ones, or GPGMe doesn't
 		 * correctly set the revoked flag. */
 		err = gpgme_op_keylist_start(ctx, keyid, 0);
-		while ((err = gpgme_op_keylist_next(ctx, &key)) == 0) {
+		while (err == 0) {
+			if ((err = gpgme_op_keylist_next(ctx, &key)) != 0)
+				break;
+
 			if (key == NULL)
 				continue;
 
-			if (!key->can_sign)
+			if (!key->can_sign) {
+				debug_print("skipping a key, can not be used for signing\n");
+				gpgme_key_unref(key);
 				continue;
+			}
 
 			if (key->protocol != gpgme_get_protocol(ctx)) {
 				debug_print("skipping a key (wrong protocol %d)\n", key->protocol);
-				gpgme_key_release(key);
+				gpgme_key_unref(key);
 				continue;
 			}
 
 			if (key->expired) {
 				debug_print("skipping a key, expired\n");
-				gpgme_key_release(key);
+				gpgme_key_unref(key);
 				continue;
 			}
 			if (key->revoked) {
 				debug_print("skipping a key, revoked\n");
-				gpgme_key_release(key);
+				gpgme_key_unref(key);
 				continue;
 			}
 			if (key->disabled) {
 				debug_print("skipping a key, disabled\n");
-				gpgme_key_release(key);
+				gpgme_key_unref(key);
 				continue;
 			}
 
 			if (found_key != NULL) {
-				gpgme_key_release(key);
+				gpgme_key_unref(key);
 				gpgme_op_keylist_end(ctx);
 				g_warning("ambiguous specification of secret key '%s'", keyid);
 				privacy_set_error(_("Secret key specification is ambiguous"));
@@ -645,7 +663,7 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 			}
 
 			found_key = key;
-                }
+		}
 		gpgme_op_keylist_end(ctx);
 
 		if (found_key == NULL) {
@@ -658,7 +676,7 @@ gboolean sgpgme_setup_signers(gpgme_ctx_t ctx, PrefsAccount *account,
 		debug_print("got key (proto %d (pgp %d, smime %d).\n",
 			    found_key->protocol, GPGME_PROTOCOL_OpenPGP,
 			    GPGME_PROTOCOL_CMS);
-		gpgme_key_release(found_key);
+		gpgme_key_unref(found_key);
 
 		if (err) {
 			g_warning("error adding secret key: %s",
@@ -789,8 +807,8 @@ void sgpgme_init()
 				 _("GnuPG is not installed properly, or needs "
 				 "to be upgraded.\n"
 				 "OpenPGP support disabled."),
-				 GTK_STOCK_CLOSE, NULL, NULL, TRUE, NULL,
-				 ALERT_WARNING, G_ALERTDEFAULT);
+				 GTK_STOCK_CLOSE, NULL, NULL, ALERTFOCUS_FIRST, TRUE, NULL,
+				 ALERT_WARNING);
 			if (val & G_ALERTDISABLE)
 				prefs_gpg_get_config()->gpg_warning = FALSE;
 		}
@@ -873,7 +891,7 @@ void sgpgme_create_secret_key(PrefsAccount *account, gboolean ask_create)
 				  "which means that you won't be able to sign "
 				  "emails or receive encrypted emails.\n"
 				  "Do you want to create a new key pair now?"),
-				  GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
+				  GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_SECOND);
 		if (val == G_ALERTDEFAULT) {
 			return;
 		}
@@ -995,7 +1013,7 @@ again:
 				    "to a keyserver?"),
 				    key->fpr ? key->fpr:"null");
 		AlertValue val = alertpanel(_("Key generated"), buf,
-				  GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
+				  GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_SECOND);
 		g_free(buf);
 		if (val == G_ALERTALTERNATE) {
 			gchar *gpgbin = get_gpg_executable_name();
@@ -1049,7 +1067,7 @@ again:
 			ectx->exitcode = STILL_ACTIVE;
 			ectx->cmd = cmd;
 
-			if (pthread_create(&pt, PTHREAD_CREATE_JOINABLE,
+			if (pthread_create(&pt, NULL,
 						_export_threaded, (void *)ectx) != 0) {
 				debug_print("Couldn't create thread, continuing unthreaded.\n");
 				_export_threaded(ctx);
@@ -1092,8 +1110,10 @@ gboolean sgpgme_has_secret_key(void)
 	}
 check_again:
 	err = gpgme_op_keylist_start(ctx, NULL, TRUE);
-	if (!err)
+	if (!err) {
 		err = gpgme_op_keylist_next(ctx, &key);
+		gpgme_key_unref(key); /* We're not interested in the key itself. */
+	}
 	gpgme_op_keylist_end(ctx);
 	if (gpg_err_code(err) == GPG_ERR_EOF) {
 		if (gpgme_get_protocol(ctx) != GPGME_PROTOCOL_CMS) {

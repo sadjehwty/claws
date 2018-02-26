@@ -210,7 +210,7 @@ AC_CHECK_FUNCS(bind_textdomain_codeset)
 LIBS=$syl_save_LIBS
 
 dnl for gettext
-ALL_LINGUAS="ca cs da de en_GB es fi fr he hu id_ID it nb nl pt_BR ru sk sv tr zh_TW"
+ALL_LINGUAS="ca cs da de en_GB es fi fr hu id_ID it ja nb nl pl pt_BR ro ru sk sv tr zh_TW"
 GETTEXT_PACKAGE=claws-mail
 AC_SUBST(GETTEXT_PACKAGE)
 AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE", [Define text domain.])
@@ -420,7 +420,7 @@ dnl ** common code **
 dnl *****************
 
 dnl check for glib
-PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.20 gmodule-2.0 >= 2.20 gobject-2.0 >= 2.20 gthread-2.0 >= 2.20)
+PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.28 gmodule-2.0 >= 2.28 gobject-2.0 >= 2.28 gthread-2.0 >= 2.28)
 
 GLIB_GENMARSHAL=`pkg-config --variable=glib_genmarshal glib-2.0`
 AC_SUBST(GLIB_GENMARSHAL)
@@ -573,11 +573,15 @@ if test x"$enable_gtk3" = x"yes"; then
 	AM_CONDITIONAL(GTK3, true)
 	AM_CONDITIONAL(GTK2, false)
 else
-	PKG_CHECK_MODULES(GTK, gtk+-2.0 >= 2.16)
+	PKG_CHECK_MODULES(GTK, gtk+-2.0 >= 2.24)
 fi
 AC_ARG_ENABLE(deprecated,
 		[  --disable-deprecated            Disable deprecated GTK functions],
 		[GTK_CFLAGS="$GTK_CFLAGS -DG_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED"], [])
+
+dnl Make sure the code does not regress to using deprecated GTK stuff...
+GTK_CFLAGS="$GTK_CFLAGS -DGTK_DISABLE_SINGLE_INCLUDES -DGSEAL_ENABLE"
+
 AC_SUBST(GTK_CFLAGS)
 AC_SUBST(GTK_LIBS)
 
@@ -585,12 +589,11 @@ dnl enchant is used for spell checking
 AC_MSG_CHECKING([whether to use enchant])
 AC_MSG_RESULT($enable_enchant)
 if test $enable_enchant = yes; then
-	PKG_CHECK_MODULES(ENCHANT, enchant >= 1.0.0,
+	PKG_CHECK_MODULES(ENCHANT, enchant >= 1.4.0,
 	[
 		AC_DEFINE(USE_ENCHANT, 1, enchant)
 		echo "Building with enchant"
 		enable_enchant=yes
-		CFLAGS="$CFLAGS `$PKG_CONFIG --cflags enchant`"
 	],
 	[
 		echo "Building without enchant-notification"
@@ -717,11 +720,11 @@ if test "x$enable_dbus" = "xyes"; then
 	PKG_CHECK_MODULES(DBUS, [dbus-1 >= 0.60, dbus-glib-1 >= 0.60],
 	[
 		AC_DEFINE(HAVE_DBUS_GLIB, 1, [Define if glib bindings of D-Bus are available])
-		enable_dbus_glib=yes
+		enable_dbus=yes
 	],
 	[
 		echo "D-Bus requirements not met. D-Bus support not activated."
-		enable_dbus_glib=no
+		enable_dbus=no
 	])
 	AC_SUBST(DBUS_CFLAGS)
 	AC_SUBST(DBUS_LIBS)
@@ -735,7 +738,7 @@ dnl #######################################################################
 dnl # Check for alternate address book support
 dnl #######################################################################
 AC_MSG_CHECKING([whether DBUS support for alternate address book is present])
-if test x"$enable_dbus_glib" = xyes; then
+if test x"$enable_dbus" = xyes; then
 	AC_MSG_RESULT([yes])
 	AC_MSG_CHECKING([whether to enable alternate address book])
 	if test x"$enable_alternate_addressbook" = xyes; then
@@ -873,7 +876,7 @@ AM_CONDITIONAL(BUILD_ALTADDRBOOK, test x"$enable_alternate_addressbook" = x"yes"
 dnl #######################################################################
 dnl # Check for NetworkManager support
 dnl #######################################################################
-if test x"$enable_dbus_glib" = xyes; then
+if test x"$enable_dbus" = xyes; then
 	if test x"$enable_networkmanager" = xyes; then
 		PKG_CHECK_MODULES(NETWORKMANAGER_SUPPORT, NetworkManager >= 0.6.2,
 		[
@@ -934,7 +937,7 @@ dnl librsvg
 AC_MSG_CHECKING([whether to use librsvg])
 if test x"$enable_svg" = xyes; then
 	AC_MSG_RESULT(yes)
-    PKG_CHECK_MODULES([SVG], [librsvg-2.0 >= 2.40.5 cairo >= 1.0.0],
+    PKG_CHECK_MODULES([SVG], [librsvg-2.0 >= 2.39.0 cairo >= 1.0.0],
     [
         AC_SUBST(SVG_CFLAGS)
         AC_SUBST(SVG_LIBS)
@@ -942,7 +945,7 @@ if test x"$enable_svg" = xyes; then
 		enable_svg=yes
 	],
 	[
-		AC_MSG_NOTICE([SVG support deactivated as librsvg2 >= 2.40.5 was not found])
+		AC_MSG_NOTICE([SVG support deactivated as librsvg2 >= 2.39.0 was not found])
 		enable_svg=no
 	])
 else

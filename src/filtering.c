@@ -784,7 +784,6 @@ static gboolean filtering_is_final_action(FilteringAction *filtering_action)
 	case MATCHACTION_MOVE:
 	case MATCHACTION_DELETE:
 	case MATCHACTION_STOP:
-	case MATCHACTION_MARK_AS_SPAM:
 		return TRUE; /* MsgInfo invalid for message */
 	default:
 		return FALSE;
@@ -872,7 +871,7 @@ gboolean filter_message_by_msginfo(GSList *flist, MsgInfo *info, PrefsAccount* a
 
 	if (prefs_common.enable_filtering_debug) {
 		gchar *tmp = _("undetermined");
-#ifndef G_OS_WIN32
+
 		switch (context) {
 		case FILTERING_INCORPORATION:
 			tmp = _("incorporation");
@@ -898,9 +897,7 @@ gboolean filter_message_by_msginfo(GSList *flist, MsgInfo *info, PrefsAccount* a
 			debug_filtering_session = FALSE;
 			break;
 		}
-#else
-		debug_filtering_session = FALSE;
-#endif
+
 		if (debug_filtering_session) {
 			gchar *file = procmsg_get_message_file_path(info);
 			gchar *spc = g_strnfill(LOG_TIME_LEN + 1, ' ');

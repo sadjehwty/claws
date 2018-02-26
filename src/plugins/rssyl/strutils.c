@@ -30,6 +30,7 @@
 
 /* Claws Mail includes */
 #include <common/utils.h>
+#include <entity.h>
 
 /* Local includes */
 /* (shouldn't be any) */
@@ -79,23 +80,22 @@ gchar *rssyl_strreplace(gchar *source, gchar *pattern,
 		+ ( count * len_replacement );
 
 	new = malloc(final_length + 1);
-	w_new = new;
 	memset(new, '\0', final_length + 1);
 
+	/* 'c' will be our iterator over original string
+	 * 'w_new' our iterator over the new string */
 	c = source;
+	w_new = new;
 
-	while( *c != '\0' ) {
+	/* Go until either end of string is reached, or until the
+	 * remaining text is shorter than the pattern. */
+	while( *c != '\0' && strlen(c) <= len_pattern) {
 		if( !memcmp(c, pattern, len_pattern) ) {
-			gboolean break_after_rep = FALSE;
 			int i;
-			if (*(c + len_pattern) == '\0')
-				break_after_rep = TRUE;
 			for (i = 0; i < len_replacement; i++) {
 				*w_new = replacement[i];
 				w_new++;
 			}
-			if (break_after_rep)
-				break;
 			c = c + len_pattern;
 		} else {
 			*w_new = *c;
@@ -103,6 +103,14 @@ gchar *rssyl_strreplace(gchar *source, gchar *pattern,
 			c++;
 		}
 	}
+
+	/* We broke off the above cycle because remaining text was not
+	 * long enough for the pattern, so now we need to append the
+	 * remaining text to the new string. */
+	if (*c != '\0') {
+		strncat(new, c, final_length - strlen(new));
+	}
+
 	return new;
 }
 
@@ -111,28 +119,6 @@ struct _RSSyl_HTMLSymbol
 {
 	gchar *const key;
 	gchar *const val;
-};
-
-/* TODO: find a way to offload this to a library which knows all the
- * defined named entities (over 200). */
-static RSSyl_HTMLSymbol symbol_list[] = {
-	{ "lt", "<" },
-	{ "gt", ">" },
-	{ "amp", "&" },
-	{ "apos", "'" },
-	{ "quot", "\"" },
-	{ "lsquo",  "‘" },
-	{ "rsquo",  "’" },
-	{ "ldquo",  "“" },
-	{ "rdquo",  "”" },
-	{ "nbsp", " " },
-	{ "trade", "™" },
-	{ "copy", "©" },
-	{ "reg", "®" },
-	{ "hellip", "…" },
-	{ "mdash", "—" },
-	{ "euro", "€" },
-	{ NULL, NULL }
 };
 
 static RSSyl_HTMLSymbol tag_list[] = {
@@ -153,55 +139,21 @@ static RSSyl_HTMLSymbol tag_list[] = {
 static gchar *rssyl_replace_chrefs(gchar *string)
 {
 	char *new = g_malloc0(strlen(string) + 1), *ret;
-	char buf[16], tmp[6];
-	int i, ii, j, n, len;
-	gunichar c;
-	gboolean valid, replaced;
+	gchar *entity;
+	int i, ii;
 
 	/* &xx; */
 	ii = 0;
 	for (i = 0; i < strlen(string); ++i) {
 		if (string[i] == '&') {
-			j = i+1;
-			n = 0;
-			valid = FALSE;
-			while (string[j] != '\0' && n < 16) {
-				if (string[j] != ';') {
-					buf[n++] = string[j];
-				} else {
-					/* End of entity */
-					valid = TRUE;
-					buf[n] = '\0';
-					break;
-				}
-				j++;
-			}
-			if (strlen(buf) > 0 && valid) {
-				replaced = FALSE;
-
-				if (buf[0] == '#' && (c = atoi(buf+1)) > 0) {
-					len = g_unichar_to_utf8(c, tmp);
-					tmp[len] = '\0';
-					g_strlcat(new, tmp, strlen(string));
-					ii += len;
-					replaced = TRUE;
-				} else {
-					for (c = 0; symbol_list[c].key != NULL; c++) {
-						if (!strcmp(buf, symbol_list[c].key)) {
-							g_strlcat(new, symbol_list[c].val, strlen(string));
-							ii += strlen(symbol_list[c].val);
-							replaced = TRUE;
-							break;
-						}
-					}
-				}
-				if (!replaced) {
-					new[ii++] = '&'; /* & */
-					g_strlcat(new, buf, strlen(string));
-					ii += strlen(buf);
-					new[ii++] = ';';
-				}
-				i = j;
+			entity = entity_decode(&(string[i]));
+			if (entity != NULL) {
+				g_strlcat(new, entity, strlen(string));
+				ii += strlen(entity);
+				g_free(entity);
+				entity = NULL;
+				while (string[++i] != ';');
+				--i; /* loop will inc it again */
 			} else {
 				new[ii++] = string[i];
 			}
@@ -232,7 +184,7 @@ gchar *rssyl_replace_html_stuff(gchar *text,
 	/* TODO: rewrite this part to work similarly to rssyl_replace_chrefs() */
 	if( tags ) {
 		for( i = 0; tag_list[i].key != NULL; i++ ) {
-			if( g_strstr_len(text, strlen(text), symbol_list[i].key) ) {
+			if( g_strstr_len(text, strlen(text), tag_list[i].key) ) {
 				tmp = rssyl_strreplace(wtext, tag_list[i].key, tag_list[i].val);
 				g_free(wtext);
 				wtext = g_strdup(tmp);

@@ -387,6 +387,8 @@ static void prefs_account_mailcmd_toggled(GtkToggleButton *button,
 					  gpointer user_data);
 static void prefs_account_showpwd_checkbtn_toggled(GtkToggleButton *button,
 					  gpointer user_data);
+static void prefs_account_entry_changed_newline_check_cb(GtkWidget *entry,
+						gpointer user_data);
 static void prefs_account_filter_on_recv_toggled(GtkToggleButton *button,
 					  gpointer user_data);
 
@@ -452,6 +454,9 @@ static PrefParam basic_param[] = {
 
 	{"password", NULL, &tmp_ac_prefs.passwd, P_PASSWORD,
 	 NULL, NULL, NULL},
+
+	{"config_version", "-1", &tmp_ac_prefs.config_version, P_INT,
+		NULL, NULL, NULL},
 
 	{NULL, NULL, NULL, P_OTHER, NULL, NULL, NULL}
 };
@@ -1022,7 +1027,10 @@ static void update_privacy_system_menu() {
 				COMBOBOX_SENS, TRUE,
 				COMBOBOX_PRIVACY_PLUGIN_ID, id,
 				-1);
+		g_free(id);
 	}
+	g_slist_free(system_ids);
+
 }
 
 #define TABLE_YPAD 2
@@ -1202,9 +1210,11 @@ static void basic_create_widget_func(PrefsPage * _page,
 
 	no_imap_warn_icon = gtk_image_new_from_stock
                         (GTK_STOCK_DIALOG_WARNING, GTK_ICON_SIZE_SMALL_TOOLBAR);
-	no_imap_warn_label = gtk_label_new(g_strconcat("<span weight=\"bold\">",
+	buf = g_strconcat("<span weight=\"bold\">",
 			_("Warning: this version of Claws Mail\n"
-			  "has been built without IMAP and News support."), "</span>", NULL));
+			  "has been built without IMAP and News support."), "</span>", NULL);
+	no_imap_warn_label = gtk_label_new(buf);
+	g_free(buf);
 	gtk_label_set_use_markup(GTK_LABEL(no_imap_warn_label), TRUE);
 
 	gtk_box_pack_start(GTK_BOX (optmenubox), no_imap_warn_icon, FALSE, FALSE, 0);
@@ -1272,9 +1282,17 @@ static void basic_create_widget_func(PrefsPage * _page,
 	uid_entry = gtk_entry_new ();
 	gtk_widget_show (uid_entry);
 	gtk_widget_set_size_request (uid_entry, DEFAULT_ENTRY_WIDTH, -1);
+	g_signal_connect(G_OBJECT(uid_entry), "changed",
+			G_CALLBACK(prefs_account_entry_changed_newline_check_cb),
+			GINT_TO_POINTER(ac_prefs->protocol));
+
 	pass_entry = gtk_entry_new ();
 	gtk_widget_show (pass_entry);
 	gtk_widget_set_size_request (pass_entry, DEFAULT_ENTRY_WIDTH, -1);
+	g_signal_connect(G_OBJECT(pass_entry), "changed",
+			G_CALLBACK(prefs_account_entry_changed_newline_check_cb),
+			GINT_TO_POINTER(ac_prefs->protocol));
+
 #ifndef GENERIC_UMPC
 	gtk_table_attach (GTK_TABLE (serv_table), uid_entry, 1, 2, 7, 8,
 			  GTK_EXPAND | GTK_SHRINK | GTK_FILL,
@@ -1879,6 +1897,9 @@ static void send_create_widget_func(PrefsPage * _page,
 	gtk_widget_show (smtp_uid_entry);
 	gtk_widget_set_size_request (smtp_uid_entry, DEFAULT_ENTRY_WIDTH, -1);
 	gtk_box_pack_start (GTK_BOX (hbox), smtp_uid_entry, TRUE, TRUE, 0);
+	g_signal_connect(G_OBJECT(smtp_uid_entry), "changed",
+			G_CALLBACK(prefs_account_entry_changed_newline_check_cb),
+			GINT_TO_POINTER(ac_prefs->protocol));
 
 #ifdef GENERIC_UMPC
 	PACK_VSPACER(vbox4, vbox_spc, VSPACING_NARROW_2);
@@ -1900,6 +1921,9 @@ static void send_create_widget_func(PrefsPage * _page,
 	gtk_widget_set_size_request (smtp_pass_entry, DEFAULT_ENTRY_WIDTH, -1);
 	gtk_box_pack_start (GTK_BOX (hbox), smtp_pass_entry, TRUE, TRUE, 0);
 	gtk_entry_set_visibility (GTK_ENTRY (smtp_pass_entry), FALSE);
+	g_signal_connect(G_OBJECT(smtp_pass_entry), "changed",
+			G_CALLBACK(prefs_account_entry_changed_newline_check_cb),
+			GINT_TO_POINTER(ac_prefs->protocol));
 
 	showpwd_checkbtn = gtk_check_button_new_with_label (_("Show password"));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(showpwd_checkbtn), FALSE);
@@ -1946,7 +1970,7 @@ static void send_create_widget_func(PrefsPage * _page,
 	gtk_box_pack_start (GTK_BOX (hbox), hbox_spc, FALSE, FALSE, 0);
 	gtk_widget_set_size_request (hbox_spc, 12, -1);
 
-	pop_auth_timeout_lbl = gtk_label_new(_("POP authentication timeout: "));
+	pop_auth_timeout_lbl = gtk_label_new(_("POP authentication timeout"));
 	gtk_widget_show (pop_auth_timeout_lbl);
 	gtk_box_pack_start (GTK_BOX (hbox), pop_auth_timeout_lbl, FALSE, FALSE, 0);
 
@@ -3132,6 +3156,7 @@ static gint prefs_basic_apply(void)
 		alertpanel_error(_("Mail address is not entered."));
 		return -1;
 	}
+
 	if (((protocol == A_POP3) || 
 	     (protocol == A_LOCAL && !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(basic_page.mailcmd_checkbtn))) || 
 	     (protocol == A_NONE)) &&
@@ -3198,6 +3223,16 @@ static gint prefs_basic_apply(void)
 				protocol == A_IMAP4 ? "imap":"news",
 				tmp_ac_prefs.account_name ? tmp_ac_prefs.account_name : "(null)");
 	
+	if (strchr(gtk_entry_get_text(GTK_ENTRY(basic_page.uid_entry)), '\n') != NULL) {
+		alertpanel_error(_("User ID cannot contain a newline character."));
+		return -1;
+	}
+
+	if (strchr(gtk_entry_get_text(GTK_ENTRY(basic_page.pass_entry)), '\n') != NULL) {
+		alertpanel_error(_("Password cannot contain a newline character."));
+		return -1;
+	}
+
 	prefs_set_data_from_dialog(basic_param);
 
 	/* Passwords are stored outside of PrefParams. */
@@ -3221,6 +3256,16 @@ static gint prefs_basic_apply(void)
 
 static gint prefs_receive_apply(void)
 {
+	if (strchr(gtk_entry_get_text(GTK_ENTRY(send_page.smtp_uid_entry)), '\n') != NULL) {
+		alertpanel_error(_("SMTP user ID cannot contain a newline character."));
+		return -1;
+	}
+
+	if (strchr(gtk_entry_get_text(GTK_ENTRY(send_page.smtp_pass_entry)), '\n') != NULL) {
+		alertpanel_error(_("SMTP password cannot contain a newline character."));
+		return -1;
+	}
+
 	prefs_set_data_from_dialog(receive_param);
 	return 0;
 }
@@ -3817,20 +3862,31 @@ PrefsAccount *prefs_account_new(void)
 	return ac_prefs;
 }
 
-void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
+PrefsAccount *prefs_account_new_from_config(const gchar *label)
 {
 	const gchar *p = label;
 	gchar *rcpath;
 	gint id;
 	gchar **strv, **cur;
 	gsize len;
+	PrefsAccount *ac_prefs;
 
-	cm_return_if_fail(ac_prefs != NULL);
-	cm_return_if_fail(label != NULL);
+	cm_return_val_if_fail(label != NULL, NULL);
 
+	ac_prefs = g_new0(PrefsAccount, 1);
+
+	/* Load default values to tmp_ac_prefs first, ... */
 	memset(&tmp_ac_prefs, 0, sizeof(PrefsAccount));
-	tmp_ac_prefs.privacy_prefs = ac_prefs->privacy_prefs;
+	prefs_set_default(basic_param);
+	prefs_set_default(receive_param);
+	prefs_set_default(send_param);
+	prefs_set_default(compose_param);
+	prefs_set_default(templates_param);
+	prefs_set_default(privacy_param);
+	prefs_set_default(ssl_param);
+	prefs_set_default(advanced_param);
 
+	/* ... overriding them with values from stored config file. */
 	rcpath = g_strconcat(get_rc_dir(), G_DIR_SEPARATOR_S, ACCOUNT_RC, NULL);
 	prefs_read_config(basic_param, label, rcpath, NULL);
 	prefs_read_config(receive_param, label, rcpath, NULL);
@@ -3844,11 +3900,14 @@ void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
 	g_free(rcpath);
 
 	*ac_prefs = tmp_ac_prefs;
+
 	while (*p && !g_ascii_isdigit(*p)) p++;
 	id = atoi(p);
 	if (id < 0) g_warning("wrong account id: %d", id);
 	ac_prefs->account_id = id;
 
+	/* Now parse privacy_prefs. */
+	ac_prefs->privacy_prefs = g_hash_table_new(g_str_hash, g_str_equal);
 	if (privacy_prefs != NULL) {
 		strv = g_strsplit(privacy_prefs, ",", 0);
 		for (cur = strv; *cur != NULL; cur++) {
@@ -3871,6 +3930,8 @@ void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
 		privacy_prefs = NULL;
 	}
 
+	/* For older configurations, move stored passwords into the
+	 * password store. */
 	gboolean passwords_migrated = FALSE;
 
 	if (ac_prefs->passwd != NULL && strlen(ac_prefs->passwd) > 1) {
@@ -3896,14 +3957,16 @@ void prefs_account_read_config(PrefsAccount *ac_prefs, const gchar *label)
 		passwords_migrated = TRUE;
 	}
 
-	/* Write out password store to file immediately after their move
-	 * from accountrc there. */
+	/* Write out password store to file immediately, to prevent
+	 * their loss. */
 	if (passwords_migrated)
 		passwd_store_write_config();
 
 	ac_prefs->receive_in_progress = FALSE;
 
 	prefs_custom_header_read_config(ac_prefs);
+
+	return ac_prefs;
 }
 
 static void create_privacy_prefs(gpointer key, gpointer _value, gpointer user_data)
@@ -5152,6 +5215,38 @@ static void prefs_account_showpwd_checkbtn_toggled(GtkToggleButton *button,
 	gtk_entry_set_visibility(GTK_ENTRY(entry), active);
 }
 
+static void prefs_account_entry_changed_newline_check_cb(GtkWidget *entry,
+		gpointer user_data)
+{
+#if !GTK_CHECK_VERSION(3, 0, 0)
+	static GdkColor red;
+	static gboolean colors_initialised = FALSE;
+#else
+	static GdkColor red = { (guint32)0, (guint16)0xff, (guint16)0x70, (guint16)0x70 };
+#endif
+
+#if !GTK_CHECK_VERSION(3, 0, 0)
+	if (strchr(gtk_entry_get_text(GTK_ENTRY(entry)), '\n') != NULL) {
+		/* Entry contains a newline, light it up. */
+		debug_print("found newline in string, painting entry red\n");
+		if (!colors_initialised) {
+			if (!gdk_color_parse("#ff7070", &red)) {
+				g_warning("color parse failed: red");
+				return;
+			}
+			colors_initialised = gdk_colormap_alloc_color(
+					gdk_colormap_get_system(), &red, FALSE, TRUE);
+		}
+
+		if (colors_initialised) {
+			gtk_widget_modify_base(entry, GTK_STATE_NORMAL, &red);
+		}
+	} else {
+		gtk_widget_modify_base(entry, GTK_STATE_NORMAL, NULL);
+	}
+#endif
+}
+
 static void prefs_account_filter_on_recv_toggled(GtkToggleButton *button,
 					  gpointer user_data)
 {
@@ -5249,6 +5344,7 @@ gchar *prefs_account_generate_msgid(PrefsAccount *account)
 	tmbuf = g_date_time_format(now, "%Y%m%d%H%M%S");
 	buf = g_strdup_printf("%s.%08x%s",
 			tmbuf, (guint)rand(), addr);
+	g_date_time_unref(now);
 	g_free(tmbuf);
 	g_free(addr);
 

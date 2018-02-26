@@ -242,7 +242,7 @@ static gboolean get_serverport(const gchar *str, gchar **server, gchar **port)
 
 static char *get_fingerprint(const char *str)
 {
-	char *ret = NULL, *tmp = g_strdup(str);
+	char *ret = NULL, *tmp = g_strdup(str), *tmp2 = tmp;
 	char *previous_pos = NULL, *last_pos = NULL;
 
 	if (!strchr(tmp, ':')) {
@@ -251,10 +251,10 @@ static char *get_fingerprint(const char *str)
 			*(strstr(tmp, ".cert")+1) = '.';
 	}
 
-	while (tmp && (tmp = strstr(tmp,".")) != NULL) {
-		tmp++;
+	while (tmp2 && (tmp2 = strstr(tmp2,".")) != NULL) {
+		tmp2++;
 		previous_pos = last_pos;
-		last_pos = tmp;
+		last_pos = tmp2;
 	}
 	if (last_pos && previous_pos && (int)(last_pos - previous_pos - 1) > 0)
 		ret = g_strndup(previous_pos, (int)(last_pos - previous_pos - 1));
@@ -409,8 +409,8 @@ static void ssl_manager_delete_cb(GtkWidget *widget,
 
 	val = alertpanel_full(_("Delete certificate"),
 			      _("Do you really want to delete this certificate?"),
-		 	      GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, FALSE,
-			      NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		 	      GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_FIRST,
+						FALSE, NULL, ALERT_WARNING);
 
 			     
 	if (val != G_ALERTALTERNATE)

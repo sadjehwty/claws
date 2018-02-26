@@ -87,7 +87,7 @@ static MimeInfo *find_first_text_part(MimeInfo *partinfo)
 static gboolean key_pressed_cb(GtkWidget *widget, GdkEventKey *event,
 				AttRemover *attremover)
 {
-	if (event && event->keyval == GDK_Escape)
+	if (event && event->keyval == GDK_KEY_Escape)
 		gtk_widget_destroy(attremover->window);
 
 	return FALSE;
@@ -423,8 +423,8 @@ static void remove_attachments(GSList *msglist)
                   _("Do you really want to remove all attachments from "
                   "the selected messages?\n\n"
 		  "The deleted data will be unrecoverable."), 
-		  GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL,
-                  FALSE, NULL, ALERT_QUESTION, G_ALERTALTERNATE) != G_ALERTALTERNATE)
+		  GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_SECOND,
+                  FALSE, NULL, ALERT_QUESTION) != G_ALERTALTERNATE)
 		return;
 
 	main_window_cursor_wait(summaryview->mainwin);

@@ -174,24 +174,58 @@ static void prefs_themes_file_install		(const gchar *filename, gpointer data);
 
 static void prefs_themes_file_stats(const gchar *filename, gpointer data)
 {
+#ifdef G_OS_WIN32
+	GFile *f;
+	GFileInfo *fi;
+	GError *error = NULL;
+#else
 	GStatBuf s;
+#endif
+	goffset size;
 	DirInfo *di = (DirInfo *)data;
 	gint len;
 	gint i;
 
-	if (0 == g_stat(filename, &s) && 0 != S_ISREG(s.st_mode)) {
-		di->bytes += s.st_size;
-		di->files++;
-		len = strlen(filename);
-		for (i = 0; (di->supported)[i] != NULL; ++i) {
-			gint curlen = (di->length)[i];
-			if (len <= curlen)
-				continue;
-			const gchar *extension = filename + (len - curlen);
-			if (!strcmp(extension, (di->supported)[i])) {
-				di->pixms++;
-				break;
-			}
+#ifdef G_OS_WIN32
+	f = g_file_new_for_path(filename);
+	fi = g_file_query_info(f, "standard::size,standard::type",
+			G_FILE_QUERY_INFO_NONE, NULL, &error);
+	if (error != NULL) {
+		g_warning(error->message);
+		g_error_free(error);
+		g_object_unref(f);
+		return;
+	}
+	if (g_file_info_get_file_type(fi) != G_FILE_TYPE_REGULAR) {
+		g_object_unref(fi);
+		g_object_unref(f);
+		return;
+	}
+	size = g_file_info_get_size(fi);
+	g_object_unref(fi);
+	g_object_unref(f);
+#else
+	if ((i = g_stat(filename, &s)) != 0) {
+		debug_print("g_stat on '%s' failed: %d\n", filename, i);
+		return;
+	}
+	if (!S_ISREG(s.st_mode)) {
+		return;
+	}
+	size = s.st_size;
+#endif
+
+	di->bytes += size;
+	di->files++;
+	len = strlen(filename);
+	for (i = 0; (di->supported)[i] != NULL; ++i) {
+		gint curlen = (di->length)[i];
+		if (len <= curlen)
+			continue;
+		const gchar *extension = filename + (len - curlen);
+		if (!strcmp(extension, (di->supported)[i])) {
+			di->pixms++;
+			break;
 		}
 	}
 }
@@ -352,10 +386,8 @@ static void prefs_themes_get_themes_and_names(ThemesData *tdata)
 
 	cm_return_if_fail(tdata != NULL);
 
-	if (tdata->themes != NULL)
-		stock_pixmap_themes_list_free(tdata->themes);
-	if (tdata->names != NULL)
-		prefs_themes_free_names(tdata);
+	stock_pixmap_themes_list_free(tdata->themes);
+	prefs_themes_free_names(tdata);
 
 	tdata->themes = stock_pixmap_themes_list_new();
 
@@ -421,6 +453,11 @@ static void prefs_themes_free_names(ThemesData *tdata)
 {
 	GList *names;
 
+	cm_return_if_fail(tdata != NULL);
+
+	if (tdata->names == NULL)
+		return;
+
 	names = tdata->names;
 	while (names != NULL) {
 		ThemeName *tn = (ThemeName *)(names->data);
@@ -474,7 +511,7 @@ static void prefs_themes_btn_remove_clicked_cb(GtkWidget *widget, gpointer data)
 
 	val = alertpanel(alert_title,
 			 _("Are you sure you want to remove this theme?"),
-			 GTK_STOCK_NO, GTK_STOCK_YES, NULL);
+			 GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_FIRST);
 	g_free(alert_title);
 
 	if (G_ALERTALTERNATE == val) {
@@ -529,14 +566,14 @@ static void prefs_themes_btn_install_clicked_cb(GtkWidget *widget, gpointer data
 	if (file_exist(themeinfo, FALSE) == FALSE) {
 		val = alertpanel(alert_title,
 				 _("This folder doesn't seem to be a theme folder.\nInstall anyway?"),
-				 GTK_STOCK_NO, GTK_STOCK_YES, NULL);
+				 GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_FIRST);
 		if (G_ALERTALTERNATE != val)
 			goto end_inst;
 	}
 	if (superuser_p ()) {
 		val = alertpanel(alert_title,
 				 _("Do you want to install theme for all users?"),
-				 GTK_STOCK_NO, GTK_STOCK_YES, NULL);
+				 GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_FIRST);
 		switch (val) {
 		case G_ALERTALTERNATE:
 			cinfo->dest = stock_pixmap_get_system_theme_dir_for_theme(
@@ -558,8 +595,8 @@ static void prefs_themes_btn_install_clicked_cb(GtkWidget *widget, gpointer data
 		AlertValue val = alertpanel_full(_("Theme exists"),
 				_("A theme with the same name is\nalready installed in this location.\n\n"
 				  "Do you want to replace it?"),
-				GTK_STOCK_CANCEL, _("Overwrite"), NULL, FALSE,
-				NULL, ALERT_WARNING, G_ALERTDEFAULT);
+				GTK_STOCK_CANCEL, _("Overwrite"), NULL, ALERTFOCUS_FIRST,
+				FALSE, NULL, ALERT_WARNING);
 		if (val == G_ALERTALTERNATE) {
 			if (remove_dir_recursive(cinfo->dest) < 0) {
 				alertpanel_error(_("Couldn't delete the old theme in %s."), cinfo->dest);
@@ -913,7 +950,7 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 #endif
 
 	vbox1 = gtk_vbox_new (FALSE, VSPACING);
-	gtk_container_set_border_width (GTK_CONTAINER (vbox1), VBOX_BORDER);
+	gtk_container_set_border_width (GTK_CONTAINER (vbox1), 5);
 	gtk_widget_show (vbox1);
 
 	vbox2 = gtkut_get_options_frame(vbox1, &frame1, _("Selector"));
@@ -921,7 +958,7 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 	hbox3 = gtk_hbox_new (FALSE, 5);
 	gtk_widget_show (hbox3);
 	gtk_box_pack_start (GTK_BOX (vbox2), hbox3, FALSE, FALSE, 0);
-	gtk_container_set_border_width (GTK_CONTAINER (hbox3), 5);
+	// gtk_container_set_border_width (GTK_CONTAINER (hbox3), 5);
 
 	menu_themes = gtk_combo_box_new();
 	gtk_widget_show (menu_themes);
@@ -930,7 +967,7 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 	btn_install = gtk_button_new_with_label (_("Install new..."));
 	gtk_widget_show (btn_install);
 	gtk_box_pack_start (GTK_BOX (hbox3), btn_install, FALSE, FALSE, 0);
-	gtkut_widget_set_can_default (btn_install, TRUE);
+	gtk_widget_set_can_default (btn_install, TRUE);
 
 	btn_more = gtkut_get_link_btn((GtkWidget *)window, THEMES_URI, _("Get more..."));
 	gtk_widget_show (btn_more);
@@ -941,70 +978,71 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 	gtk_box_pack_start (GTK_BOX (vbox2), label_global_status, FALSE, FALSE, 0);
 	gtk_label_set_justify (GTK_LABEL (label_global_status), GTK_JUSTIFY_LEFT);
 	gtk_misc_set_alignment (GTK_MISC (label_global_status), 0, 0.5);
-	gtk_misc_set_padding (GTK_MISC (label_global_status), 6, 0);
+	gtk_misc_set_padding (GTK_MISC (label_global_status), 1, 0);
 
 	PACK_FRAME(vbox1, frame_info, _("Information"));
 
 	table1 = gtk_table_new (4, 2, FALSE);
 	gtk_widget_show (table1);
 	gtk_container_add (GTK_CONTAINER (frame_info), table1);
+	gtk_container_set_border_width (GTK_CONTAINER (table1), 5);
 
-	label1 = gtk_label_new (_("Name: "));
+	label1 = gtk_label_new (_("Name"));
 	gtk_widget_show (label1);
 	gtk_table_attach (GTK_TABLE (table1), label1, 0, 1, 0, 1,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 8, 2);
+			(GtkAttachOptions) (0), 5, 4);
 	gtk_label_set_justify (GTK_LABEL (label1), GTK_JUSTIFY_LEFT);
-	gtk_misc_set_alignment (GTK_MISC (label1), 0, 0.5);
+	gtk_misc_set_alignment (GTK_MISC (label1), 1, 0.5);
 
-	label2 = gtk_label_new (_("Author: "));
+	label2 = gtk_label_new (_("Author"));
 	gtk_widget_show (label2);
 	gtk_table_attach (GTK_TABLE (table1), label2, 0, 1, 1, 2,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 8, 2);
+			(GtkAttachOptions) (0), 5, 4);
 	gtk_label_set_justify (GTK_LABEL (label2), GTK_JUSTIFY_LEFT);
-	gtk_misc_set_alignment (GTK_MISC (label2), 0, 0.5);
+	gtk_misc_set_alignment (GTK_MISC (label2), 1, 0.5);
 
-	label3 = gtk_label_new (_("URL:"));
+	label3 = gtk_label_new (_("URL"));
 	gtk_widget_show (label3);
 	gtk_table_attach (GTK_TABLE (table1), label3, 0, 1, 2, 3,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 8, 2);
-	gtk_misc_set_alignment (GTK_MISC (label3), 0, 0.5);
+			(GtkAttachOptions) (0), 5, 4);
+	gtk_misc_set_alignment (GTK_MISC (label3), 1, 0.5);
 
 	label_name = gtk_label_new ("");
 	gtk_widget_show (label_name);
 	gtk_table_attach (GTK_TABLE (table1), label_name, 1, 2, 0, 1,
 			(GtkAttachOptions) (GTK_EXPAND | GTK_FILL),
-			(GtkAttachOptions) (0), 0, 0);
+			(GtkAttachOptions) (0), 5, 0);
 	gtk_misc_set_alignment (GTK_MISC (label_name), 0, 0.5);
 
 	label_author = gtk_label_new ("");
 	gtk_widget_show (label_author);
 	gtk_table_attach (GTK_TABLE (table1), label_author, 1, 2, 1, 2,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 0, 0);
+			(GtkAttachOptions) (0), 5, 0);
 	gtk_misc_set_alignment (GTK_MISC (label_author), 0, 0.5);
 
 	label_url = gtk_label_new ("");
 	gtk_widget_show (label_url);
 	gtk_table_attach (GTK_TABLE (table1), label_url, 1, 2, 2, 3,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 0, 0);
+			(GtkAttachOptions) (0), 5, 0);
 	gtk_misc_set_alignment (GTK_MISC (label_url), 0, 0.5);
 
-	label4 = gtk_label_new (_("Status:"));
+	label4 = gtk_label_new (_("Status"));
 	gtk_widget_show (label4);
 	gtk_table_attach (GTK_TABLE (table1), label4, 0, 1, 3, 4,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 8, 2);
-	gtk_misc_set_alignment (GTK_MISC (label4), 0, 0.5);
+			(GtkAttachOptions) (0), 5, 4);
+	gtk_misc_set_alignment (GTK_MISC (label4), 1, 0.5);
 
 	label_status = gtk_label_new ("");
 	gtk_widget_show (label_status);
 	gtk_table_attach (GTK_TABLE (table1), label_status, 1, 2, 3, 4,
 			(GtkAttachOptions) (GTK_FILL),
-			(GtkAttachOptions) (0), 0, 0);
+			(GtkAttachOptions) (0), 5, 0);
 	gtk_misc_set_alignment (GTK_MISC (label_status), 0, 0.5);
 
 	PACK_FRAME(vbox1, frame_preview, _("Preview"));
@@ -1012,6 +1050,7 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 	hbox1 = gtk_hbox_new (FALSE, 0);
 	gtk_widget_show (hbox1);
 	gtk_container_add (GTK_CONTAINER (frame_preview), hbox1);
+	gtk_container_set_border_width (GTK_CONTAINER (hbox1), 5);
 
 	icon_1 = gtk_image_new();
 	gtk_widget_show (icon_1);
@@ -1040,12 +1079,12 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 
 	icon_6 = gtk_image_new();
 	gtk_widget_show (icon_6);
-	gtk_box_pack_start (GTK_BOX (hbox1), icon_6, TRUE, TRUE, 0);
+	gtk_box_pack_start (GTK_BOX (hbox1), icon_6, TRUE, TRUE, 2);
 	gtk_misc_set_padding (GTK_MISC (icon_6), 0, 5);
 
 	icon_7 = gtk_image_new();
 	gtk_widget_show (icon_7);
-	gtk_box_pack_start (GTK_BOX (hbox1), icon_7, TRUE, TRUE, 0);
+	gtk_box_pack_start (GTK_BOX (hbox1), icon_7, TRUE, TRUE, 2);
 	gtk_misc_set_padding (GTK_MISC (icon_7), 0, 5);
 
 	PACK_FRAME(vbox1, frame_buttons, _("Actions"));
@@ -1053,14 +1092,14 @@ static void prefs_themes_create_widget(PrefsPage *page, GtkWindow *window, gpoin
 	hbuttonbox1 = gtk_hbutton_box_new ();
 	gtk_widget_show (hbuttonbox1);
 	gtk_container_add (GTK_CONTAINER (frame_buttons), hbuttonbox1);
-	gtk_container_set_border_width (GTK_CONTAINER (hbuttonbox1), 5);
+	gtk_container_set_border_width (GTK_CONTAINER (hbuttonbox1), 8);
 	gtk_button_box_set_layout (GTK_BUTTON_BOX (hbuttonbox1), GTK_BUTTONBOX_START);
 	gtk_box_set_spacing (GTK_BOX (hbuttonbox1), 5);
 
 	btn_remove = gtk_button_new_with_label (_("Remove"));
 	gtk_widget_show (btn_remove);
 	gtk_container_add (GTK_CONTAINER (hbuttonbox1), btn_remove);
-	gtkut_widget_set_can_default (btn_remove, TRUE);
+	gtk_widget_set_can_default (btn_remove, TRUE);
 
 #ifdef HAVE_SVG
 	PACK_FRAME(vbox1, frame_scaling, _("SVG rendering"));

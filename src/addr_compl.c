@@ -1129,7 +1129,7 @@ static void addrcompl_clear_queue( void ) {
 	/* Clear out display queue */
 	pthread_mutex_lock( & _completionMutex_ );
 
-	g_list_free( _displayQueue_ );
+	g_list_free_full( _displayQueue_, g_free );
 	_displayQueue_ = NULL;
 
 	pthread_mutex_unlock( & _completionMutex_ );
@@ -1430,9 +1430,10 @@ static gboolean address_completion_complete_address_in_entry(GtkEntry *entry,
 	else 
 #endif
 	if( ncount == 0 ) {
-		addrcompl_add_queue( g_strdup( searchTerm ) );
+		addrcompl_add_queue( searchTerm );
+	} else {
+		g_free( searchTerm );
 	}
-	g_free( searchTerm );
 
 	return TRUE;
 }

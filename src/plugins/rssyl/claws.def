@@ -16,6 +16,7 @@ copy_file
 debug_print_real
 debug_srcname
 dirent_is_regular_file
+entity_decode
 file_exist
 filesel_select_file_open
 filesel_select_file_open_with_filter
@@ -77,7 +78,6 @@ gtk_cmctree_is_ancestor
 gtk_cmctree_node_get_row_data
 gtkut_get_browse_file_btn
 gtkut_widget_draw_now
-gtkut_widget_set_can_default
 gtkut_window_new
 inc_offline_should_override
 input_dialog

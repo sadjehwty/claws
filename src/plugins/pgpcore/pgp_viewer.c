@@ -174,7 +174,7 @@ static void pgpview_show_mime_part(TextView *textview, MimeInfo *partinfo)
 				_("This key is not in your keyring. Do you want "
 				  "Claws Mail to try and import it from a "
 				  "keyserver?"),
-				  GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
+				  GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_SECOND);
 			GTK_EVENTS_FLUSH();
 		}
 		if (val == G_ALERTDEFAULT) {
@@ -245,7 +245,7 @@ static void pgpview_show_mime_part(TextView *textview, MimeInfo *partinfo)
 			ctx->exitcode = STILL_ACTIVE;
 			ctx->cmd = cmd;
 
-			if (pthread_create(&pt, PTHREAD_CREATE_JOINABLE,
+			if (pthread_create(&pt, NULL,
 						_import_threaded, (void *)ctx) != 0) {
 				debug_print("Couldn't create thread, continuing unthreaded.\n");
 				_import_threaded(ctx);
@@ -278,7 +278,13 @@ static void pgpview_show_mime_part(TextView *textview, MimeInfo *partinfo)
 		return;
 	} else {
 		TEXTVIEW_INSERT(_("\n  Key ID "));
+
+#if defined GPGME_VERSION_NUMBER && GPGME_VERSION_NUMBER >= 0x010700
+		TEXTVIEW_INSERT(key->fpr);
+#else
 		TEXTVIEW_INSERT(sig->fpr);
+#endif
+
 		TEXTVIEW_INSERT(":\n\n");
 		TEXTVIEW_INSERT(_("   This key is in your keyring.\n"));
 	}

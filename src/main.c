@@ -161,7 +161,7 @@ static DBusGProxy *awn_proxy = NULL;
 #endif
 
 gchar *prog_version;
-#ifdef HAVE_LIBSM
+#if (defined HAVE_LIBSM || defined CRASH_DIALOG)
 gchar *argv0;
 #endif
 
@@ -393,8 +393,8 @@ static gboolean migrate_old_config(const gchar *old_cfg_dir, const gchar *new_cf
 			G_CALLBACK(chk_update_val), &backup);
 
 	if (alertpanel_full(_("Migration of configuration"), message,
-		 	GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL, FALSE,
-			keep_backup_chk, ALERT_QUESTION, G_ALERTDEFAULT) != G_ALERTALTERNATE) {
+		 	GTK_STOCK_NO, GTK_STOCK_YES, NULL, ALERTFOCUS_SECOND, FALSE,
+			keep_backup_chk, ALERT_QUESTION) != G_ALERTALTERNATE) {
 		return FALSE;
 	}
 	
@@ -652,6 +652,7 @@ static void sc_session_manager_connect(MainWindow *mainwin)
 			vals[0].value = g_strdup(g_get_user_name()?g_get_user_name():"");
 			sc_client_set_value (mainwin, SmUserID, SmARRAY8, 1, vals);
 
+			g_free(vals[0].value);
 			g_free(vals);
 		}
 	}
@@ -992,6 +993,7 @@ int main(int argc, char *argv[])
 	GSList *plug_list = NULL;
 	gboolean never_ran = FALSE;
 	gboolean mainwin_shown = FALSE;
+	gint ret;
 
 	START_TIMING("startup");
 
@@ -1008,7 +1010,7 @@ int main(int argc, char *argv[])
 	}
 
 	prog_version = PROG_VERSION;
-#ifdef HAVE_LIBSM
+#if (defined HAVE_LIBSM || defined CRASH_DIALOG)
 	argv0 = g_strdup(argv[0]);
 #endif
 
@@ -1249,6 +1251,14 @@ int main(int argc, char *argv[])
 	folder_system_init();
 	prefs_common_read_config();
 
+	if (prefs_update_config_version_common() < 0) {
+		debug_print("Main configuration file version upgrade failed, exiting\n");
+#ifdef G_OS_WIN32
+		win32_close_log();
+#endif
+		exit(200);
+	}
+
 	prefs_themes_init();
 	prefs_fonts_init();
 	prefs_ext_prog_init();
@@ -1321,9 +1331,24 @@ int main(int argc, char *argv[])
 	folderview_freeze(mainwin->folderview);
 	folder_item_update_freeze();
 
-	passwd_store_read_config();
+	if ((ret = passwd_store_read_config()) < 0) {
+		debug_print("Password store configuration file version upgrade failed (%d), exiting\n", ret);
+#ifdef G_OS_WIN32
+		win32_close_log();
+#endif
+		exit(202);
+	}
+
 	prefs_account_init();
 	account_read_config_all();
+
+	if (prefs_update_config_version_accounts() < 0) {
+		debug_print("Accounts configuration file version upgrade failed, exiting\n");
+#ifdef G_OS_WIN32
+		win32_close_log();
+#endif
+		exit(201);
+	}
 
 #ifdef HAVE_LIBETPAN
 	imap_main_init(prefs_common.skip_ssl_cert_check);
@@ -1332,12 +1357,23 @@ int main(int argc, char *argv[])
 #endif	
 	/* If we can't read a folder list or don't have accounts,
 	 * it means the configuration's not done. Either this is
-	 * a brand new install, either a failed/refused migration.
-	 * So we'll start the wizard.
+	 * a brand new install, a failed/refused migration,
+	 * or a failed config_version upgrade.
 	 */
-	if (folder_read_list() < 0) {
+	if ((ret = folder_read_list()) < 0) {
+		debug_print("Folderlist read failed (%d)\n", ret);
 		prefs_destroy_cache();
 		
+		if (ret == -2) {
+			/* config_version update failed in folder_read_list(). We
+			 * do not want to run the wizard, just exit. */
+			debug_print("Folderlist version upgrade failed, exiting\n");
+#ifdef G_OS_WIN32
+			win32_close_log();
+#endif
+			exit(203);
+		}
+
 		/* if run_wizard returns FALSE it's because it's
 		 * been cancelled. We can't do much but exit.
 		 * however, if the user was asked for a migration,
@@ -1477,17 +1513,8 @@ int main(int argc, char *argv[])
 	}
 
 	if (never_ran) {
-		prefs_common_get_prefs()->config_version = CLAWS_CONFIG_VERSION;
 		prefs_common_write_config();
 	 	plugin_load_standard_plugins ();
-	} else {
-		if (prefs_update_config_version() < 0) {
-			exit_claws(mainwin);
-#ifdef G_OS_WIN32
-			win32_close_log();
-#endif
-			exit(0);
-		}
 	}
 
 	/* if not crashed, show window now */
@@ -1860,9 +1887,10 @@ static void parse_cmd_opt(int argc, char *argv[])
 				cmd.subscribe = TRUE;
 				cmd.subscribe_uri = p;
 			}
-		} else if (!strncmp(argv[i], "--attach", 8)) {
+		} else if (!strncmp(argv[i], "--attach", 8) || !strncmp(argv[i], "--insert", 8)) {
 			const gchar *p = (i+1 < argc)?argv[i+1]:NULL;
 			gchar *file = NULL;
+			gboolean insert = !strncmp(argv[i], "--insert", 8);
 
 			while (p && *p != '\0' && *p != '-') {
 				if ((file = g_filename_from_uri(p, NULL, NULL)) != NULL) {
@@ -1878,8 +1906,10 @@ static void parse_cmd_opt(int argc, char *argv[])
 				} else if (file == NULL) {
 					file = g_strdup(p);
 				}
+
 				ainfo = g_new0(AttachInfo, 1);
 				ainfo->file = file;
+				ainfo->insert = insert;
 				cmd.attach_files = g_list_append(cmd.attach_files, ainfo);
 				i++;
 				p = (i+1 < argc)?argv[i+1]:NULL;
@@ -1956,6 +1986,9 @@ static void parse_cmd_opt(int argc, char *argv[])
 			g_print("%s\n", _("  --attach file1 [file2]...\n"
 					  "                         open composition window with specified files\n"
 					  "                         attached"));
+			g_print("%s\n", _("  --insert file1 [file2]...\n"
+					  "                         open composition window with specified files\n"
+					  "                         inserted"));
 			g_print("%s\n", _("  --receive              receive new messages"));
 			g_print("%s\n", _("  --receive-all          receive new messages of all accounts"));
 			g_print("%s\n", _("  --cancel-receiving     cancel receiving of messages"));
@@ -2145,7 +2178,7 @@ void app_will_exit(GtkWidget *widget, gpointer data)
 	if (prefs_common.warn_queued_on_exit && procmsg_have_queued_mails_fast()) {
 		if (alertpanel(_("Queued messages"),
 			       _("Some unsent messages are queued. Exit now?"),
-			       GTK_STOCK_CANCEL, GTK_STOCK_OK, NULL)
+			       GTK_STOCK_CANCEL, GTK_STOCK_OK, NULL, ALERTFOCUS_FIRST)
 		    != G_ALERTALTERNATE) {
 			main_window_popup(mainwin);
 		    	sc_exiting = FALSE;
@@ -2338,6 +2371,10 @@ static gint prohibit_duplicate_launch(void)
 
 		for (curr = cmd.attach_files; curr != NULL ; curr = curr->next) {
 			str = (gchar *) ((AttachInfo *)curr->data)->file;
+			if (((AttachInfo *)curr->data)->insert)
+				fd_write_all(uxsock, "insert ", strlen("insert "));
+			else
+				fd_write_all(uxsock, "attach ", strlen("attach "));
 			fd_write_all(uxsock, str, strlen(str));
 			fd_write_all(uxsock, "\n", 1);
 		}
@@ -2538,9 +2575,10 @@ static void lock_socket_input_cb(gpointer data,
 			strretchomp(buf);
 			if (!strcmp2(buf, "."))
 				break;
-				
+
 			ainfo = g_new0(AttachInfo, 1);
-			ainfo->file = g_strdup(buf);
+			ainfo->file = g_strdup(strstr(buf, " ") + 1);
+			ainfo->insert = !strncmp(buf, "insert ", 7);
 			files = g_list_append(files, ainfo);
 		}
 		open_compose_new(mailto, files);

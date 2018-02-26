@@ -776,9 +776,7 @@ static GtkActionEntry mainwin_entries[] =
 	{"Tools/SSLCertificates",                    NULL, N_("SSL/TLS cer_tificates"), NULL, NULL, G_CALLBACK(ssl_manager_open_cb) }, 
 #endif
 	/* {"Tools/---",                             NULL, "---", NULL, NULL, NULL }, */
-#ifndef G_OS_WIN32
 	{"Tools/FilteringLog",                       NULL, N_("Filtering Lo_g"), NULL, NULL, G_CALLBACK(filtering_debug_window_show_cb) }, 
-#endif
 	{"Tools/NetworkLog",                         NULL, N_("Network _Log"), "<shift><control>L", NULL, G_CALLBACK(log_window_show_cb) }, 
 	/* {"Tools/---",                             NULL, "---", NULL, NULL, NULL }, */
 	{"Tools/ForgetSessionPasswords",             NULL, N_("_Forget all session passwords"), NULL, NULL, G_CALLBACK(forget_session_passwords_cb) }, 
@@ -1854,9 +1852,7 @@ MainWindow *main_window_create()
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "SSLCertificates", "Tools/SSLCertificates", GTK_UI_MANAGER_MENUITEM)
 #endif
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "Separator7", "Tools/---", GTK_UI_MANAGER_SEPARATOR)
-#ifndef G_OS_WIN32
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "FilteringLog", "Tools/FilteringLog", GTK_UI_MANAGER_MENUITEM)
-#endif
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "NetworkLog", "Tools/NetworkLog", GTK_UI_MANAGER_MENUITEM)
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "Separator8", "Tools/---", GTK_UI_MANAGER_SEPARATOR)
 	MENUITEM_ADDUI_MANAGER(mainwin->ui_manager, "/Menu/Tools", "ForgetSessionPasswords", "Tools/ForgetSessionPasswords", GTK_UI_MANAGER_MENUITEM)
@@ -1972,7 +1968,7 @@ MainWindow *main_window_create()
 	online_pixmap = stock_pixmap_widget(STOCK_PIXMAP_ONLINE);
 	offline_pixmap = stock_pixmap_widget(STOCK_PIXMAP_OFFLINE);
 	online_switch = gtk_button_new ();
-	gtkut_widget_set_can_focus(online_switch, FALSE);
+	gtk_widget_set_can_focus(online_switch, FALSE);
 	CLAWS_SET_TIP(online_switch, 
 			     _("You are online. Click the icon to go offline"));
 	offline_switch = gtk_button_new ();
@@ -1992,7 +1988,7 @@ MainWindow *main_window_create()
 
 	ac_button = gtk_button_new();
 	CLAWS_SET_TIP(ac_button, _("Select account"));
-	gtkut_widget_set_can_focus(ac_button, FALSE);
+	gtk_widget_set_can_focus(ac_button, FALSE);
 	gtk_widget_set_size_request(ac_button, -1, 0);
 	gtk_box_pack_end(GTK_BOX(hbox_stat), ac_button, FALSE, FALSE, 0);
 	g_signal_connect(G_OBJECT(ac_button), "button_press_event",
@@ -2099,10 +2095,10 @@ MainWindow *main_window_create()
 	summaryview->color_dim.red = summaryview->color_dim.green =
 		summaryview->color_dim.blue = COLOR_DIM;
 
-	gtkut_convert_int_to_gdk_color(prefs_common.color_new,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_NEW],
 				       &folderview->color_new);
 
-	gtkut_convert_int_to_gdk_color(prefs_common.tgt_folder_col,
+	gtkut_convert_int_to_gdk_color(prefs_common.color[COL_TGT_FOLDER],
 				       &folderview->color_op);
 
 	summaryview->color_important.red = 0;
@@ -2905,11 +2901,13 @@ gboolean main_window_empty_trash(MainWindow *mainwin, gboolean confirm, gboolean
 		if (for_quit)
 			val = alertpanel(_("Empty trash"),
 			       _("Delete all messages in trash folders?"),
-			       GTK_STOCK_NO, "+" GTK_STOCK_YES, _("Don't quit"));
+			       GTK_STOCK_NO, GTK_STOCK_YES, _("Don't quit"),
+						 ALERTFOCUS_SECOND);
 		else
 			val = alertpanel(_("Empty trash"),
 			       _("Delete all messages in trash folders?"),
-			       GTK_STOCK_NO, "+" GTK_STOCK_YES, NULL);
+			       GTK_STOCK_NO, GTK_STOCK_YES, NULL,
+						 ALERTFOCUS_SECOND);
 		if (val == G_ALERTALTERNATE) {
 			debug_print("will empty trash\n");
 		} else if (val == G_ALERTDEFAULT) {
@@ -4063,7 +4061,7 @@ static void app_exit_cb(GtkAction *action, gpointer data)
 
 	if (prefs_common.confirm_on_exit) {
 		if (alertpanel(_("Exit"), _("Exit Claws Mail?"),
-			       GTK_STOCK_CANCEL, GTK_STOCK_QUIT,  NULL)
+			       GTK_STOCK_CANCEL, GTK_STOCK_QUIT,  NULL, ALERTFOCUS_FIRST)
 		    != G_ALERTALTERNATE)
 			return;
 		manage_window_focus_in(mainwin->window, NULL, NULL);
@@ -4255,7 +4253,7 @@ static void mainwindow_check_synchronise(MainWindow *mainwin, gboolean ask)
 
 	if (offline_ask_sync && ask && alertpanel(_("Folder synchronisation"),
 			_("Do you want to synchronise your folders now?"),
-			GTK_STOCK_CANCEL, g_strconcat("+", _("_Synchronise"), NULL), NULL) != G_ALERTALTERNATE)
+			GTK_STOCK_CANCEL, _("_Synchronise"), NULL, ALERTFOCUS_SECOND) != G_ALERTALTERNATE)
 		return;
 	
 	if (offline_ask_sync)
@@ -4985,7 +4983,7 @@ static void allsel_cb(GtkAction *action, gpointer data)
 		 (gtk_widget_has_focus(msgview->mimeview->textview->text)))
 		messageview_select_all(mainwin->messageview);
 	else
-		summary_select_all(mainwin->summaryview);
+		gtk_cmclist_select_all(GTK_CMCLIST(mainwin->summaryview->ctree));
 }
 
 static void select_thread_cb(GtkAction *action, gpointer data)

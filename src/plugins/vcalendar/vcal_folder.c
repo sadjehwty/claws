@@ -1647,7 +1647,6 @@ gchar *vcal_curl_read(const char *url, const gchar *label, gboolean verbose,
 	thread_data *td;
 #ifdef USE_PTHREAD
 	pthread_t pt;
-	pthread_attr_t pta;
 #endif
 	void *res;
 	gchar *error = NULL;
@@ -1662,10 +1661,7 @@ gchar *vcal_curl_read(const char *url, const gchar *label, gboolean verbose,
 	STATUSBAR_PUSH(mainwindow_get_mainwindow(), label);
 
 #ifdef USE_PTHREAD
-	if (pthread_attr_init(&pta) != 0 ||
-	    pthread_attr_setdetachstate(&pta, PTHREAD_CREATE_JOINABLE) != 0 ||
-	    pthread_create(&pt, &pta, 
-			url_read_thread, td) != 0) {
+	if (pthread_create(&pt, NULL, url_read_thread, td) != 0) {
 		url_read_thread(td);	
 	}
 	while (!td->done)  {
@@ -1989,8 +1985,8 @@ static void unsubscribe_cal_cb(GtkAction *action, gpointer data)
 	message = g_strdup_printf
 		(_("Do you really want to unsubscribe?"));
 	avalue = alertpanel_full(_("Delete subscription"), message,
-		 		 GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, 
-				 FALSE, NULL, ALERT_WARNING, G_ALERTDEFAULT);
+		 		 GTK_STOCK_CANCEL, GTK_STOCK_DELETE, NULL, ALERTFOCUS_FIRST, 
+				 FALSE, NULL, ALERT_WARNING);
 	g_free(message);
 	if (avalue != G_ALERTALTERNATE) return;
 
